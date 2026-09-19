@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    image: repopilot:latest
+    container_name: repopilot-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      REPOPILOT_API_MODE: http
+      AUDIT_QUEUE_DRIVER: pg-boss
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://repopilot:repopilot@db:5432/repopilot
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      ALLOWED_REPO_HOSTS: github.com,raw.githubusercontent.com
+      PAYMENT_MODE: ${PAYMENT_MODE:-okx}
+      OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
+      OKX_PAYMENT_NETWORK: ${OKX_PAYMENT_NETWORK:-xlayer}
+      PRICE_QUICK_SCAN: ${PRICE_QUICK_SCAN:-0.02}
+      PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.10}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    image: repopilot:latest
+    container_name: repopilot-worker
+    restart: unless-stopped
+    command: ["node", "apps/api/dist/worker.js"]
+    environment:
+      NODE_ENV: production
+      AUDIT_QUEUE_DRIVER: pg-boss
+      DATABASE_URL: postgresql://repopilot:repopilot@db:5432/repopilot
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      ALLOWED_REPO_HOSTS: github.com,raw.githubusercontent.com
+      PAYMENT_MODE: ${PAYMENT_MODE:-okx}
+      OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Scale with: docker compose up --scale worker=N
+    # The healthcheck below only ensures the process is alive (it
+    # doesn't bind a port). Worker liveness is verified through the
+    # process heartbeat log and the queue health endpoint on the API.
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:16-alpine
+    container_name: repopilot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: repopilot
+      POSTGRES_PASSWORD: repopilot
+      POSTGRES_DB: repopilot
+    volumes:
+      - repopilot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repopilot -d repopilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  repopilot-db:

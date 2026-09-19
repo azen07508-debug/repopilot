@@ -1,0 +1,174 @@
+# MCP audit_github_repository — real run
+
+- Repository: `https://github.com/octocat/Hello-World`
+- Mode: `full`
+- Status: `completed`
+- Report version: `1.0`
+- Duration: **2.34s**
+- Repo: `octocat/Hello-World` · default branch: `master` · stars: 3727 · open issues: 6703 · last update: 2024-08-20T23:54:42Z
+- Description: My first repository on GitHub!
+
+## Headline
+Hello-World is a source-available project with an overall launch-readiness score of 45.2/100. Top blocker: README.md is missing or empty (high). Next priority: LICENSE is missing (high).
+
+## Scores
+| Dimension | Score |
+| --- | --- |
+| **Overall** | **45.2** |
+| Documentation | 5.5 |
+| Reproducibility | 30 |
+| Security hygiene | 100 |
+| Deployment readiness | 63.5 |
+
+## Counts
+- Blockers: **5**
+- Documentation gaps: **8**
+- Security findings: **0**
+
+## Blockers
+### [high] README.md is missing or empty
+- id: `doc-readme`
+- description: RepoPilot did not find any of: README.md, README.rst, README.txt.
+- recommended action: Add README.md at the repository root.
+- acceptance criteria:
+  - File README.md is present in the repository root.
+- evidence:
+  - `README.md` — No matching file in the repository tree
+
+### [high] LICENSE is missing
+- id: `doc-license`
+- description: RepoPilot did not find any of: LICENSE, LICENSE.md, LICENSE.txt, COPYING.
+- recommended action: Add LICENSE at the repository root.
+- acceptance criteria:
+  - File LICENSE is present in the repository root.
+- evidence:
+  - `LICENSE` — No matching file in the repository tree
+
+### [high] No lockfile detected
+- id: `repro-no-lockfile`
+- description: Without a lockfile, two fresh clones can resolve different dependency versions, breaking reproducibility.
+- recommended action: Commit a lockfile (pnpm-lock.yaml / package-lock.json / poetry.lock / Cargo.lock / etc.).
+- acceptance criteria:
+  - A lockfile exists at the repository root.
+- evidence:
+  - `package.json (or equivalent)` — None of the common lockfiles were found: pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lockb, bun.lock, Cargo.lock, poetry.lock, Pipfile.lock, requirements.txt, composer.lock, Gemfile.lock, go.sum
+
+### [high] No demo URL detected
+- id: `hack-no-demo`
+- description: Judges and reviewers need a live demo URL. The README does not mention one.
+- recommended action: Deploy a preview build and add a "Demo:" line at the top of the README.
+- acceptance criteria:
+  - A live URL is reachable and returns 2xx.
+- evidence:
+  - `README.md` — No URL matching a known demo host was found
+
+### [high] No LICENSE file
+- id: `hack-no-license`
+- description: Without a license, judges cannot reuse or fork your code safely.
+- recommended action: Add an MIT or Apache-2.0 LICENSE at the repo root.
+- acceptance criteria:
+  - LICENSE exists at the repo root.
+- evidence:
+  - `LICENSE` — No LICENSE / LICENSE.md file
+
+## Documentation gaps
+### [high] README.md is missing or empty
+- id: `doc-readme`
+- description: RepoPilot did not find any of: README.md, README.rst, README.txt.
+- recommended action: Add README.md at the repository root.
+- acceptance criteria:
+  - File README.md is present in the repository root.
+- evidence:
+  - `README.md` — No matching file in the repository tree
+
+### [high] LICENSE is missing
+- id: `doc-license`
+- description: RepoPilot did not find any of: LICENSE, LICENSE.md, LICENSE.txt, COPYING.
+- recommended action: Add LICENSE at the repository root.
+- acceptance criteria:
+  - File LICENSE is present in the repository root.
+- evidence:
+  - `LICENSE` — No matching file in the repository tree
+
+### [low] CONTRIBUTING guide is missing
+- id: `doc-contributing`
+- description: RepoPilot did not find any of: CONTRIBUTING.md, CONTRIBUTING.
+- recommended action: Add CONTRIBUTING.md at the repository root.
+- acceptance criteria:
+  - File CONTRIBUTING.md is present in the repository root.
+- evidence:
+  - `CONTRIBUTING.md` — No matching file in the repository tree
+
+### [medium] SECURITY.md / security policy is missing
+- id: `doc-security`
+- description: RepoPilot did not find any of: SECURITY.md, .github/SECURITY.md.
+- recommended action: Add SECURITY.md at the repository root.
+- acceptance criteria:
+  - File SECURITY.md is present in the repository root.
+- evidence:
+  - `SECURITY.md` — No matching file in the repository tree
+
+### [medium] .env.example is missing
+- id: `doc-env-example`
+- description: RepoPilot did not find any of: .env.example, example.env, sample.env, .env.sample.
+- recommended action: Add .env.example at the repository root.
+- acceptance criteria:
+  - File .env.example is present in the repository root.
+- evidence:
+  - `.env.example` — No matching file in the repository tree
+
+### [low] CODE_OF_CONDUCT.md is missing
+- id: `doc-coc`
+- description: RepoPilot did not find any of: CODE_OF_CONDUCT.md, CODE_OF_CONDUCT.
+- recommended action: Add CODE_OF_CONDUCT.md at the repository root.
+- acceptance criteria:
+  - File CODE_OF_CONDUCT.md is present in the repository root.
+- evidence:
+  - `CODE_OF_CONDUCT.md` — No matching file in the repository tree
+
+### [low] CHANGELOG is missing
+- id: `doc-changelog`
+- description: RepoPilot did not find any of: CHANGELOG.md, CHANGELOG, RELEASES.md.
+- recommended action: Add CHANGELOG.md at the repository root.
+- acceptance criteria:
+  - File CHANGELOG.md is present in the repository root.
+- evidence:
+  - `CHANGELOG.md` — No matching file in the repository tree
+
+### [medium] API documentation is missing
+- id: `doc-api`
+- description: RepoPilot did not find any of: docs/API.md, docs/api.md, API.md, openapi.yaml, openapi.json, swagger.yaml, swagger.json.
+- recommended action: Add docs/API.md at the repository root.
+- acceptance criteria:
+  - File docs/API.md is present in the repository root.
+- evidence:
+  - `docs/API.md` — No matching file in the repository tree
+
+## Launch copy
+- One-sentence pitch: Hello-World: open-source project that turns a GitHub URL into a launch-readiness report with prioritized fixes.
+- Short description: Hello-World audits public GitHub repos for documentation gaps, reproducibility issues, security hygiene, deployment readiness and Web3 configuration. Returns evidence-grounded findings and acceptance criteria. Static analysis only.
+- X post: Shipped Hello-World: paste a GitHub URL, get a launch-readiness report with blockers, evidence, and acceptance criteria. https://github.com/octocat/Hello-World
+
+## Recommended tasks
+- [?] Resolve: README.md is missing or empty _(?)_
+- [?] Resolve: LICENSE is missing _(?)_
+- [?] Resolve: No lockfile detected _(?)_
+- [?] Resolve: No demo URL detected _(?)_
+- [?] Resolve: No LICENSE file _(?)_
+- [?] Deploy a preview and link the demo URL in the README _(?)_
+
+## Launch checklist
+- [ ] README explains install + run + test — README.md missing
+- [ ] LICENSE present at the repository root — LICENSE missing
+- [ ] .env.example present and complete — .env.example missing
+- [ ] Lockfile committed — no lockfile found
+- [ ] CI runs install + test on every push — no CI config
+- [ ] Test script exits 0 — scripts.test missing
+- [x] No committed credentials
+- [ ] At least one screenshot or diagram — no image files in repo
+- [ ] Zero critical/high blockers — README.md is missing or empty; LICENSE is missing; No lockfile detected; No demo URL detected; No LICENSE file
+
+## Limitations
+- Static analysis only — repository code is NEVER executed by RepoPilot.
+- No formal security audit is performed; secret detection is best-effort.
+- LLM is optional; without one, the report uses deterministic templates.

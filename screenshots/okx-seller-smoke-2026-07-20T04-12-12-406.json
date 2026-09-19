@@ -1,0 +1,32 @@
+{
+  "jobId": "job_f976d807-a057-4450-a583-420c9033043b",
+  "status": "queued",
+  "payment": {
+    "paymentId": "okx_5bed368d-cefc-464a-b8c0-ee93d11f0c25",
+    "mode": "okx",
+    "amount": "0.02",
+    "currency": "USDT",
+    "challenge": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "xlayer",
+          "maxAmountRequired": "20000",
+          "resource": "https://repopilot/api/v1/audits",
+          "description": "RepoPilot quick audit",
+          "mimeType": "application/json",
+          "payTo": "0x3a4434baad765136a40f597e29d325b41b9dec61",
+          "maxTimeoutSeconds": 300,
+          "asset": "0x55d398326f99059fF775485246999027B3197955",
+          "extra": {
+            "name": "RepoPilot",
+            "version": "0.1.0"
+          }
+        }
+      ]
+    },
+    "expiresAt": "2026-07-20T04:17:13.749Z"
+  },
+  "nextAction": "Sign with onchainos payment pay --payment-id <id> --yes, then replay with X-PAYMENT: <base64 envelope>"
+}

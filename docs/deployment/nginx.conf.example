@@ -1,0 +1,106 @@
+# =============================================================================
+# nginx configuration template for RepoPilot
+#
+# Replace `api.example.com` with your real domain.
+# This config assumes:
+#   - RepoPilot API is running on 127.0.0.1:4000 (the default)
+#   - You want HTTPS-only with a Let's Encrypt cert at
+#     /etc/letsencrypt/live/api.example.com/
+#   - You want HTTP -> HTTPS redirect
+#
+# To enable:
+#   sudo cp nginx.conf.example /etc/nginx/sites-available/repopilot.conf
+#   sudo ln -s /etc/nginx/sites-available/repopilot.conf /etc/nginx/sites-enabled/
+#   sudo nginx -t
+#   sudo systemctl reload nginx
+# =============================================================================
+
+# -- Upstream -------------------------------------------------------------
+upstream repopilot_api {
+    server 127.0.0.1:4000;
+    keepalive 32;
+}
+
+# -- HTTP -> HTTPS redirect ----------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.example.com;
+
+    # Allow Let's Encrypt http-01 challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# -- HTTPS ----------------------------------------------------------------
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
+
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # Security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-XSS-Protection "0" always;
+
+    # Request size limit (matches the API's body limit)
+    client_max_body_size 5m;
+
+    # Real client IP
+    set_real_ip_from 127.0.0.1;
+    real_ip_header X-Forwarded-For;
+
+    # Logging
+    access_log /var/log/nginx/repopilot.access.log;
+    error_log  /var/log/nginx/repopilot.error.log warn;
+
+    # Timeouts: full audits can take a while
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    # API
+    location / {
+        proxy_pass http://repopilot_api;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection        "";
+
+        # Disable buffering for streaming responses (MCP stdio over HTTP/SSE in future)
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # /health is cheap; rate limit less strictly
+    location = /health {
+        proxy_pass http://repopilot_api;
+        access_log off;
+    }
+
+    # Static web UI (optional): if you build apps/web and serve it here
+    # location /app/ {
+    #     alias /opt/repopilot/web/dist/;
+    #     try_files $uri $uri/ /index.html;
+    # }
+}

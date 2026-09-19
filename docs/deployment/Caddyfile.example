@@ -1,0 +1,71 @@
+# =============================================================================
+# Caddy configuration template for RepoPilot
+#
+# Replace `api.example.com` with your real domain.
+# Caddy will automatically request a Let's Encrypt certificate on first
+# request — no manual cert setup required.
+#
+# To enable:
+#   sudo cp Caddyfile.example /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+# =============================================================================
+
+api.example.com {
+    encode zstd gzip
+
+    # Reverse proxy to the local API
+    reverse_proxy 127.0.0.1:4000 {
+        # Forward the real client info
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Timeouts
+        transport http {
+            dial_timeout  10s
+            read_timeout  120s
+            write_timeout 120s
+        }
+
+        # Health checks (optional but useful behind a load balancer)
+        # health_uri  /health
+        # health_interval 10s
+        # health_timeout 5s
+    }
+
+    # Optional: serve the admin web UI as a subpath
+    # @web path /app/*
+    # handle @web {
+    #     root * /opt/repopilot/web/dist
+    #     try_files {path} /index.html
+    #     file_server
+    # }
+
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options        "DENY"
+        Referrer-Policy        "no-referrer"
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+        # X-XSS-Protection is deprecated; deliberately not set
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    }
+
+    # Logging
+    log {
+        level INFO
+        output file /var/log/caddy/repopilot.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}
+
+# Optional: a separate sub-domain for the MCP HTTP transport (future).
+# For now MCP only supports stdio; the HTTP transport is a 0.2.0 feature.
+# mcp.example.com {
+#     reverse_proxy 127.0.0.1:4000 {
+#         header_up Host {host}
+#     }
+# }

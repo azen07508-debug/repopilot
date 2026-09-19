@@ -1,0 +1,26 @@
+{
+  "name": "@repopilot/web",
+  "version": "0.1.0-rc.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build",
+    "dev": "vite",
+    "preview": "vite preview --port 4173",
+    "test": "echo \"no web tests yet\" && exit 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo skip-package-lint"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

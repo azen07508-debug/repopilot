@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, sprint/**]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this manual run?'
+        required: false
+        default: 'manual nudge'
+
+# Cancel in-flight runs of the same branch / PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum permissions; the workflow does not need anything else.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint + typecheck + test + build (Node ${{ matrix.node }}, ${{ matrix.db }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22']
+        db: ['sqlite', 'postgres']
+    env:
+      NODE_ENV: test
+      LOG_LEVEL: warn
+      PAYMENT_MODE: mock
+    services:
+      postgres:
+        if: matrix.db == 'postgres'
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: repopilot_test
+          POSTGRES_USER: repopilot
+          POSTGRES_PASSWORD: repopilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install pnpm
+        run: corepack prepare pnpm@11.11.0 --activate
+
+      - name: Get pnpm store location
+        id: pnpm-store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ matrix.node }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-${{ matrix.node }}-
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgres://repopilot:repopilot_test@localhost:5432/repopilot_test') || 'file::memory:?cache=shared' }}
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify release (current env)
+        if: matrix.db == 'sqlite'
+        run: pnpm verify:release
+
+      - name: Upload API dist (postgres run only, for debugging)
+        if: matrix.db == 'postgres' && failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: apps/api/dist
+          if-no-files-found: ignore

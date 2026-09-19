@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+
+overrides:
+  zod: 3.24.1
+  zod-to-json-schema: 3.24.1

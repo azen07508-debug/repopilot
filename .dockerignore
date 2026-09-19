@@ -1,0 +1,36 @@
+# Build artifacts
+**/dist/
+**/node_modules/
+**/.turbo/
+**/.cache/
+**/coverage/
+**/.tsbuildinfo
+**/*.tsbuildinfo
+
+# Source-only
+**/.git/
+**/.github/
+
+# Local config (NEVER include .env in the image)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Tests / fixtures (not needed in production image, but allowed)
+# Comment out the next line if you want them in for debugging.
+fixtures/
+
+# Docs are useful for self-hosted installs
+# (intentionally NOT excluded)
+
+# Logs / tmp
+**/logs/
+**/tmp/
+**/*.log

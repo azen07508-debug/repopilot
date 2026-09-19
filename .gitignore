@@ -1,0 +1,17 @@
+node_modules
+dist
+.turbo
+.cache
+data
+*.log
+.env
+.env.local
+.DS_Store
+coverage
+*.tsbuildinfo
+.tmp
+:memory:*
+*.db
+*.db-shm
+*.db-wal
+package.json.bak

@@ -1,0 +1,46 @@
+{
+  "name": "@repopilot/api",
+  "version": "0.1.0-rc.2",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "REPOPILOT_API_MODE=combined tsx watch src/server.ts",
+    "dev:api": "REPOPILOT_API_MODE=http tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "dev:all": "pnpm dev:api & pnpm dev:worker",
+    "start": "REPOPILOT_API_MODE=combined node dist/server.js",
+    "start:api": "REPOPILOT_API_MODE=http node dist/server.js",
+    "start:worker": "node dist/worker.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "lint": "echo skip-package-lint"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/rate-limit": "^10.2.2",
+    "@repopilot/core": "workspace:*",
+    "@repopilot/okx-adapter": "workspace:*",
+    "better-sqlite3": "^11.7.0",
+    "drizzle-orm": "^0.38.3",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1",
+    "pg-boss": "12.26.1",
+    "pino": "^10.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.30.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

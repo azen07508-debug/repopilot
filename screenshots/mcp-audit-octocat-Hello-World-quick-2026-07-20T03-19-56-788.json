@@ -1,0 +1,734 @@
+{
+  "status": "completed",
+  "reportVersion": "1.0",
+  "repository": {
+    "url": "https://github.com/octocat/Hello-World",
+    "owner": "octocat",
+    "name": "Hello-World",
+    "defaultBranch": "master",
+    "license": null,
+    "lastUpdatedAt": "2024-08-20T23:54:42Z",
+    "visibility": "public",
+    "archived": false,
+    "stars": 3727,
+    "openIssues": 6703,
+    "openPulls": 1,
+    "description": "My first repository on GitHub!",
+    "primaryLanguage": null
+  },
+  "summary": "Hello-World is a source-available project with an overall launch-readiness score of 45.2/100. Top blocker: README.md is missing or empty (high). Next priority: LICENSE is missing (high).",
+  "scores": 45.2,
+  "scoreBreakdown": {
+    "documentation": 5.5,
+    "reproducibility": 30,
+    "securityHygiene": 100,
+    "deploymentReadiness": 63.5
+  },
+  "detectedStack": [],
+  "blockerCount": 5,
+  "documentationGapCount": 8,
+  "securityFindingCount": 0,
+  "launchChecklist": [
+    {
+      "id": "check-readme",
+      "title": "README explains install + run + test",
+      "done": false,
+      "evidence": [
+        "README.md missing"
+      ]
+    },
+    {
+      "id": "check-license",
+      "title": "LICENSE present at the repository root",
+      "done": false,
+      "evidence": [
+        "LICENSE missing"
+      ]
+    },
+    {
+      "id": "check-env",
+      "title": ".env.example present and complete",
+      "done": false,
+      "evidence": [
+        ".env.example missing"
+      ]
+    },
+    {
+      "id": "check-lockfile",
+      "title": "Lockfile committed",
+      "done": false,
+      "evidence": [
+        "no lockfile found"
+      ]
+    },
+    {
+      "id": "check-ci",
+      "title": "CI runs install + test on every push",
+      "done": false,
+      "evidence": [
+        "no CI config"
+      ]
+    },
+    {
+      "id": "check-tests",
+      "title": "Test script exits 0",
+      "done": false,
+      "evidence": [
+        "scripts.test missing"
+      ]
+    },
+    {
+      "id": "check-secrets",
+      "title": "No committed credentials",
+      "done": true,
+      "evidence": []
+    },
+    {
+      "id": "check-screenshots",
+      "title": "At least one screenshot or diagram",
+      "done": false,
+      "evidence": [
+        "no image files in repo"
+      ]
+    },
+    {
+      "id": "check-blockers",
+      "title": "Zero critical/high blockers",
+      "done": false,
+      "evidence": [
+        "README.md is missing or empty",
+        "LICENSE is missing",
+        "No lockfile detected",
+        "No demo URL detected",
+        "No LICENSE file"
+      ]
+    }
+  ],
+  "report": {
+    "reportVersion": "1.0",
+    "repository": {
+      "url": "https://github.com/octocat/Hello-World",
+      "owner": "octocat",
+      "name": "Hello-World",
+      "defaultBranch": "master",
+      "license": null,
+      "lastUpdatedAt": "2024-08-20T23:54:42Z",
+      "visibility": "public",
+      "archived": false,
+      "stars": 3727,
+      "openIssues": 6703,
+      "openPulls": 1,
+      "description": "My first repository on GitHub!",
+      "primaryLanguage": null
+    },
+    "summary": "Hello-World is a source-available project with an overall launch-readiness score of 45.2/100. Top blocker: README.md is missing or empty (high). Next priority: LICENSE is missing (high).",
+    "detectedStack": [],
+    "scores": {
+      "overall": 45.2,
+      "documentation": 5.5,
+      "reproducibility": 30,
+      "securityHygiene": 100,
+      "deploymentReadiness": 63.5,
+      "breakdown": {
+        "documentation": {
+          "raw": 100,
+          "rules": [
+            {
+              "rule": "no-readme",
+              "delta": -25,
+              "reason": "README.md is missing"
+            },
+            {
+              "rule": "no-license",
+              "delta": -8,
+              "reason": "LICENSE is missing"
+            },
+            {
+              "rule": "no-contributing",
+              "delta": -2,
+              "reason": "CONTRIBUTING missing"
+            },
+            {
+              "rule": "no-security",
+              "delta": -5,
+              "reason": "SECURITY policy missing"
+            },
+            {
+              "rule": "no-env-example",
+              "delta": -5,
+              "reason": ".env.example missing"
+            },
+            {
+              "rule": "no-api-docs",
+              "delta": -3,
+              "reason": "API docs missing"
+            },
+            {
+              "rule": "no-screenshots",
+              "delta": -1,
+              "reason": "No screenshots in repo"
+            },
+            {
+              "rule": "no-demo-url",
+              "delta": -2,
+              "reason": "No demo URL in README"
+            },
+            {
+              "rule": "severity-penalty",
+              "delta": -43.5,
+              "reason": "Penalty from 8 documentation finding(s)"
+            }
+          ],
+          "final": 5.5
+        },
+        "reproducibility": {
+          "raw": 100,
+          "rules": [
+            {
+              "rule": "no-lockfile",
+              "delta": -20,
+              "reason": "No lockfile"
+            },
+            {
+              "rule": "no-ci",
+              "delta": -12,
+              "reason": "No CI configuration"
+            },
+            {
+              "rule": "no-docker",
+              "delta": -4,
+              "reason": "No Dockerfile"
+            },
+            {
+              "rule": "no-env-example",
+              "delta": -6,
+              "reason": ".env.example missing"
+            },
+            {
+              "rule": "no-test-script",
+              "delta": -10,
+              "reason": "No test script"
+            },
+            {
+              "rule": "no-run-script",
+              "delta": -6,
+              "reason": "No dev/start script"
+            },
+            {
+              "rule": "severity-penalty",
+              "delta": -12,
+              "reason": "Penalty from 1 reproducibility finding(s)"
+            }
+          ],
+          "final": 30
+        },
+        "securityHygiene": {
+          "raw": 100,
+          "rules": [
+            {
+              "rule": "severity-penalty",
+              "delta": 0,
+              "reason": "Penalty from 0 security finding(s)"
+            }
+          ],
+          "final": 100
+        },
+        "deploymentReadiness": {
+          "raw": 100,
+          "rules": [
+            {
+              "rule": "no-docker",
+              "delta": -10,
+              "reason": "No Dockerfile for prod parity"
+            },
+            {
+              "rule": "no-ci",
+              "delta": -10,
+              "reason": "No CI to gate releases"
+            },
+            {
+              "rule": "no-env-example",
+              "delta": -5,
+              "reason": ".env.example missing"
+            },
+            {
+              "rule": "no-test-script",
+              "delta": -5,
+              "reason": "No canonical test command"
+            },
+            {
+              "rule": "web3-no-deploy",
+              "delta": 0,
+              "reason": "Contracts present but no deploy script"
+            },
+            {
+              "rule": "web3-no-tests",
+              "delta": 0,
+              "reason": "Contracts present but no contract tests"
+            },
+            {
+              "rule": "web3-no-audit-note",
+              "delta": 0,
+              "reason": "No audit status documented"
+            },
+            {
+              "rule": "severity-penalty",
+              "delta": -6.5,
+              "reason": "Penalty from 2 deployment finding(s)"
+            }
+          ],
+          "final": 63.5
+        }
+      }
+    },
+    "blockers": [
+      {
+        "id": "doc-readme",
+        "category": "documentation",
+        "severity": "high",
+        "title": "README.md is missing or empty",
+        "description": "RepoPilot did not find any of: README.md, README.rst, README.txt.",
+        "evidence": [
+          {
+            "file": "README.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add README.md at the repository root.",
+        "acceptanceCriteria": [
+          "File README.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-license",
+        "category": "documentation",
+        "severity": "high",
+        "title": "LICENSE is missing",
+        "description": "RepoPilot did not find any of: LICENSE, LICENSE.md, LICENSE.txt, COPYING.",
+        "evidence": [
+          {
+            "file": "LICENSE",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add LICENSE at the repository root.",
+        "acceptanceCriteria": [
+          "File LICENSE is present in the repository root."
+        ]
+      },
+      {
+        "id": "repro-no-lockfile",
+        "category": "reproducibility",
+        "severity": "high",
+        "title": "No lockfile detected",
+        "description": "Without a lockfile, two fresh clones can resolve different dependency versions, breaking reproducibility.",
+        "evidence": [
+          {
+            "file": "package.json (or equivalent)",
+            "line": null,
+            "reason": "None of the common lockfiles were found: pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lockb, bun.lock, Cargo.lock, poetry.lock, Pipfile.lock, requirements.txt, composer.lock, Gemfile.lock, go.sum"
+          }
+        ],
+        "recommendedAction": "Commit a lockfile (pnpm-lock.yaml / package-lock.json / poetry.lock / Cargo.lock / etc.).",
+        "acceptanceCriteria": [
+          "A lockfile exists at the repository root."
+        ]
+      },
+      {
+        "id": "hack-no-demo",
+        "category": "hackathon",
+        "severity": "high",
+        "title": "No demo URL detected",
+        "description": "Judges and reviewers need a live demo URL. The README does not mention one.",
+        "evidence": [
+          {
+            "file": "README.md",
+            "line": null,
+            "reason": "No URL matching a known demo host was found"
+          }
+        ],
+        "recommendedAction": "Deploy a preview build and add a \"Demo:\" line at the top of the README.",
+        "acceptanceCriteria": [
+          "A live URL is reachable and returns 2xx."
+        ]
+      },
+      {
+        "id": "hack-no-license",
+        "category": "hackathon",
+        "severity": "high",
+        "title": "No LICENSE file",
+        "description": "Without a license, judges cannot reuse or fork your code safely.",
+        "evidence": [
+          {
+            "file": "LICENSE",
+            "line": null,
+            "reason": "No LICENSE / LICENSE.md file"
+          }
+        ],
+        "recommendedAction": "Add an MIT or Apache-2.0 LICENSE at the repo root.",
+        "acceptanceCriteria": [
+          "LICENSE exists at the repo root."
+        ]
+      }
+    ],
+    "documentationGaps": [
+      {
+        "id": "doc-readme",
+        "category": "documentation",
+        "severity": "high",
+        "title": "README.md is missing or empty",
+        "description": "RepoPilot did not find any of: README.md, README.rst, README.txt.",
+        "evidence": [
+          {
+            "file": "README.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add README.md at the repository root.",
+        "acceptanceCriteria": [
+          "File README.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-license",
+        "category": "documentation",
+        "severity": "high",
+        "title": "LICENSE is missing",
+        "description": "RepoPilot did not find any of: LICENSE, LICENSE.md, LICENSE.txt, COPYING.",
+        "evidence": [
+          {
+            "file": "LICENSE",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add LICENSE at the repository root.",
+        "acceptanceCriteria": [
+          "File LICENSE is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-contributing",
+        "category": "documentation",
+        "severity": "low",
+        "title": "CONTRIBUTING guide is missing",
+        "description": "RepoPilot did not find any of: CONTRIBUTING.md, CONTRIBUTING.",
+        "evidence": [
+          {
+            "file": "CONTRIBUTING.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add CONTRIBUTING.md at the repository root.",
+        "acceptanceCriteria": [
+          "File CONTRIBUTING.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-security",
+        "category": "documentation",
+        "severity": "medium",
+        "title": "SECURITY.md / security policy is missing",
+        "description": "RepoPilot did not find any of: SECURITY.md, .github/SECURITY.md.",
+        "evidence": [
+          {
+            "file": "SECURITY.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add SECURITY.md at the repository root.",
+        "acceptanceCriteria": [
+          "File SECURITY.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-env-example",
+        "category": "documentation",
+        "severity": "medium",
+        "title": ".env.example is missing",
+        "description": "RepoPilot did not find any of: .env.example, example.env, sample.env, .env.sample.",
+        "evidence": [
+          {
+            "file": ".env.example",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add .env.example at the repository root.",
+        "acceptanceCriteria": [
+          "File .env.example is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-coc",
+        "category": "documentation",
+        "severity": "low",
+        "title": "CODE_OF_CONDUCT.md is missing",
+        "description": "RepoPilot did not find any of: CODE_OF_CONDUCT.md, CODE_OF_CONDUCT.",
+        "evidence": [
+          {
+            "file": "CODE_OF_CONDUCT.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add CODE_OF_CONDUCT.md at the repository root.",
+        "acceptanceCriteria": [
+          "File CODE_OF_CONDUCT.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-changelog",
+        "category": "documentation",
+        "severity": "low",
+        "title": "CHANGELOG is missing",
+        "description": "RepoPilot did not find any of: CHANGELOG.md, CHANGELOG, RELEASES.md.",
+        "evidence": [
+          {
+            "file": "CHANGELOG.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add CHANGELOG.md at the repository root.",
+        "acceptanceCriteria": [
+          "File CHANGELOG.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "doc-api",
+        "category": "documentation",
+        "severity": "medium",
+        "title": "API documentation is missing",
+        "description": "RepoPilot did not find any of: docs/API.md, docs/api.md, API.md, openapi.yaml, openapi.json, swagger.yaml, swagger.json.",
+        "evidence": [
+          {
+            "file": "docs/API.md",
+            "line": null,
+            "reason": "No matching file in the repository tree"
+          }
+        ],
+        "recommendedAction": "Add docs/API.md at the repository root.",
+        "acceptanceCriteria": [
+          "File docs/API.md is present in the repository root."
+        ]
+      }
+    ],
+    "securityFindings": [],
+    "deploymentPlan": [
+      {
+        "order": 1,
+        "title": "Prepare environment",
+        "description": "Create a `.env` from `.env.example` and confirm Node/pnpm versions match CI.",
+        "commands": [
+          "cp .env.example .env"
+        ],
+        "prerequisites": [
+          "Node 20+",
+          "pnpm 9+"
+        ],
+        "acceptanceCriteria": [
+          "pnpm install completes without errors on a fresh clone."
+        ]
+      },
+      {
+        "order": 2,
+        "title": "Run the test suite",
+        "description": "Run tests and lint to confirm the code is in a green state.",
+        "commands": [
+          "pnpm install",
+          "pnpm test",
+          "pnpm lint"
+        ],
+        "prerequisites": [
+          ".env populated"
+        ],
+        "acceptanceCriteria": [
+          "All tests pass; lint exits 0."
+        ]
+      },
+      {
+        "order": 3,
+        "title": "Provision a production host",
+        "description": "Choose a host (Railway, Render, Fly.io, a plain VPS). Add a Dockerfile if you need production parity.",
+        "commands": [],
+        "prerequisites": [
+          "A managed Postgres or a SQLite-backed volume"
+        ],
+        "acceptanceCriteria": [
+          "Service responds on a public URL."
+        ]
+      }
+    ],
+    "recommendedTasks": [
+      {
+        "id": "task-doc-readme",
+        "title": "Resolve: README.md is missing or empty",
+        "effort": "M",
+        "description": "RepoPilot did not find any of: README.md, README.rst, README.txt.",
+        "relatedFindings": [
+          "doc-readme"
+        ],
+        "acceptanceCriteria": [
+          "File README.md is present in the repository root."
+        ]
+      },
+      {
+        "id": "task-doc-license",
+        "title": "Resolve: LICENSE is missing",
+        "effort": "M",
+        "description": "RepoPilot did not find any of: LICENSE, LICENSE.md, LICENSE.txt, COPYING.",
+        "relatedFindings": [
+          "doc-license"
+        ],
+        "acceptanceCriteria": [
+          "File LICENSE is present in the repository root."
+        ]
+      },
+      {
+        "id": "task-repro-no-lockfile",
+        "title": "Resolve: No lockfile detected",
+        "effort": "M",
+        "description": "Without a lockfile, two fresh clones can resolve different dependency versions, breaking reproducibility.",
+        "relatedFindings": [
+          "repro-no-lockfile"
+        ],
+        "acceptanceCriteria": [
+          "A lockfile exists at the repository root."
+        ]
+      },
+      {
+        "id": "task-hack-no-demo",
+        "title": "Resolve: No demo URL detected",
+        "effort": "M",
+        "description": "Judges and reviewers need a live demo URL. The README does not mention one.",
+        "relatedFindings": [
+          "hack-no-demo"
+        ],
+        "acceptanceCriteria": [
+          "A live URL is reachable and returns 2xx."
+        ]
+      },
+      {
+        "id": "task-hack-no-license",
+        "title": "Resolve: No LICENSE file",
+        "effort": "M",
+        "description": "Without a license, judges cannot reuse or fork your code safely.",
+        "relatedFindings": [
+          "hack-no-license"
+        ],
+        "acceptanceCriteria": [
+          "LICENSE exists at the repo root."
+        ]
+      }
+    ],
+    "launchChecklist": [
+      {
+        "id": "check-readme",
+        "title": "README explains install + run + test",
+        "done": false,
+        "evidence": [
+          "README.md missing"
+        ]
+      },
+      {
+        "id": "check-license",
+        "title": "LICENSE present at the repository root",
+        "done": false,
+        "evidence": [
+          "LICENSE missing"
+        ]
+      },
+      {
+        "id": "check-env",
+        "title": ".env.example present and complete",
+        "done": false,
+        "evidence": [
+          ".env.example missing"
+        ]
+      },
+      {
+        "id": "check-lockfile",
+        "title": "Lockfile committed",
+        "done": false,
+        "evidence": [
+          "no lockfile found"
+        ]
+      },
+      {
+        "id": "check-ci",
+        "title": "CI runs install + test on every push",
+        "done": false,
+        "evidence": [
+          "no CI config"
+        ]
+      },
+      {
+        "id": "check-tests",
+        "title": "Test script exits 0",
+        "done": false,
+        "evidence": [
+          "scripts.test missing"
+        ]
+      },
+      {
+        "id": "check-secrets",
+        "title": "No committed credentials",
+        "done": true,
+        "evidence": []
+      },
+      {
+        "id": "check-screenshots",
+        "title": "At least one screenshot or diagram",
+        "done": false,
+        "evidence": [
+          "no image files in repo"
+        ]
+      },
+      {
+        "id": "check-blockers",
+        "title": "Zero critical/high blockers",
+        "done": false,
+        "evidence": [
+          "README.md is missing or empty",
+          "LICENSE is missing",
+          "No lockfile detected",
+          "No demo URL detected",
+          "No LICENSE file"
+        ]
+      }
+    ],
+    "launchCopy": {
+      "oneSentencePitch": "Hello-World: open-source project that turns a GitHub URL into a launch-readiness report with prioritized fixes.",
+      "shortDescription": "Hello-World audits public GitHub repos for documentation gaps, reproducibility issues, security hygiene, deployment readiness and Web3 configuration. Returns evidence-grounded findings and acceptance criteria. Static analysis only.",
+      "xPost": "Shipped Hello-World: paste a GitHub URL, get a launch-readiness report with blockers, evidence, and acceptance criteria. https://github.com/octocat/Hello-World"
+    },
+    "limitations": [
+      "Static analysis only — repository code is NEVER executed by RepoPilot.",
+      "No formal security audit is performed; secret detection is best-effort.",
+      "LLM is optional; without one, the report uses deterministic templates.",
+      "Quick scan skips some of the deeper reproducibility heuristics."
+    ],
+    "generatedAt": "2026-07-20T03:20:00.376Z",
+    "auditMode": "quick",
+    "target": "open_source",
+    "outputLanguage": "en",
+    "analyzerProvenance": {
+      "analyzers.documentation": "static-file-presence + section-extraction",
+      "analyzers.reproducibility": "static-file-presence + package-scripts",
+      "analyzers.secret": "regex-patterns + entropy-heuristic",
+      "analyzers.injection": "keyword-matcher + invisible-unicode-detector",
+      "analyzers.stack": "filename + extension + manifest-keyword",
+      "analyzers.web3": "path-pattern + content-keyword",
+      "analyzers.hackathon": "readme-content + url-classifier",
+      "analyzers.scoring": "deterministic-rule-engine",
+      "analyzers.llm": "optional; disabled by default",
+      "detectedStackKeys": ""
+    }
+  }
+}
