@@ -22,14 +22,14 @@ Docker.
 ```bash
 # On any host with Docker 24+ installed:
 cd /path/to/repopilot
-docker build -t repopilot:0.1.0-rc.1 .
+docker build -t repopilot:0.1.0-rc.2 .
 docker run --rm -p 4000:4000 \
   -e NODE_ENV=production \
   -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
   -v $(pwd)/data:/data \
-  repopilot:0.1.0-rc.1
+  repopilot:0.1.0-rc.2
 curl http://127.0.0.1:4000/health
 ```
 

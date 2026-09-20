@@ -1,4 +1,4 @@
-# RepoPilot — Release Checklist (0.1.0-rc.1)
+# RepoPilot — Release Checklist (0.1.0-rc.2)
 
 Use this checklist before tagging a release. Each item has a command
 or a file you can point at.
@@ -96,8 +96,8 @@ or a file you can point at.
 
 When everything above is green:
 
-1. `git tag -a v0.1.0-rc.1 -m "Release candidate 1"`
-2. `git push origin v0.1.0-rc.1` (only if the user has authorized
+1. `git tag -a v0.1.0-rc.2 -m "Release candidate 1"`
+2. `git push origin v0.1.0-rc.2` (only if the user has authorized
    the push)
 3. `git push origin sprint/default` (or the current branch)
 4. Create a GitHub Release from the tag with the CHANGELOG excerpt

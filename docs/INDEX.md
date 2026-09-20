@@ -8,7 +8,8 @@ Pick the one that matches your role and jump straight in.
 - [README.md](../README.md) — what RepoPilot is, quick start, free check,
   paid audit flow, tech stack overview.
 - [docs/MCP_CLIENT_SETUP.md](MCP_CLIENT_SETUP.md) — how to point an MCP
-  client (Claude Desktop, Cursor, etc.) at the local MCP server.
+  client (Claude Code, Codex, OpenClaw, or any generic client) at the
+  MCP server, and what its seven tools do.
 
 ## For operators / integrators
 
@@ -29,6 +30,9 @@ Pick the one that matches your role and jump straight in.
   (test baseline, recent changes, process model, known blockers).
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — package structure, module
   boundaries, data flow.
+- [docs/REPOSITORY_INTELLIGENCE_PLAN.md](REPOSITORY_INTELLIGENCE_PLAN.md)
+  — the repository intelligence roadmap (Phase 0 analysis, and the
+  extension points for fix plans and diffs).
 - [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — pre-release
   verification (`pnpm verify:release`).
 - [docs/OKX_REQUIREMENTS_SNAPSHOT.md](OKX_REQUIREMENTS_SNAPSHOT.md) —

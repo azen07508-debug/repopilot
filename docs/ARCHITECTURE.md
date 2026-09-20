@@ -70,10 +70,13 @@ the `audit_github_repository` tool.
                    └──────────────────────────────────────────────┘
 
                    ┌──────────────────────────────────────────────┐
-                   │  packages/mcp-server (stdio)                │
-                   │  - audit_github_repository                   │
-                   │  - get_audit_status                          │
-                   │  - get_repopilot_capabilities                │
+                   │  packages/mcp-server (stdio), 7 tools        │
+                   │  paid:  audit_github_repository              │
+                   │         reaudit_repository                   │
+                   │  free:  get_fix_plan, compare_audits,        │
+                   │         list_audit_history,                  │
+                   │         get_audit_status,                    │
+                   │         get_repopilot_capabilities           │
                    └──────────────────────────────────────────────┘
 ```
 
@@ -115,6 +118,26 @@ the `audit_github_repository` tool.
    reason stored.
 7. **Response** — The route returns `{ jobId, status, report }`. A
    client can also poll `GET /api/v1/audits/:jobId` later.
+
+## Derived views
+
+Three read-only endpoints answer questions about audits that already
+happened. They are **free** and, critically, they never scan a
+repository — they are pure functions of the reports already stored:
+
+| Endpoint                         | Derivation                    |
+|----------------------------------|-------------------------------|
+| `GET /audits/:jobId/fix-plan`    | `buildFixPlanSet(report)`     |
+| `GET /audits/:jobId/diff?base=`  | `diffReports(base, head)`     |
+| `GET /repositories/:o/:r/audits` | `JobRepository.listByRepo()`  |
+
+`POST /repositories/:owner/:repo/reaudit` is the paid half: it runs the
+pipeline again, which is what lets the loop close — audit → fix plan →
+fix → re-audit → compare.
+
+`packages/core/src/fixplan/` and `packages/core/src/diff/` contain no
+I/O. An LLM may only rewrite the `why` sentence of a plan; scores,
+priorities, evidence, steps and acceptance criteria are deterministic.
 
 ## Why static analysis only
 
