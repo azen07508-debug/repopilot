@@ -70,4 +70,18 @@ export class JobStore {
   list(): AuditJob[] {
     return [...this.jobs.values()];
   }
+
+  /**
+   * Audits for one repository, newest first.
+   *
+   * The MCP server keeps jobs in memory, so "history" means "this
+   * session". The API has the durable equivalent backed by the jobs
+   * table's owner/repo columns.
+   */
+  listByRepo(repoUrl: string, limit = 20): AuditJob[] {
+    return [...this.jobs.values()]
+      .filter((j) => j.input.repoUrl === repoUrl)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, limit);
+  }
 }

@@ -1,79 +1,42 @@
 /**
  * Minimal typed client for the RepoPilot API.
+ *
+ * Report-shaped types are imported from `@repopilot/core` so the UI
+ * cannot silently drift from the report schema. The import is
+ * type-only on purpose: `@repopilot/core` depends on `@octokit/rest`,
+ * which must never reach the browser bundle.
+ *
+ * `Health` and `AuditResponse` stay here because they describe the HTTP
+ * transport contract, not the report schema.
  */
-export type Mode = 'quick' | 'full';
-export type Target = 'hackathon' | 'open_source' | 'production';
-export type Language = 'en' | 'zh-CN';
+import type {
+  AuditMode,
+  AuditTarget,
+  AuditDiff,
+  Capabilities,
+  CreateAuditInput,
+  Evidence,
+  Finding,
+  FixPlanSet,
+  OutputLanguage,
+  Report,
+  ScoreBreakdown,
+} from '@repopilot/core';
 
-export interface ScoreBreakdown {
-  raw: number;
-  rules: { rule: string; delta: number; reason: string }[];
-  final: number;
-}
+export type Mode = AuditMode;
+export type Target = AuditTarget;
+export type Language = OutputLanguage;
 
-export interface Evidence {
-  file: string;
-  line: number | null;
-  reason: string;
-}
-
-export interface Finding {
-  id: string;
-  category: string;
-  severity: 'critical' | 'high' | 'medium' | 'low';
-  title: string;
-  description: string;
-  evidence: Evidence[];
-  recommendedAction: string;
-  acceptanceCriteria: string[];
-}
-
-export interface Report {
-  reportVersion: string;
-  repository: {
-    url: string;
-    owner: string;
-    name: string;
-    defaultBranch: string;
-    license: string | null;
-    lastUpdatedAt: string | null;
-    visibility: string;
-    stars: number;
-    openIssues: number;
-    description: string | null;
-    primaryLanguage: string | null;
-  };
-  summary: string;
-  detectedStack: string[];
-  scores: {
-    overall: number;
-    documentation: number;
-    reproducibility: number;
-    securityHygiene: number;
-    deploymentReadiness: number;
-    breakdown: Record<string, ScoreBreakdown | undefined>;
-  };
-  blockers: Finding[];
-  documentationGaps: Finding[];
-  securityFindings: Finding[];
-  deploymentPlan: { order: number; title: string; description: string; commands: string[] }[];
-  recommendedTasks: { id: string; title: string; description: string; effort: string }[];
-  launchChecklist: { id: string; title: string; done: boolean; evidence: string[] }[];
-  launchCopy: { oneSentencePitch: string; shortDescription: string; xPost: string };
-  limitations: string[];
-  generatedAt: string;
-  auditMode: Mode;
-  target: Target;
-  outputLanguage: Language;
-}
-
-export interface Capabilities {
-  name: string;
-  version: string;
-  paymentMode: 'mock' | 'okx';
-  pricing: { quickScan: { amount: string; currency: string }; fullAudit: { amount: string; currency: string } };
-  limits: { maxFiles: number; maxFileBytes: number; maxTotalBytes: number; rateLimitPerMinute: number };
-}
+export type {
+  AuditDiff,
+  Capabilities,
+  CreateAuditInput,
+  Evidence,
+  Finding,
+  FixPlanSet,
+  Report,
+  ScoreBreakdown,
+};
 
 export interface Health {
   status: 'ok';
@@ -84,7 +47,20 @@ export interface Health {
 
 export type AuditResponse =
   | { jobId: string; status: 'completed'; report: Report }
-  | { jobId: string; status: 'queued' | 'processing' | 'failed'; payment?: { paymentId: string; mode: 'mock' | 'okx'; amount: string; currency: string; challenge: unknown; expiresAt: string }; report?: Report; error?: string };
+  | {
+      jobId: string;
+      status: 'queued' | 'processing' | 'failed';
+      payment?: {
+        paymentId: string;
+        mode: 'mock' | 'okx';
+        amount: string;
+        currency: string;
+        challenge: unknown;
+        expiresAt: string;
+      };
+      report?: Report;
+      error?: string;
+    };
 
 const base = '';
 
@@ -98,14 +74,6 @@ export async function getCapabilities(): Promise<Capabilities> {
   const r = await fetch(`${base}/api/v1/capabilities`);
   if (!r.ok) throw new Error(`capabilities ${r.status}`);
   return r.json();
-}
-
-export interface CreateAuditInput {
-  repoUrl: string;
-  mode: Mode;
-  target: Target;
-  outputLanguage: Language;
-  includeLaunchCopy: boolean;
 }
 
 export async function createAudit(input: CreateAuditInput, paymentHeader?: string): Promise<AuditResponse> {
@@ -131,4 +99,59 @@ export async function getAudit(jobId: string): Promise<AuditResponse> {
   const r = await fetch(`${base}/api/v1/audits/${encodeURIComponent(jobId)}`);
   if (!r.ok) throw new Error(`audit ${r.status}`);
   return r.json();
+}
+
+/* ---------- Derived views ----------
+ *
+ * These three endpoints answer questions about audits that already
+ * happened. They are free and they never re-scan a repository, so the
+ * UI can call them as often as it likes.
+ */
+
+export interface AuditHistoryEntry {
+  jobId: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  commitSha: string | null;
+  mode: Mode;
+  target: Target;
+  createdAt: string;
+  completedAt: string | null;
+  failedAt: string | null;
+  overall: number | null;
+  findingCount: number | null;
+}
+
+export interface AuditHistory {
+  owner: string;
+  repo: string;
+  limit: number;
+  count: number;
+  audits: AuditHistoryEntry[];
+}
+
+async function getJson<T>(path: string, what: string): Promise<T> {
+  const r = await fetch(`${base}${path}`);
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `${what} ${r.status}`);
+  }
+  return r.json() as Promise<T>;
+}
+
+export function getFixPlan(jobId: string): Promise<FixPlanSet> {
+  return getJson<FixPlanSet>(`/api/v1/audits/${encodeURIComponent(jobId)}/fix-plan`, 'fix-plan');
+}
+
+export function getAuditDiff(jobId: string, base: string): Promise<AuditDiff> {
+  return getJson<AuditDiff>(
+    `/api/v1/audits/${encodeURIComponent(jobId)}/diff?base=${encodeURIComponent(base)}`,
+    'diff'
+  );
+}
+
+export function listRepoAudits(owner: string, repo: string, limit = 20): Promise<AuditHistory> {
+  return getJson<AuditHistory>(
+    `/api/v1/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/audits?limit=${limit}`,
+    'history'
+  );
 }

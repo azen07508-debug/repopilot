@@ -5,8 +5,41 @@ import { AuditForm } from './components/AuditForm.js';
 import { ReportView } from './components/ReportView.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Footer } from './components/Footer.js';
+import { FixPlanView } from './components/FixPlanView.js';
+import { AuditHistoryView } from './components/AuditHistoryView.js';
+import { AuditDiffView } from './components/AuditDiffView.js';
+import { I18nProvider, useI18n } from './i18n.js';
 
-export function App() {
+type View = 'report' | 'history' | 'diff';
+
+function LoadingCard() {
+  const { t } = useI18n();
+  return (
+    <div className="card">
+      <strong>{t.loadingTitle}</strong>
+      <div className="meta" style={{ marginBottom: 14 }}>{t.loadingBody}</div>
+      <div className="skeleton" aria-hidden="true">
+        <div className="skeleton-line" style={{ width: '72%' }} />
+        <div className="skeleton-line" style={{ width: '94%' }} />
+        <div className="skeleton-line" style={{ width: '88%' }} />
+        <div className="skeleton-line" style={{ width: '46%' }} />
+      </div>
+    </div>
+  );
+}
+
+function EmptyCard() {
+  const { t } = useI18n();
+  return (
+    <div className="empty">
+      <strong>{t.emptyTitle}</strong>
+      <span>{t.emptyBody}</span>
+    </div>
+  );
+}
+
+function Shell() {
+  const { t } = useI18n();
   const [health, setHealth] = useState<Health | null>(null);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -14,6 +47,8 @@ export function App() {
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<View>('report');
+  const [diffBase, setDiffBase] = useState<string | null>(null);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => undefined);
@@ -24,6 +59,8 @@ export function App() {
     setError(null);
     setReport(null);
     setJobId(null);
+    setDiffBase(null);
+    setView('report');
     setLoading(true);
     try {
       // First call (no payment) — server returns a 402 with a challenge.
@@ -69,18 +106,21 @@ export function App() {
     }
   }, [jobId]);
 
+  const onCompare = useCallback((baseJobId: string) => {
+    setDiffBase(baseJobId);
+    setView('diff');
+  }, []);
+
+  const showNav = Boolean(report && jobId);
+
   return (
     <div className="container">
       <Header health={health} caps={caps} />
       <StatusBar health={health} caps={caps} />
 
       <section className="hero">
-        <h1>RepoPilot</h1>
-        <p>
-          One GitHub URL. A launch-readiness report with documented evidence,
-          prioritized blockers and acceptance criteria. Static analysis only —
-          your repository code is never executed.
-        </p>
+        <h1>{t.heroTitle}</h1>
+        <p>{t.heroSubtitle}</p>
       </section>
 
       <AuditForm
@@ -88,9 +128,11 @@ export function App() {
         onSubmit={onSubmit}
       />
 
+      {loading && <LoadingCard />}
+
       {error && (
-        <div className="card" style={{ borderColor: 'var(--bad)' }}>
-          <strong>Something went wrong.</strong>
+        <div className="card error">
+          <strong>{t.errorTitle}.</strong>
           <div className="meta">{error}</div>
         </div>
       )}
@@ -103,13 +145,71 @@ export function App() {
           </p>
           <pre>onchainos payment pay --payment-id {paymentId} --yes</pre>
           <p className="meta">After it completes, click Refresh to fetch the report.</p>
-          <button onClick={onRefresh}>Refresh status</button>
+          <button className="secondary" onClick={onRefresh}>Refresh status</button>
         </div>
       )}
 
-      {report && <ReportView report={report} />}
+      {showNav && (
+        <nav className="view-nav">
+          <button
+            className={view === 'report' ? 'ghost is-active' : 'ghost'}
+            onClick={() => setView('report')}
+          >
+            {t.navReport}
+          </button>
+          <button
+            className={view === 'history' ? 'ghost is-active' : 'ghost'}
+            onClick={() => setView('history')}
+          >
+            {t.navHistory}
+          </button>
+          {diffBase && (
+            <button
+              className={view === 'diff' ? 'ghost is-active' : 'ghost'}
+              onClick={() => setView('diff')}
+            >
+              {t.navDiff}
+            </button>
+          )}
+        </nav>
+      )}
+
+      {report && view === 'report' && (
+        <>
+          <ReportView report={report} />
+          {jobId && <FixPlanView jobId={jobId} />}
+        </>
+      )}
+
+      {report && view === 'history' && (
+        <AuditHistoryView
+          owner={report.repository.owner}
+          repo={report.repository.name}
+          currentJobId={jobId}
+          onCompare={onCompare}
+        />
+      )}
+
+      {report && view === 'diff' && diffBase && jobId && (
+        <>
+          <button className="ghost" onClick={() => setView('history')}>
+            ← {t.navHistory}
+          </button>
+          <AuditDiffView headJobId={jobId} baseJobId={diffBase} />
+        </>
+      )}
+
+      {!report && !loading && <EmptyCard />}
 
       <Footer />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <I18nProvider>
+      <Shell />
+    </I18nProvider>
   );
 }
