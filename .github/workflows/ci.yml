@@ -37,7 +37,15 @@ jobs:
       PAYMENT_MODE: mock
     services:
       postgres:
-        if: matrix.db == 'postgres'
+        # GitHub Actions has no `if` for services. `services.<id>` accepts
+        # only image / env / ports / volumes / options / credentials, and
+        # an unsupported key makes the entire workflow fail to parse —
+        # which is what happened here: every run failed in 0s with no
+        # logs, including runs from before this work started.
+        #
+        # So the container starts for both matrix legs. The sqlite leg
+        # never connects to it (its DATABASE_URL points at an in-memory
+        # file); the cost is a few seconds of container startup.
         image: postgres:16-alpine
         env:
           POSTGRES_DB: repopilot_test
