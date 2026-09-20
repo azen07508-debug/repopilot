@@ -274,6 +274,196 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           },
         },
       },
+      '/api/v1/audits/{jobId}/fix-plan': {
+        get: {
+          tags: ['derived'],
+          summary: 'Fix plans for a completed audit',
+          description:
+            'Derived from the stored report: one plan per finding, each with evidence, ordered steps, tests to add, acceptance criteria and agent instructions. Free — no payment challenge — and no repository is scanned.',
+          operationId: 'getAuditFixPlan',
+          parameters: [
+            {
+              name: 'jobId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'A FixPlanSet for the job.',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' },
+                },
+              },
+            },
+            '404': {
+              description: 'Unknown job',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+            '409': {
+              description: 'The job has not completed yet, so there is no report to derive from.',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/api/v1/audits/{jobId}/diff': {
+        get: {
+          tags: ['derived'],
+          summary: 'Compare two completed audits of the same repository',
+          description:
+            'Rule-level attribution of the score change, plus resolved / new / persistent findings. Free, and derived purely from the two stored reports.',
+          operationId: 'getAuditDiff',
+          parameters: [
+            {
+              name: 'jobId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+            {
+              name: 'base',
+              in: 'query',
+              required: true,
+              description: 'jobId of the earlier audit. List them via the repository history endpoint.',
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'An AuditDiff.',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing base, self-comparison, or the two audits belong to different repositories.',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+            '404': {
+              description: 'Unknown head or base job',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/api/v1/repositories/{owner}/{repo}/reaudit': {
+        post: {
+          tags: ['derived'],
+          summary: 'Re-audit a repository',
+          description:
+            'Same payment and idempotency path as POST /api/v1/audits, but the repository comes from the path instead of the body. Paid — it runs the pipeline again. This is the write half of the fix → re-audit → compare loop.',
+          operationId: 'reauditRepository',
+          parameters: [
+            {
+              name: 'owner',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+            {
+              name: 'repo',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    mode: { type: 'string', enum: ['quick', 'full'] },
+                    target: {
+                      type: 'string',
+                      enum: ['hackathon', 'open_source', 'production'],
+                    },
+                    outputLanguage: { type: 'string', enum: ['en', 'zh-CN'] },
+                    includeLaunchCopy: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '202': {
+              description: 'Job queued. Poll the Location header with Retry-After.',
+            },
+            '400': {
+              description: 'Invalid owner/repo segment or request body.',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+            '402': {
+              description: 'Payment required. Replay with X-PAYMENT.',
+            },
+          },
+        },
+      },
+      '/api/v1/repositories/{owner}/{repo}/audits': {
+        get: {
+          tags: ['derived'],
+          summary: 'Audit history for one repository',
+          description:
+            'Newest-first summaries. Full reports stay available through GET /api/v1/audits/{jobId}.',
+          operationId: 'listRepositoryAudits',
+          parameters: [
+            {
+              name: 'owner',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+            {
+              name: 'repo',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+            {
+              name: 'limit',
+              in: 'query',
+              required: false,
+              schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Audit summaries for the repository.',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     components: {
       schemas: {

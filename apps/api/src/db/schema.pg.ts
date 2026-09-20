@@ -27,6 +27,15 @@ export const jobs = pgTable(
     errorCode: text('error_code'),
     idempotencyKey: text('idempotency_key'),
     cacheJson: jsonb('cache_json'),
+    // Repository identity, promoted out of `input_json` so audit history
+    // and before/after comparison can be queried without scanning every
+    // row. Nullable on purpose: rows written before this migration keep
+    // NULL and are simply not returned by history queries.
+    owner: text('owner'),
+    repo: text('repo'),
+    commitSha: text('commit_sha'),
+    mode: text('mode'),
+    target: text('target'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull(),
   },
@@ -35,6 +44,8 @@ export const jobs = pgTable(
     createdIdx: index('idx_jobs_created').on(t.createdAt),
     paymentIdIdx: uniqueIndex('uq_jobs_payment_id').on(t.paymentId),
     idempotencyKeyIdx: uniqueIndex('uq_jobs_idempotency_key').on(t.idempotencyKey),
+    repoHistoryIdx: index('idx_jobs_owner_repo_created').on(t.owner, t.repo, t.createdAt),
+    commitShaIdx: index('idx_jobs_commit_sha').on(t.commitSha),
   }),
 );
 

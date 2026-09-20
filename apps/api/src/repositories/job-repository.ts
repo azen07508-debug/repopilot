@@ -6,7 +6,7 @@
  * over both with an `async` interface; SQLite calls complete in <1 ms
  * but are still awaited.
  */
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { jobs as jobsSqlite, type JobRow as JobRowSqlite } from '../db/schema.js';
 import { jobs as jobsPg, type PgJobRow } from '../db/schema.pg.js';
 import type { DB } from '../db/client.js';
@@ -26,13 +26,33 @@ export interface JobLifecyclePatch {
   failedAt?: string | null;
   idempotencyKey?: string | null;
   cacheJson?: string | null;
+  commitSha?: string | null;
+}
+
+/**
+ * Repository identity, supplied by the caller that already parsed the
+ * URL. The repository never parses `repoUrl` itself — host allow-listing
+ * must stay in one place (`parseRepoUrl`).
+ *
+ * `mode` and `target` are read off `job.input`, so only owner/repo are
+ * required here.
+ */
+export interface JobRepoIdentity {
+  owner: string;
+  repo: string;
 }
 
 export class JobRepository {
   constructor(private db: DB) {}
 
-  async insert(job: AuditJob): Promise<void> {
+  async insert(job: AuditJob, identity?: JobRepoIdentity): Promise<void> {
     const inputJson = JSON.stringify(job.input);
+    // Nullable by design: a caller that has no parsed identity leaves the
+    // history columns NULL, and history queries simply skip those rows.
+    const owner = identity?.owner ?? null;
+    const repo = identity?.repo ?? null;
+    const mode = job.input.mode ?? null;
+    const target = job.input.target ?? null;
     if (this.db.mode === 'sqlite') {
       this.db.db.insert(jobsSqlite)
         .values({
@@ -49,6 +69,11 @@ export class JobRepository {
           errorCode: null,
           idempotencyKey: null,
           cacheJson: null,
+          owner,
+          repo,
+          commitSha: null,
+          mode,
+          target,
           createdAt: job.createdAt,
           updatedAt: job.updatedAt,
         })
@@ -70,6 +95,11 @@ export class JobRepository {
         errorCode: null,
         idempotencyKey: null,
         cacheJson: null,
+        owner,
+        repo,
+        commitSha: null,
+        mode,
+        target,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
       })
@@ -100,6 +130,7 @@ export class JobRepository {
       if (patch.failedAt !== undefined) updates.failedAt = patch.failedAt;
       if (patch.idempotencyKey !== undefined) updates.idempotencyKey = patch.idempotencyKey;
       if (patch.cacheJson !== undefined) updates.cacheJson = patch.cacheJson;
+      if (patch.commitSha !== undefined) updates.commitSha = patch.commitSha;
 
       const where = expectedStatus
         ? and(eq(jobsSqlite.jobId, jobId), eq(jobsSqlite.status, expectedStatus))
@@ -119,6 +150,7 @@ export class JobRepository {
     if (patch.failedAt !== undefined) updates.failedAt = patch.failedAt;
     if (patch.idempotencyKey !== undefined) updates.idempotencyKey = patch.idempotencyKey;
     if (patch.cacheJson !== undefined) updates.cacheJson = patch.cacheJson;
+    if (patch.commitSha !== undefined) updates.commitSha = patch.commitSha;
 
     const conditions = expectedStatus
       ? and(eq(jobsPg.jobId, jobId), eq(jobsPg.status, expectedStatus))
@@ -170,6 +202,107 @@ export class JobRepository {
     const rows = await this.db.db.select().from(jobsPg).limit(limit);
     return rows.map(rowToJob);
   }
+
+  /**
+   * Audit history for one repository, newest first.
+   *
+   * Rows written before the identity columns existed carry NULL
+   * owner/repo and are intentionally excluded rather than guessed at.
+   */
+  async listByRepo(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
+    if (this.db.mode === 'sqlite') {
+      return this.db.db
+        .select()
+        .from(jobsSqlite)
+        .where(and(eq(jobsSqlite.owner, owner), eq(jobsSqlite.repo, repo)))
+        .orderBy(desc(jobsSqlite.createdAt))
+        .limit(limit)
+        .all()
+        .map(rowToJob);
+    }
+    const rows = await this.db.db
+      .select()
+      .from(jobsPg)
+      .where(and(eq(jobsPg.owner, owner), eq(jobsPg.repo, repo)))
+      .orderBy(desc(jobsPg.createdAt))
+      .limit(limit);
+    return rows.map(rowToJob);
+  }
+
+  /**
+   * Completed jobs that actually carry a report, newest first.
+   *
+   * This is the data source for before/after comparison: two entries
+   * from this list are enough to build an AuditDiff without touching
+   * the repository again.
+   */
+  async listCompletedByRepo(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
+    if (this.db.mode === 'sqlite') {
+      return this.db.db
+        .select()
+        .from(jobsSqlite)
+        .where(
+          and(
+            eq(jobsSqlite.owner, owner),
+            eq(jobsSqlite.repo, repo),
+            eq(jobsSqlite.status, 'completed'),
+            isNotNull(jobsSqlite.reportJson)
+          )
+        )
+        .orderBy(desc(jobsSqlite.createdAt))
+        .limit(limit)
+        .all()
+        .map(rowToJob);
+    }
+    const rows = await this.db.db
+      .select()
+      .from(jobsPg)
+      .where(
+        and(
+          eq(jobsPg.owner, owner),
+          eq(jobsPg.repo, repo),
+          eq(jobsPg.status, 'completed'),
+          isNotNull(jobsPg.reportJson)
+        )
+      )
+      .orderBy(desc(jobsPg.createdAt))
+      .limit(limit);
+    return rows.map(rowToJob);
+  }
+
+  /** The most recent job recorded against an exact commit. */
+  async findByCommitSha(owner: string, repo: string, commitSha: string): Promise<AuditJob | null> {
+    if (this.db.mode === 'sqlite') {
+      const row = this.db.db
+        .select()
+        .from(jobsSqlite)
+        .where(
+          and(
+            eq(jobsSqlite.owner, owner),
+            eq(jobsSqlite.repo, repo),
+            eq(jobsSqlite.commitSha, commitSha)
+          )
+        )
+        .orderBy(desc(jobsSqlite.createdAt))
+        .limit(1)
+        .all()[0];
+      return row ? rowToJob(row) : null;
+    }
+    const rows = await this.db.db
+      .select()
+      .from(jobsPg)
+      .where(
+        and(
+          eq(jobsPg.owner, owner),
+          eq(jobsPg.repo, repo),
+          eq(jobsPg.commitSha, commitSha)
+        )
+      )
+      .orderBy(desc(jobsPg.createdAt))
+      .limit(1);
+    const row = rows[0];
+    return row ? rowToJob(row) : null;
+  }
 }
 
 function rowToJob(row: AnyJobRow): AuditJob {
@@ -183,6 +316,7 @@ function rowToJob(row: AnyJobRow): AuditJob {
   const failedAtRaw = (row as { failedAt?: string | null }).failedAt ?? null;
   const attemptsRaw = (row as { attempts?: number | string }).attempts ?? 0;
   const idempotencyKeyRaw = (row as { idempotencyKey?: string | null }).idempotencyKey ?? null;
+  const commitShaRaw = (row as { commitSha?: string | null }).commitSha ?? null;
   const cacheRaw = (row as { cacheJson?: string | null | object }).cacheJson ?? null;
   let cacheField: { hit: boolean; keyVersion: string; expiresAt: string | null } | null = null;
   if (cacheRaw !== null && cacheRaw !== undefined && cacheRaw !== '') {
@@ -212,6 +346,7 @@ function rowToJob(row: AnyJobRow): AuditJob {
     failedAt: failedAtRaw,
     attempts: typeof attemptsRaw === 'string' ? Number(attemptsRaw) : attemptsRaw,
     idempotencyKey: idempotencyKeyRaw,
+    commitSha: commitShaRaw,
     cache: cacheField,
   };
 }

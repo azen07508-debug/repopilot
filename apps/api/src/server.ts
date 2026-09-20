@@ -31,6 +31,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerCapabilitiesRoutes } from './routes/capabilities.js';
 import { registerAuditRoutes } from './routes/audits.js';
 import { registerFreeCheckRoutes } from './routes/free-check.js';
+import { registerAuditDerivedRoutes } from './routes/audit-derived.js';
 import { buildOpenApiSpec } from './openapi.js';
 
 export interface AppDeps {
@@ -269,6 +270,9 @@ export async function buildApp(
     allowedHosts: deps.allowedHosts,
     githubToken: deps.githubToken ?? cfg.GITHUB_TOKEN,
   });
+  // Derived, free, read-only views over reports that already exist.
+  // They never scan a repository.
+  registerAuditDerivedRoutes(app, { service });
 
   app.setErrorHandler((err: unknown, req, reply) => {
     // Never echo the original error to the client.

@@ -22,7 +22,11 @@ import {
   type CreateAuditInput,
   type Report,
 } from '@repopilot/core';
-import type { JobRepository, JobLifecyclePatch } from '../repositories/job-repository.js';
+import type {
+  JobRepository,
+  JobLifecyclePatch,
+  JobRepoIdentity,
+} from '../repositories/job-repository.js';
 import type { PaymentAdapter } from '@repopilot/okx-adapter';
 
 export class JobService {
@@ -32,7 +36,19 @@ export class JobService {
     private payment: PaymentAdapter,
   ) {}
 
-  async create(input: CreateAuditInput, idempotencyKey?: string | null): Promise<AuditJob> {
+  /**
+   * Create a `queued` job.
+   *
+   * `identity` carries the already-parsed owner/repo. The route parses
+   * the URL once (through `parseRepoUrl`, which enforces the host
+   * allow-list) and passes the result down, so URL parsing and
+   * allow-listing never get duplicated inside the data layer.
+   */
+  async create(
+    input: CreateAuditInput,
+    idempotencyKey?: string | null,
+    identity?: JobRepoIdentity,
+  ): Promise<AuditJob> {
     const now = new Date().toISOString();
     const job = AuditJobSchema.parse({
       jobId: `job_${randomUUID()}`,
@@ -44,7 +60,7 @@ export class JobService {
       report: null,
       error: null,
     });
-    await this.repo.insert(job);
+    await this.repo.insert(job, identity);
     if (idempotencyKey) {
       await this.repo.update(job.jobId, { idempotencyKey });
     }
@@ -64,22 +80,37 @@ export class JobService {
   }
 
   /**
-   * Set the resolved head SHA on the job's stored input. The worker
-   * reads it back to build a stable cache key. We persist on the
-   * job row (in `started_at` companion field via a small patch) to
-   * keep the round-trip free.
+   * Persist the resolved head SHA on the job row.
    *
-   * The `commitSha` is stashed in the `error` column for now? No —
-   * we add it as a separate column. To avoid a schema migration, we
-   * instead use the existing `updated_at` field; the worker re-resolves
-   * the head SHA if it cannot find one in the input.
+   * The route resolves it once so the worker can build a stable cache
+   * key without a second network round-trip.
+   *
+   * This used to be a no-op placeholder: the SHA was silently dropped
+   * and the worker had to re-resolve it on every attempt. The
+   * `commit_sha` column now exists, so the value is actually stored.
    */
-  async setCommitSha(job: AuditJob, _commitSha: string): Promise<void> {
-    // No-op placeholder. The worker re-resolves the SHA from the
-    // MetadataAnalyzer if needed. The route passes `headSha` into the
-    // job's `input.commitSha` field via `setCommitSha`; the worker's
-    // `executeWithCache` reads it from there.
-    void _commitSha;
+  async setCommitSha(job: AuditJob, commitSha: string): Promise<void> {
+    await this.repo.update(job.jobId, { commitSha });
+  }
+
+  /** Audit history for one repository, newest first. */
+  async listHistory(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
+    return this.repo.listByRepo(owner, repo, limit);
+  }
+
+  /**
+   * Completed audits that carry a report, newest first.
+   *
+   * Two entries from this list are enough to build an AuditDiff, so
+   * before/after comparison never has to re-scan the repository.
+   */
+  async listCompletedHistory(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
+    return this.repo.listCompletedByRepo(owner, repo, limit);
+  }
+
+  /** The most recent audit recorded against an exact commit. */
+  async getByCommitSha(owner: string, repo: string, commitSha: string): Promise<AuditJob | null> {
+    return this.repo.findByCommitSha(owner, repo, commitSha);
   }
 
   /**

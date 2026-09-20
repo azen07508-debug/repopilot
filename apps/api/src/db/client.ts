@@ -135,6 +135,11 @@ export async function runMigrations(db: DB): Promise<void> {
           failed_at TEXT,
           error_code TEXT,
           idempotency_key TEXT,
+          owner TEXT,
+          repo TEXT,
+          commit_sha TEXT,
+          mode TEXT,
+          target TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         )
@@ -149,6 +154,14 @@ export async function runMigrations(db: DB): Promise<void> {
         `ALTER TABLE jobs ADD COLUMN error_code TEXT`,
         `ALTER TABLE jobs ADD COLUMN idempotency_key TEXT`,
         `ALTER TABLE jobs ADD COLUMN cache_json TEXT`,
+        // Repository identity for audit history. Nullable: rows written
+        // before this migration keep NULL and are excluded from history
+        // queries rather than being guessed at.
+        `ALTER TABLE jobs ADD COLUMN owner TEXT`,
+        `ALTER TABLE jobs ADD COLUMN repo TEXT`,
+        `ALTER TABLE jobs ADD COLUMN commit_sha TEXT`,
+        `ALTER TABLE jobs ADD COLUMN mode TEXT`,
+        `ALTER TABLE jobs ADD COLUMN target TEXT`,
       ];
       for (const stmt of addCols) {
         try {
@@ -163,6 +176,8 @@ export async function runMigrations(db: DB): Promise<void> {
       db.raw.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at)`);
       db.raw.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_payment_id ON jobs(payment_id) WHERE payment_id IS NOT NULL`);
       db.raw.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_idempotency_key ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL`);
+      db.raw.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_owner_repo_created ON jobs(owner, repo, created_at DESC)`);
+      db.raw.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_commit_sha ON jobs(commit_sha)`);
       db.raw.exec(`
         CREATE TABLE IF NOT EXISTS report_cache (
           id TEXT PRIMARY KEY,
@@ -204,6 +219,11 @@ export async function runMigrations(db: DB): Promise<void> {
         failed_at TIMESTAMPTZ,
         error_code TEXT,
         idempotency_key TEXT,
+        owner TEXT,
+        repo TEXT,
+        commit_sha TEXT,
+        mode TEXT,
+        target TEXT,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )
@@ -218,6 +238,11 @@ export async function runMigrations(db: DB): Promise<void> {
       `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS error_code TEXT`,
       `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cache_json JSONB`,
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS owner TEXT`,
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS repo TEXT`,
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS commit_sha TEXT`,
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS mode TEXT`,
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS target TEXT`,
     ];
     for (const stmt of addCols) {
       try {
@@ -232,6 +257,8 @@ export async function runMigrations(db: DB): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at)`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_payment_id ON jobs(payment_id) WHERE payment_id IS NOT NULL`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_idempotency_key ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_jobs_owner_repo_created ON jobs(owner, repo, created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_jobs_commit_sha ON jobs(commit_sha)`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS report_cache (
         id TEXT PRIMARY KEY,

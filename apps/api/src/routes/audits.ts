@@ -38,6 +38,7 @@ import {
   ReportSchema,
   MetadataAnalyzer,
   parseRepoUrl,
+  type CreateAuditInput,
   type Report,
 } from '@repopilot/core';
 import { priceFor, type PaymentConfig } from '@repopilot/okx-adapter';
@@ -47,6 +48,9 @@ import type { CacheService } from '../services/cache-service.js';
 import type { AuditQueue } from '../queue/audit-queue.js';
 
 const POLL_AFTER_MS = 1000;
+
+/** Plain GitHub path segments. Anything else is rejected before a URL is built. */
+const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 export interface AuditRoutesDeps {
   service: JobService;
@@ -101,8 +105,74 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
         }),
       );
     }
-    const input = parsed.data;
+    return handleCreate(req, reply, parsed.data);
+  });
 
+  /**
+   * Re-audit a repository using coordinates the caller already has.
+   *
+   * This is deliberately the SAME code path as `POST /api/v1/audits` —
+   * same payment challenge, same idempotency keys, same queue. It exists
+   * so an agent (or the Web UI) can close the loop — fix, re-audit,
+   * compare — without re-typing the URL.
+   *
+   * Paid: it runs the pipeline again. The derived read-only views
+   * (fix-plan / diff / history) are the free half of the same loop.
+   */
+  app.post<{ Params: { owner: string; repo: string } }>(
+    '/api/v1/repositories/:owner/:repo/reaudit',
+    async (req, reply) => {
+      const { owner, repo } = req.params;
+      if (!SAFE_SEGMENT.test(owner) || !SAFE_SEGMENT.test(repo)) {
+        return sendError(
+          reply,
+          new HttpError({
+            statusCode: 400,
+            code: 'INVALID_INPUT',
+            message: 'owner and repo must be plain GitHub path segments',
+          }),
+        );
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const parsed = CreateAuditInputSchema.safeParse({
+        repoUrl: `https://github.com/${owner}/${repo}`,
+        mode: body['mode'] ?? 'quick',
+        target: body['target'] ?? 'open_source',
+        outputLanguage: body['outputLanguage'] ?? 'en',
+        includeLaunchCopy: body['includeLaunchCopy'] ?? true,
+      });
+      if (!parsed.success) {
+        return sendError(
+          reply,
+          new HttpError({
+            statusCode: 400,
+            code: 'INVALID_INPUT',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          }),
+        );
+      }
+      // The constructed URL still passes through `parseRepoUrl` inside
+      // `handleCreateAudit`, so the host allow-list applies here too.
+      return handleCreate(req, reply, parsed.data);
+    }
+  );
+
+  /**
+   * Shared create-or-replay path for a paid audit.
+   *
+   * A closure rather than a module-level function, so both POST routes
+   * and the GET below stay in one readable block and `deps` does not
+   * have to be threaded through by hand.
+   *
+   * `POST /audits` and `POST /repositories/:owner/:repo/reaudit` share
+   * this so they cannot drift apart: payment verification, idempotency,
+   * head-SHA resolution and enqueueing happen exactly once, in one place.
+   */
+  const handleCreate = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    input: CreateAuditInput,
+  ): Promise<unknown> => {
     // Idempotency-Key: if the client supplies one and it matches an
     // existing job, return the same jobId without creating new state.
     const idempotencyKey = (
@@ -169,7 +239,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       // client can safely retry with X-PAYMENT and reuse the same
       // jobId. We create the queued job WITHOUT a paymentId and
       // attach it on the second POST.
-      const queued = await deps.service.create(input, idempotencyKey);
+      const queued = await deps.service.create(input, idempotencyKey, parsedRepo);
       const price = priceFor(deps.payment, input.mode);
       const adapter = deps.service.getPaymentAdapter();
       const challenge = await adapter.createChallenge({
@@ -217,7 +287,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
 
     // 5. Payment verified. Create (or reuse) the queued job and enqueue.
     if (!job) {
-      job = await deps.service.create(input, idempotencyKey);
+      job = await deps.service.create(input, idempotencyKey, parsedRepo);
     }
     if (job.paymentId !== priorPaymentId) {
       await deps.service.attachPayment(job, priorPaymentId);
@@ -258,7 +328,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       statusUrl: `/api/v1/audits/${job.jobId}`,
       pollAfterMs: POLL_AFTER_MS,
     });
-  });
+  };
 
   app.get('/api/v1/audits/:jobId', async (req: FastifyRequest<{ Params: { jobId: string } }>, reply: FastifyReply) => {
     const job = await deps.service.get(req.params.jobId);
