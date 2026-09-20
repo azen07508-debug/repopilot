@@ -91,6 +91,14 @@ jobs:
       - name: Lint
         run: pnpm -r lint
 
+      # apps/web imports types from @repopilot/core, and those resolve
+      # through the package's `exports` field to ./dist/index.d.ts.
+      # `pnpm -r typecheck` runs `tsc --noEmit` in every package, so it
+      # never emits that dist — without this step every downstream import
+      # degrades to `any` and the type errors that follow are noise.
+      - name: Build @repopilot/core (types for downstream packages)
+        run: pnpm --filter @repopilot/core build
+
       - name: Typecheck
         run: pnpm -r typecheck
 
