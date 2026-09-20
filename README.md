@@ -2,10 +2,15 @@
 
 **One repo in. A launch-ready plan out.**
 
-RepoPilot audits public GitHub repositories and returns a structured
-launch-readiness report. The report has evidence-backed findings,
-explainable scoring, and ready-to-paste launch copy. It is built for
-Web3 developers, hackathon contestants, and other AI agents.
+RepoPilot is the quality layer for agents that ship code. Point it at a
+public GitHub repository and get a structured launch-readiness report —
+evidence-backed findings, explainable scoring, and ready-to-paste launch
+copy — plus a **fix plan per finding** that an agent can act on directly.
+
+It closes the loop: audit → fix plan → fix → re-audit → compare. The
+comparison attributes score movement rule by rule and splits findings
+into resolved, new and still-open. Built for Web3 developers, hackathon
+contestants, and other AI agents.
 
 📚 **Looking for a specific doc?** Start at
 [docs/INDEX.md](docs/INDEX.md) — it lists every document with one-line
@@ -18,17 +23,28 @@ audit. It does not custody funds or read private keys.
 ## Why RepoPilot
 
 - **Evidence first.** Every finding has at least one `path:line:reason`
-  pointer. The score is rule-based and reproducible.
-- **Built for AI agents.** The report is a single JSON document with
-  a stable schema (`reportVersion: "1.0"`). The MCP server exposes
-  three tools so any MCP-compatible client can drive it.
-- **No surprise charges.** A `MockPaymentAdapter` is the default;
-  the real `OkxPaymentAdapter` is opt-in. See
+  pointer, and so does every fix step. The score is rule-based and
+  reproducible.
+- **A plan, not just a report.** Each finding gets a fix plan with
+  ordered steps, tests to add, acceptance criteria, estimated effort and
+  risks — plus an `agentInstructions` block you can hand straight to
+  Codex, Claude Code or OpenCode.
+- **Before/after, attributed.** Re-audit after fixing and RepoPilot says
+  what moved: the score delta per dimension, the exact scoring rules
+  that changed, and which findings were resolved, appeared or persist.
+- **Built for AI agents.** The report is a single JSON document with a
+  stable schema (`reportVersion: "1.0"`). The MCP server exposes seven
+  tools and marks which of them are free, so any MCP-compatible client
+  can drive the whole loop.
+- **No surprise charges.** Reading a fix plan or a comparison is free;
+  only running an audit costs anything. A `MockPaymentAdapter` is the
+  default, the real `OkxPaymentAdapter` is opt-in. See
   [`docs/EXTERNAL_ACTIONS.md`](docs/EXTERNAL_ACTIONS.md) for the
   Beta gate.
-- **No execution.** The pipeline reads text only. Binary files are
-  skipped, prompts-injection patterns are reported as findings, and
-  the LLM (when enabled) is restricted to natural-language copy.
+- **No execution, and no LLM in the scoring.** The pipeline reads text
+  only. Binary files are skipped, prompt-injection patterns are reported
+  as findings, and the LLM (when enabled) may only rewrite natural
+  language — never a score, a priority or a piece of evidence.
 
 ## Quick start
 
@@ -73,6 +89,19 @@ curl -X POST http://localhost:4000/api/v1/audits \
        "mode":"quick","target":"open_source","outputLanguage":"en"}'
 ```
 
+Then close the loop. These three are free and never re-scan the repo:
+
+```bash
+# 3. Get an actionable plan for every finding
+curl http://localhost:4000/api/v1/audits/<jobId>/fix-plan
+
+# 4. Fix something, then audit the same repository again
+curl -X POST http://localhost:4000/api/v1/repositories/octocat/Hello-World/reaudit
+
+# 5. See what actually changed, attributed rule by rule
+curl "http://localhost:4000/api/v1/audits/<newJobId>/diff?base=<jobId>"
+```
+
 ## Documentation
 
 | Doc                                                  | What's in it                                          |
@@ -82,6 +111,7 @@ curl -X POST http://localhost:4000/api/v1/audits \
 | [docs/SECURITY.md](docs/SECURITY.md)                 | Threat model, mitigations, redaction                  |
 | [docs/API.md](docs/API.md)                           | Full HTTP API reference                               |
 | [docs/MCP_CLIENT_SETUP.md](docs/MCP_CLIENT_SETUP.md) | Claude Code / Codex / OpenClaw / generic              |
+| [docs/REPOSITORY_INTELLIGENCE_PLAN.md](docs/REPOSITORY_INTELLIGENCE_PLAN.md) | Repository intelligence roadmap |
 | [docs/EXTERNAL_ACTIONS.md](docs/EXTERNAL_ACTIONS.md) | The only place that lists what a human must do        |
 | [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Pre-tag checklist                                    |
 | [docs/HERO_IMAGE_BRIEF.md](docs/HERO_IMAGE_BRIEF.md) | Marketplace hero spec                                 |
@@ -108,9 +138,10 @@ repopilot/
     web/      React + Vite admin UI
   packages/
     core/        analyzers + scoring + report + security + schemas + llm
-    mcp-server/  MCP server (stdio)
+                 + fixplan (report -> fix plan) + diff (report -> diff)
+    mcp-server/  MCP server (stdio), seven tools
     okx-adapter/ PaymentAdapter interface, mock + OKX implementations
-  fixtures/      5 sample repos for tests
+  fixtures/      6 sample repos for tests
   docs/          ARCHITECTURE / DEPLOYMENT / SECURITY / API / MCP / EXTERNAL
   scripts/       env-check, verify-release, docker-check, lint
   .github/workflows/  ci.yml + docker.yml
