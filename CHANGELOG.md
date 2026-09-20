@@ -5,6 +5,222 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Repository Intelligence — Phase 0 audit + V0.2-b schemas.**
+  - `docs/REPOSITORY_INTELLIGENCE_PLAN.md`: a full code audit plus the
+    phased plan to evolve RepoPilot into a *Repository Intelligence
+    Layer for AI Coding Agents*. No rewrite — the existing API, MCP
+    tools, report schema, analyzers, fixtures and tests are preserved.
+    The audit corrected three assumptions in the original proposal:
+    there is no AST parser, there is no git history / local clone, and
+    the per-file `getContent` I/O cannot sustain Repository Map under
+    the 60 req/h anonymous limit.
+  - ADRs **D-017 ~ D-021** in `DECISIONS.md`: tarball I/O (D-017),
+    symbol parser selection (D-018), MCP billing split — report tools
+    paid, query tools free (D-019), `ChangeSource` abstraction
+    (D-020), intelligence artifact caching (D-021).
+  - Risks **R-17 ~ R-21** in `RISKS.md`.
+  - `packages/core/src/schemas/intelligence/`: versioned Zod schemas
+    for `RepositoryMap`, `SymbolMap`, `DependencyGraph`,
+    `ArchitectureGraph`, `ChangeImpact`, `AgentContextPack` and
+    `EvidenceV2`. Every artifact carries its own `schemaVersion`,
+    decoupled from `Report.reportVersion`, which stays `'1.0'`.
+  - `EvidenceV2` is a strict superset of v1 `Evidence`: `file` and
+    `line` survive as optional mirrors, so existing consumers are
+    unaffected. `toEvidenceV2` / `toLegacyEvidence` round-trip between
+    the two shapes.
+- **Web UI redesign (preserve mode) + Simplified Chinese locale.**
+  - `apps/web/src/styles.css` rewritten: off-black / off-white instead
+    of pure `#000` / `#fff`, desaturated semantic colours, a documented
+    radius scale (cards 14px, controls 10px, pills 999px, code 6px),
+    two card elevation tiers, focus-visible rings, `:active` feedback,
+    `prefers-reduced-motion` handling and a 768px breakpoint.
+  - New `apps/web/src/i18n.tsx`: `en` and `zh-CN` dictionaries with a
+    Context provider, localStorage persistence and
+    `document.documentElement.lang` sync. No new dependency. The
+    `zh-CN` dictionary is typed as the English one, so a missing key is
+    a compile error.
+  - Loading (skeleton), empty (dashed placeholder) and error states
+    added; disabled buttons now change colour instead of using
+    `opacity`; checklist emoji replaced by a CSS checkmark with an
+    `aria-label`; section headings are no longer uppercase tracked
+    eyebrows.
+  - Every UI string in `App`, `Header`, `StatusBar`, `AuditForm`,
+    `ReportView` and `Footer` now goes through the dictionary. Report
+    *content* language is still driven by the API `outputLanguage`.
+  - Measured with Playwright against system Chrome: card visual
+    signatures 1 → 3, minimum text contrast 4.83 → 5.67 (dark mode
+    7.53), zero horizontal overflow, zero dead white, zero wrapped
+    buttons. `npm run typecheck` and `npm run build` both pass.
+- **Launch Readiness layer, P0 (core only).**
+  - `packages/core/src/schemas/fix-plan.ts`: `FixPlanSchema` with
+    priority `P0|P1|P2`, effort `S|M|L`, status
+    `open|resolved|ignored`, mandatory evidence (D-008 extended to
+    plans), ordered steps, tests to add, acceptance criteria and a
+    ready-to-paste `agentInstructions` block.
+  - `packages/core/src/schemas/audit-diff.ts`: `AuditDiffSchema` with
+    base/head refs, `scoreDelta`, `dimensionDeltas`, `ruleDeltas`,
+    resolved / new / persistent finding ids and an
+    improved / regressed / unchanged verdict.
+  - `packages/core/src/fixplan/builder.ts`: `buildFixPlan()` and
+    `buildFixPlanSet()` derive plans from an existing `Report` with no
+    scan, no analyzer, no network and no pipeline call. Priority and
+    effort come from severity; evidence is copied from the finding and
+    never invented.
+  - `packages/core/src/fixplan/template.ts`: deterministic plan text
+    plus `renderAgentInstructions()` laid out as Repository / Commit /
+    Finding / Evidence / Objective / Steps / Constraints / Acceptance
+    Criteria.
+  - `packages/core/src/diff/reports.ts`: `diffReports()` compares two
+    reports. `ruleDeltas` is computed from the existing
+    `ScoreBreakdown.rules[]`, so a score change is attributed rule by
+    rule instead of being explained by an LLM.
+  - `polishFixPlanSet()` is the only LLM touchpoint: it may rewrite the
+    `why` sentence and nothing else. With the default
+    `NoopLLMProvider` the output is fully deterministic and
+    `llmEnhanced` stays `false`. A failing provider falls back to the
+    deterministic text.
+  - `Report.reportVersion` stays `'1.0'` and `ReportSchema` is
+    untouched, so a fix plan remains an optional derivation rather
+    than a required report field.
+  - 61 new tests: fix-plan builder 15, templates 11, diff 16, fixture
+    coverage + schema boundaries 19. Core suite is now 143 passing.
+- **Audit history queries + the `setCommitSha` fix (Step 4).**
+  - `JobRepository` gained `listByRepo()`, `listCompletedByRepo()` and
+    `findByCommitSha()`, plus an optional `identity` argument on
+    `insert()` that fills the new `owner` / `repo` / `mode` / `target`
+    columns. Rows inserted without an identity keep NULL and are
+    skipped by history queries rather than guessed at.
+  - `JobService` gained `listHistory()`, `listCompletedHistory()` and
+    `getByCommitSha()`.
+  - **Fixed:** `JobService.setCommitSha()` was a no-op placeholder. The
+    route resolved the head SHA and then silently discarded it, so the
+    worker had to re-resolve it on every attempt. It now persists to
+    the `commit_sha` column.
+  - The route passes its already-parsed owner/repo down to
+    `service.create()`, so `parseRepoUrl` and its host allow-list are
+    never duplicated inside the data layer.
+  - Verified against a real SQLite database (9 checks): identity
+    persistence, identity-less rows staying NULL, newest-first
+    ordering, limit handling, completed-with-report filtering, commit
+    lookup, and "newest wins" when two jobs share a commit sha.
+- **Three free, derived read-only endpoints (Step 5).**
+  - `GET /api/v1/audits/{jobId}/fix-plan` — every fix plan for a
+    completed audit, derived on read from the stored report. Plans are
+    deliberately not persisted: a stored copy would only drift from the
+    report it came from.
+  - `GET /api/v1/audits/{jobId}/diff?base={jobId}` — before/after
+    comparison with rule-level attribution, plus resolved / new /
+    persistent findings. Rejects self-comparison and cross-repository
+    comparison.
+  - `GET /api/v1/repositories/{owner}/{repo}/audits?limit=` — newest
+    first history summaries (jobId, commit sha, score, finding count).
+    The limit is clamped to 1..100 rather than trusted.
+  - None of the three issues a payment challenge, and none can scan a
+    repository: the module does not import `AuditPipeline`, a fetcher,
+    a queue or a payment adapter, and a test asserts that by inspecting
+    the import list.
+  - `AuditJobSchema` gained `commitSha` (nullable, default null) and the
+    repository row mapper now returns it, so fix-plan instructions can
+    name the exact commit.
+  - OpenAPI: three new `derived` tag paths.
+  - Verified with 14 checks against a real Fastify instance whose
+    service stub exposes only read methods — "did it re-scan?" is
+    answered structurally, not by inspecting mocks.
+- **Web UI: fix plan, audit history and before/after comparison
+  (Step 8).**
+  - `FixPlanView` renders every plan for a completed audit: priority
+    and effort pills, the evidence pointers, ordered steps, tests to
+    add, acceptance criteria, the risk note, and the full
+    `agentInstructions` block behind a disclosure with a copy button.
+  - `AuditHistoryView` lists a repository's audits newest first with
+    commit, mode, score and finding count, marking the audit currently
+    on screen and offering the others as a comparison baseline.
+  - `AuditDiffView` shows the verdict, the overall delta, per-dimension
+    deltas, a rule-level table explaining *why* the score moved, and the
+    resolved / new / still-open finding groups.
+  - Score deltas follow the Chinese market convention — a rise is red, a
+    fall is green — using dedicated `--delta-up` / `--delta-down`
+    tokens rather than `--ok` / `--bad`, whose meaning is the opposite.
+  - A `Report / History / Comparison` tab strip appears once an audit
+    has completed; the comparison tab only appears after a baseline is
+    chosen.
+  - All new strings are bilingual (en / zh-CN).
+  - Verified with 13 end-to-end checks in a real browser, including that
+    an *unchanged* scoring rule does not leak into the rule-delta table
+    and that the flow produces no console errors.
+  - Bundle: 172.5 kB (up from 160 kB for three new views); `@octokit/rest`
+    still absent, confirming the type-only core import holds.
+- **Re-audit endpoint — the loop closes (Step 9).**
+  - `POST /api/v1/repositories/{owner}/{repo}/reaudit` runs a fresh
+    audit from coordinates the caller already has, so an agent (or the
+    UI) can go fix → re-audit → compare without re-typing the URL.
+  - It shares the *same* code path as `POST /api/v1/audits`: payment
+    challenge, idempotency keys, head-SHA resolution and enqueueing are
+    one closure (`handleCreate`), not two copies that drift.
+  - `owner` / `repo` must match `/^[A-Za-z0-9._-]+$/`; the constructed
+    URL still passes through `parseRepoUrl`, so the host allow-list
+    applies here exactly as it does on the normal path.
+  - Body is optional; `mode`, `target`, `outputLanguage` and
+    `includeLaunchCopy` fall back to the same defaults as the main
+    endpoint.
+  - OpenAPI documents it under the `derived` tag.
+  - Verified with 9 checks, three of which specifically re-test
+    `POST /api/v1/audits` to prove the extraction changed nothing: the
+    402 challenge, the 202 + enqueue, and the forwarded owner/repo
+    identity. Also verified that a re-audit is rejected when the
+    repository is outside the host allow-list.
+- **MCP: the same loop, for agents (Step 7).**
+  - Four new tools. `get_fix_plan` and `compare_audits` are the agent
+    equivalents of the derived HTTP endpoints; `list_audit_history`
+    removes the need to track job ids by hand; `reaudit_repository` is
+    the paid write half of the loop.
+  - `reaudit_repository` and `audit_github_repository` share one
+    `runPaidAudit()` closure, so the payment handshake, the mock
+    auto-verify and the pipeline call exist exactly once.
+  - `get_repopilot_capabilities` now returns a `billing` map marking
+    every tool free or paid (D-019). Agents on the OKX.AI marketplace
+    need this to decide what they can afford to call.
+  - Failures come back as structured payloads — `job_not_found`,
+    `report_not_ready:<status>`, `base_job_not_found`,
+    `invalid_input:…`, `repo_mismatch:…` — instead of thrown
+    exceptions, so an agent can branch on them.
+  - The free tools call the same pure functions as the API
+    (`buildFixPlanSet`, `diffReports`). No second implementation, and
+    no repository scan.
+  - `JobStore.listByRepo()` added for in-memory history.
+  - Verified with 11 checks over the in-memory MCP transport: the tool
+    list, the billing map, plan derivation with evidence and agent
+    instructions, diff attribution, and every error path.
+
+### Changed
+
+- **`jobs` table gained repository identity columns** — `owner`,
+  `repo`, `commit_sha`, `mode`, `target` — plus two indexes
+  (`idx_jobs_owner_repo_created`, `idx_jobs_commit_sha`), on both
+  SQLite and Postgres. This is what makes audit history and
+  before/after comparison queryable without scanning `input_json` on
+  every request. All five columns are nullable, so rows written before
+  the migration keep NULL and are excluded from history queries rather
+  than being guessed at. No existing column was modified. The migration
+  is idempotent and was verified against a real SQLite database,
+  including an in-place upgrade of a pre-migration table and an
+  `EXPLAIN QUERY PLAN` assertion that the new index is actually chosen
+  by the planner.
+- **`apps/web` now imports report types from `@repopilot/core`.**
+  `lib/api.ts` previously kept a hand-copied duplicate of `Report`,
+  `Finding` and `Evidence`, which meant a schema change would not
+  surface in the UI. The import is type-only so `@octokit/rest` never
+  reaches the browser bundle (verified: 160 kB, unchanged). Transport
+  contracts (`Health`, `AuditResponse`) stay local because they
+  describe HTTP, not the report schema.
+- `get_repopilot_capabilities` gained a `billing` field. The three
+  original MCP tool signatures are unchanged.
+- Nothing else changed in the existing API surface or report schema.
+
 ## [0.1.0-rc.3] - 2026-07-19
 
 ### Added

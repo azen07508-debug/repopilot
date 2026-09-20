@@ -229,3 +229,112 @@ Architecture Decision Records (ADR-style, lightweight).
 - **Consequences:** Production deploys cannot accidentally run with
   an in-process queue. The `queue` block in `/health` is the
   operator's primary detection signal.
+
+## D-017 — Repository I/O 切换到 tarball 批量拉取
+
+- **Date:** 2026-09-19
+- **Status:** Accepted (V0.2)
+- **Context:** `GitHubFetcher.fetchContents()` calls
+  `repos.getContent` once per file. With `DEFAULT_LIMITS.maxFiles =
+  2000` a single full audit can issue 2000 API requests. Repository
+  Map and Symbol Map need to read a large number of source files,
+  which blows through the anonymous GitHub limit of 60 req/h (R-03)
+  before the analysis finishes. AST parsing also needs complete
+  source, not a sample.
+- **Decision:** Add a `TarballSource` that downloads the archive once
+  (`repos.downloadTarball` / `GET /repos/{owner}/{repo}/tarball/{ref}`)
+  into a `mkdtemp('/tmp/repopilot-')` directory and reads from disk
+  afterwards. Extraction performs no `spawn` of any kind — D-007
+  forbids executing repository code, and decompression is not
+  execution. `GitHubFetcher.fetchContents()` stays as the fallback
+  path: if the tarball download fails we degrade to it and mark the
+  output `degraded: true`.
+- **Consequences:** API request count drops from O(files) to O(1).
+  New disk and byte caps are required (see R-17). `filterFiles` and
+  `classifyFile` are reused unchanged, so the text/binary/ignore
+  policy is identical. Tests drive the tarball path via a local
+  directory source (fixtures), never the network.
+
+## D-018 — Symbol parser selection (TypeScript compiler API + regex fallback)
+
+- **Date:** 2026-09-19
+- **Status:** Accepted (V0.2)
+- **Context:** `@repopilot/core` production dependencies are
+  `octokit`, `pino`, `zod` only. There is no AST parser, but
+  Phase 2 requires a Symbol Map.
+- **Decision:** Parse TypeScript/JavaScript with the `typescript`
+  compiler API (promoted from devDependency to dependency, aligned
+  with the existing `^5.7.2`). Python, Solidity and every other
+  language fall back to regex/heuristic extraction. Every symbol
+  carries `parser` and `parserConfidence` so precision is traceable.
+  We explicitly **do not** introduce tree-sitter: it requires a new
+  `allowBuilds` entry (D-002) and changes the Docker multi-stage
+  build, and the payoff does not justify that across all languages.
+- **Consequences:** TS/JS precision is high; other languages are
+  approximate but explainable via `degraded` + `failures[]`. A parser
+  failure in one language must never fail the whole audit — this is
+  enforced by the `SymbolMapSchema.degraded` / `failures` fields.
+
+## D-019 — MCP billing split (report tools paid, query tools free)
+
+- **Date:** 2026-09-19
+- **Status:** Accepted (V0.3)
+- **Context:** Every existing MCP tool goes through the
+  `paymentAdapter` (x402 / 402 challenge). An agent entering an
+  unfamiliar repository typically issues 5–10 queries
+  (`repo_map`, `architecture`, `symbols`, `task_context`,
+  `get_agent_context`, …). Per-call billing makes those high-frequency
+  small queries unusable and would push agents back to "just read the
+  whole repo", which is exactly what RepoPilot exists to prevent.
+- **Decision:** Split MCP tools into two classes:
+  - **Report tools — billed via x402:** `audit_github_repository`,
+    and later `generate_fix_plan`.
+  - **Query tools — free in both `mock` and `okx` payment modes:**
+    `repo_overview`, `repo_map`, `architecture`, `dependency_graph`,
+    `symbol_map`, `compare_commits`, `analyze_change_impact`,
+    `task_context`, `find_relevant_files`, `security_findings`,
+    `test_gaps`, `documentation_gaps`, `get_agent_context`,
+    `get_project_conventions`, `get_known_risks`.
+  Billing class is an explicit property of each tool, not an implicit
+  behaviour. `get_repopilot_capabilities` must return a `billing`
+  field per tool so clients can see the split.
+- **Consequences:** Free tools must be rate-limited — reuse
+  `middleware/rate-limit.ts` and extend it beyond IP to a per-caller
+  key. Paid reports keep their value: the paid path remains the only
+  way to obtain a full `Report` document.
+
+## D-020 — ChangeSource abstraction (Compare API first, local git later)
+
+- **Date:** 2026-09-19
+- **Status:** Accepted (V0.4)
+- **Context:** The repository has neither git history nor a local
+  clone — the fetcher only uses the Trees API. Change Impact needs a
+  base/head diff.
+- **Decision:** Define a `ChangeSource` interface with
+  `compare(base, head): Promise<ChangedFile[]>`. V0.4 implements only
+  `GitHubCompareSource` (`octokit.repos.compareCommits`): zero new
+  dependencies, computed remotely, and it never executes repository
+  code. `LocalGitSource` (read-only git commands for a local
+  worktree / MCP local path) is deferred to V0.5 and is restricted to
+  read-only commands such as `git diff --name-status`.
+- **Consequences:** When git information is unavailable the engine
+  returns `degraded: true` instead of throwing. Compare API
+  truncation on very large diffs must be declared in `limitations`
+  (see R-19).
+
+## D-021 — Intelligence artifact caching
+
+- **Date:** 2026-09-19
+- **Status:** Accepted (V0.3)
+- **Context:** `repositoryMap` and `architectureGraph` are large JSON
+  documents, and an agent queries the same repository repeatedly
+  across requests.
+- **Decision:** Add an `intelligence_cache` table keyed by
+  (`owner/repo`, `commitSha`, `kind`, `schemaVersion`), reusing the
+  `report_cache` TTL and request-coalescing pattern. Intelligence
+  artifacts are **not** embedded in `Report` by default — they are
+  attached as optional fields only when explicitly requested — so
+  the `report_json` column does not balloon (see R-20).
+- **Consequences:** Both SQLite and Postgres `CREATE` statements must
+  be updated together (D-005). Cache invalidation depends on
+  `commitSha`, consistent with the report cache.

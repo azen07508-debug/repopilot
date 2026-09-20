@@ -121,6 +121,112 @@ repopilot/
   a full report in ~3s with cache miss → 1st request, no rate-limit issues.
 - Docker CI: `.github/workflows/docker.yml` (buildx + smoke `/health`)
 
+## Repository Intelligence upgrade (planning, Phase 0 done)
+
+RepoPilot is being progressively upgraded from a *launch-readiness audit
+tool* into a **Repository Intelligence Layer for AI Coding Agents**
+(Codex / Claude Code / OpenCode / OpenClaw). No rewrite — the existing
+stack, API, MCP, DB, analyzers, fixtures and tests all stay.
+
+- Full code audit + phased plan:
+  [docs/REPOSITORY_INTELLIGENCE_PLAN.md](docs/REPOSITORY_INTELLIGENCE_PLAN.md)
+- Phase 0 completed 2026-09-19 against commit `f95ccb5`.
+- Three assumptions in the original proposal were corrected by the audit:
+  1. `@repopilot/core` has **no AST parser** — Symbol Map needs one
+     (ADR D-018 proposes `typescript` compiler API + regex fallback).
+  2. There is **no git history / local clone** — Change Impact must use
+     the GitHub Compare API, not `git diff` (ADR D-020).
+  3. `fetchContents` is **one API request per file** — Repository Map
+     would blow the 60 req/h anonymous limit. Switch to tarball
+     download first (ADR D-017). **This is the V0.2 blocker.**
+- **Done 2026-09-19:** ADRs D-017 ~ D-021 are in `DECISIONS.md`, risks
+  R-17 ~ R-21 are in `RISKS.md`, and the intelligence Zod schemas are
+  landed in `packages/core/src/schemas/intelligence/` with unit tests
+  (V0.2-b). Nothing in the existing API / MCP / report / DB surface
+  changed.
+- Next: V0.2-c — replace the per-file `getContent` I/O with the
+  tarball source (D-017), then V0.2-d Repository Map builder.
+
+## Launch Readiness layer — P0 core (done 2026-09-20)
+
+RepoPilot is gaining a closed loop:
+**Audit → Evidence → Findings → Fix Plan → Agent Instructions →
+Re-Audit → Compare**. The P0 slice is core-only; API, MCP and Web are
+not wired yet.
+
+- `FixPlanSchema` / `AuditDiffSchema` — own `schemaVersion`, decoupled
+  from `Report.reportVersion`, which stays `'1.0'`.
+- `buildFixPlan()` / `buildFixPlanSet()` — pure derivations from an
+  existing `Report`. No scan, no analyzer, no network, no
+  `AuditPipeline.run()`.
+- `diffReports()` — `ruleDeltas` computed from the existing
+  `ScoreBreakdown.rules[]`, so score movement is attributed rule by
+  rule. Finding classification is a set operation on `finding.id`.
+- `renderAgentInstructions()` — Repository / Commit / Finding /
+  Evidence / Objective / Steps / Constraints / Acceptance Criteria,
+  ready to paste into Codex, Claude Code or OpenCode.
+- LLM boundary: `polishFixPlanSet()` may rewrite the `why` sentence and
+  nothing else. Priority, effort, evidence, steps and criteria are
+  deterministic. `NoopLLMProvider` keeps the whole path LLM-free.
+- Analysis + plan: `docs/REPOSITORY_INTELLIGENCE_PLAN.md` (Phase 0) and
+  the Launch Readiness analysis in the workspace.
+- **Test baseline: core 143/143 passing** (61 new: builder 15,
+  templates 11, diff 16, fixtures + schema boundaries 19).
+- `apps/web` now imports report types from `@repopilot/core`
+  (type-only) instead of a hand-copied duplicate.
+- **DB migration done 2026-09-20 (Step 3):** `jobs` gained `owner`,
+  `repo`, `commit_sha`, `mode`, `target` plus two indexes, on both
+  SQLite and Postgres. Verified against a real SQLite database: fresh
+  create, idempotent re-run, in-place upgrade of a pre-migration table,
+  and an `EXPLAIN QUERY PLAN` assertion that
+  `idx_jobs_owner_repo_created` is actually chosen. Rows written before
+  the migration keep NULL by design and are excluded from history
+  queries rather than guessed at.
+- **History queries done 2026-09-20 (Step 4):** `JobRepository` gained
+  `listByRepo()` / `listCompletedByRepo()` / `findByCommitSha()` and an
+  optional `identity` on `insert()`; `JobService` gained
+  `listHistory()` / `listCompletedHistory()` / `getByCommitSha()`. The
+  route now passes its already-parsed owner/repo into `service.create()`
+  so URL parsing stays in one place.
+- **Bug fixed:** `JobService.setCommitSha()` was a no-op placeholder —
+  the route resolved the head SHA and threw it away, forcing the worker
+  to re-resolve it on every attempt. It now writes the `commit_sha`
+  column.
+- **Derived endpoints done 2026-09-20 (Step 5):**
+  `GET /api/v1/audits/:jobId/fix-plan`,
+  `GET /api/v1/audits/:jobId/diff?base=:jobId` and
+  `GET /api/v1/repositories/:owner/:repo/audits`. All three are free,
+  read-only derivations of stored reports — no payment challenge, no
+  repository access. The route module imports none of `AuditPipeline`,
+  fetcher, queue or payment adapter, and a test asserts that.
+  `AuditJobSchema` gained `commitSha` so fix-plan instructions can name
+  the exact commit. OpenAPI documents all three.
+- **Web UI connected 2026-09-20 (Step 8):** the report page now ends
+  with a fix-plan section, and a `Report / History / Comparison` tab
+  strip appears once an audit completes. Comparison shows rule-level
+  attribution of the score change, plus resolved / new / still-open
+  findings. Score deltas use the Chinese convention (rise red, fall
+  green). All new strings are bilingual.
+- **Loop closed 2026-09-20 (Step 9):**
+  `POST /api/v1/repositories/:owner/:repo/reaudit` runs a fresh audit
+  from path coordinates, sharing one closure with `POST /audits` so
+  payment, idempotency and enqueueing cannot drift between them. The
+  full cycle — audit → fix plan → fix → re-audit → compare — is now
+  reachable end to end.
+- **MCP surface done 2026-09-20 (Step 7):** seven tools now. The four
+  new ones are `get_fix_plan`, `compare_audits` and `list_audit_history`
+  (free — pure derivations of stored reports) plus the paid
+  `reaudit_repository`. `get_repopilot_capabilities` returns a `billing`
+  map so an agent can tell free from paid, which matters on the OKX.AI
+  marketplace. Failures are structured payloads, not thrown exceptions.
+- The Launch Readiness loop is now reachable from **both** surfaces:
+  HTTP (`/audits/:jobId/fix-plan`, `/diff`, `/repositories/:owner/:repo/audits`,
+  `/reaudit`) and MCP (the seven tools above).
+- Next: no Launch Readiness phase is outstanding. Remaining work is the
+  pre-existing V0.2 blocker (tarball fetch instead of per-file
+  `getContent`, ADR D-017) and the user-side marketplace step
+  `onchainos agent register --role asp`.
+
 ## Recent shipped changes (0.1.0-rc.2)
 
 - Production guards: `production + PAYMENT_MODE=mock` and

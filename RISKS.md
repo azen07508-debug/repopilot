@@ -161,3 +161,83 @@ disaster-recovery scenarios but is not advertised in `.env.example`.
 
 **Detection:** `/health` reports `queue.driver=pg-boss` in production.
 Operators should alert if it reports `inline` instead.
+
+## R-17 — Tarball extraction exhausts disk / memory
+
+**Severity:** Medium
+**Likelihood:** Medium (introduced by D-017 in V0.2)
+
+**Mitigation:** The archive is downloaded to `mkdtemp('/tmp/repopilot-')`
+and removed in a `finally` block. The existing `maxTotalBytes`
+(50 MiB) cap applies to the extracted content; extraction aborts once
+the cap is reached. `filterFiles` runs before any file is read, so
+noise directories are never materialised. No `spawn` is performed on
+extracted content (D-007). If extraction fails at any point we fall
+back to the per-file `getContent` path and mark output `degraded`.
+
+**Detection:** The fetcher logs `extractedBytes` and `fileCount`;
+`RepositoryMapSchema.limitations` records any cap-induced truncation.
+A sharp rise in `/tmp` usage on the API host is the operator signal.
+
+## R-18 — AST parsing OOM on a pathological file
+
+**Severity:** Low
+**Likelihood:** Low (introduced by D-018 in V0.2)
+
+**Mitigation:** Every file is checked against `maxFileBytes`
+(1 MiB) before parsing. Each parser call is wrapped in try/catch and
+degrades to the regex fallback on any error. Parsing is synchronous
+per file with no cross-file state, so a single failure cannot poison
+the map. `SymbolMapSchema.failures` records every degraded language
+with its reason.
+
+**Detection:** `SymbolMapSchema.degraded === true` or a non-empty
+`failures[]` in the output. Unit tests assert that a malformed file
+produces `degraded: true` rather than a throw.
+
+## R-19 — Compare API returns a truncated diff
+
+**Severity:** Low
+**Likelihood:** Medium for very large pull requests (V0.4, D-020)
+
+**Mitigation:** `GitHubCompareSource` checks the Compare API response
+for the truncated flag and file-count cap. When truncation is
+detected, `ChangeImpactSchema.degraded` is set to `true` and the
+reason is appended to `limitations`. The engine never silently
+reports a partial diff as complete.
+
+**Detection:** Any `change-impact` response with
+`degraded: true` and a `limitations` entry mentioning truncation.
+
+## R-20 — Intelligence artifacts inflate `report_json`
+
+**Severity:** Medium
+**Likelihood:** Medium (V0.3+, if artifacts are embedded by default)
+
+**Mitigation:** Per D-021, intelligence artifacts are **not** embedded
+in `Report` by default; they live in the `intelligence_cache` table
+and are served from dedicated endpoints / MCP query tools. When a
+caller explicitly requests embedding, the MCP tool applies token
+trimming before returning. `repositoryMap` and `architectureGraph`
+are size-capped (top-N modules, top-N edges) with the cap declared in
+`limitations`.
+
+**Detection:** Track `jobs.report_json` row size; alert on outliers.
+Integration test asserts a full audit on the `complete-project`
+fixture keeps `report_json` under a fixed byte budget.
+
+## R-21 — New dependency breaks the zod / MCP SDK pins
+
+**Severity:** Medium
+**Likelihood:** Medium (V0.2+, whenever a dependency is added)
+
+**Mitigation:** D-003 pins zod to `3.24.1` and the MCP SDK to exactly
+`1.22.0`; `pnpm-workspace.yaml` enforces both via `overrides`. Any new
+dependency must not transitively pull zod >= 3.25 or MCP SDK >= 1.23
+(the mirror cannot resolve `zod/v3`, and the newer SDK changes the
+`tool()` signature). The `typescript` compiler API promotion in D-018
+is safe: it is already present at `^5.7.2`.
+
+**Detection:** CI runs `pnpm install --frozen-lockfile` followed by
+`pnpm typecheck`; a resolution or type failure is the gate. Reviewers
+must reject PRs that move these two pins without an accompanying ADR.
