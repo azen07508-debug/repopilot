@@ -119,6 +119,10 @@ export const AuditJobSchema = z.object({
   failedAt: z.string().nullable().default(null),
   attempts: z.number().int().nonnegative().default(0),
   idempotencyKey: z.string().nullable().default(null),
+  // Head SHA resolved by the route before enqueueing. Null when the
+  // lookup failed. Fix-plan and diff derivations read it from here so
+  // they never have to re-resolve it.
+  commitSha: z.string().nullable().default(null),
   // Cache metadata captured by the worker. `null` while the job is
   // queued/processing. The route surfaces this in the GET response.
   cache: z

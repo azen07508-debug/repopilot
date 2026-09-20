@@ -14,5 +14,8 @@ export * from './git/index.js';
 export * from './llm/index.js';
 export * from './pipeline.js';
 export * from './free-check.js';
+export * from './fixplan/builder.js';
+export * from './fixplan/template.js';
+export * from './diff/reports.js';
 export * from './utils/index.js';
 export const VERSION = '0.1.0';
