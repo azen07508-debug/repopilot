@@ -91,13 +91,13 @@ jobs:
       - name: Lint
         run: pnpm -r lint
 
-      # apps/web imports types from @repopilot/core, and those resolve
-      # through the package's `exports` field to ./dist/index.d.ts.
-      # `pnpm -r typecheck` runs `tsc --noEmit` in every package, so it
-      # never emits that dist — without this step every downstream import
-      # degrades to `any` and the type errors that follow are noise.
-      - name: Build @repopilot/core (types for downstream packages)
-        run: pnpm --filter @repopilot/core build
+      # Workspace packages are consumed through their `exports` field,
+      # which points at ./dist. `pnpm -r typecheck` runs `tsc --noEmit`
+      # in every package, so it never emits those dists — without this
+      # step every cross-package import fails to resolve (TS2307) or
+      # degrades to `any` and produces a wall of TS7006 noise.
+      - name: Build workspace packages (types for downstream packages)
+        run: pnpm --filter "./packages/*" build
 
       - name: Typecheck
         run: pnpm -r typecheck
