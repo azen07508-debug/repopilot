@@ -15,3 +15,6 @@ coverage
 *.db-shm
 *.db-wal
 package.json.bak
+
+# vitest writes a temporary config shim next to the real config file
+vitest.config.ts.timestamp-*.mjs
