@@ -82,8 +82,16 @@ function count(n: number, one: string, many = `${one}s`): string {
 }
 
 function securitySection(findings: Finding[], c: QualityContract): ContractSection {
-  const secrets = byRule(findings, 'SEC-SECRET-001');
-  const historySecrets = byRule(findings, 'SEC-HISTORY-001');
+  // Fixture paths — test files, sample apps — downgrade their findings
+  // to medium. Counting only critical and high here means a fake key in a
+  // scanner's own test suite does not block a ship, while a real key in
+  // source still does.
+  const secrets = byRule(findings, 'SEC-SECRET-001').filter(
+    (f) => f.severity === 'critical' || f.severity === 'high'
+  );
+  const historySecrets = byRule(findings, 'SEC-HISTORY-001').filter(
+    (f) => f.severity === 'critical' || f.severity === 'high'
+  );
   const critical = findings.filter((f) => f.severity === 'critical');
 
   const checks: ContractCheck[] = [

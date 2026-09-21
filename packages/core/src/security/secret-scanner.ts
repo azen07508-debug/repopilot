@@ -131,6 +131,55 @@ const PATTERNS: SecretPattern[] = [
 
 const ALLOWLIST_FILES = new Set(['.env.example', 'example.env', 'sample.env']);
 
+/**
+ * Kinds that are always the template inside an allowlisted placeholder
+ * file.
+ *
+ * A `.env.example` exists to show the SHAPE of a connection string or a
+ * password field. Reporting those as critical buries the findings that
+ * matter — a real run against a repository whose only sin was a
+ * well-written .env.example produced 547 blockers, which makes the gate
+ * useless. Token-shaped patterns still apply here, because a private key
+ * or a cloud key is never a template.
+ */
+const TEMPLATE_ONLY_KINDS = new Set<SecretKind>(['db_url', 'hardcoded_password']);
+
+/**
+ * Paths whose job is to contain fake credentials.
+ *
+ * A secret scanner's own test suite has to hold realistic-looking keys to
+ * prove it detects them; so do sample apps and fixtures. A real run
+ * against a repository whose only sin was testing its own scanner
+ * reported 542 live credentials.
+ */
+const TEST_FIXTURE_PATH =
+  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\//i;
+
+/**
+ * Downgrade, never drop.
+ *
+ * A real credential committed into a test file is still a real
+ * credential and still belongs in the report. It just stops being a
+ * release blocker, because "there is a fake AWS key in the scanner's own
+ * test suite" is not a reason to hold a ship.
+ */
+export function severityForPath(path: string, severity: Severity): Severity {
+  if (!TEST_FIXTURE_PATH.test(path)) return severity;
+  return severity === 'critical' ? 'medium' : 'low';
+}
+
+/**
+ * A connection string aimed at localhost, or one whose password is
+ * literally the word "password", is documentation rather than a
+ * credential. A leaked URL points at a real host and carries a password
+ * that does not spell itself out.
+ */
+function looksLikePlaceholderDbUrl(match: string): boolean {
+  const lower = match.toLowerCase();
+  if (lower.includes('localhost') || lower.includes('127.0.0.1')) return true;
+  return /:\/\/[^:@/]*:(?:password|passwd|pass|secret|changeme|your[-_]?password)@/i.test(match);
+}
+
 const SAMPLE_KEYWORDS = [
   'example',
   'sample',
@@ -221,6 +270,8 @@ export function scanTextForSecrets(
       const m = pat.pattern.exec(line);
       if (!m) continue;
       if (looksLikeSample(m[0])) continue;
+      if (isAllowlist && TEMPLATE_ONLY_KINDS.has(pat.kind)) continue;
+      if (pat.kind === 'db_url' && looksLikePlaceholderDbUrl(m[0])) continue;
       hits.push({ kind: pat.kind, severity: pat.severity, reason: pat.reason, line: i + 1 });
     }
 
@@ -255,7 +306,7 @@ export function scanForSecrets(inputs: SecretScanInput[]): SecretFindingDraft[] 
     for (const hit of scanTextForSecrets(content, { allowlist })) {
       drafts.push({
         kind: hit.kind,
-        severity: hit.severity,
+        severity: severityForPath(filePath, hit.severity),
         file: filePath,
         evidence: [{ file: filePath, line: hit.line, reason: hit.reason }],
       });

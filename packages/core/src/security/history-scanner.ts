@@ -17,6 +17,7 @@ import type { Finding, Severity } from '../schemas/report.js';
 import {
   isAllowlistedPath,
   scanTextForSecrets,
+  severityForPath,
   slugify,
   titleForKind,
   type SecretKind,
@@ -113,7 +114,9 @@ export function scanCommitsForSecrets(commits: ScannedCommit[]): HistorySecretHi
           seen.add(key);
           hits.push({
             kind: hit.kind,
-            severity: hit.severity,
+            // Fixture paths downgrade here too: a fake key in a test file
+            // that was later deleted is not a release blocker.
+            severity: severityForPath(file.filename, hit.severity),
             reason: hit.reason,
             commitSha: commit.sha,
             commitSubject: commit.subject,

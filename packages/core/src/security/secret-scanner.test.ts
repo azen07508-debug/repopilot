@@ -77,3 +77,44 @@ describe('scanForSecrets', () => {
     expect(json.includes('sk_live_')).toBe(false);
   });
 });
+
+describe('placeholder files', () => {
+  function kindsIn(path: string, content: string): string[] {
+    return scanForSecrets([{ path, content }]).map((d) => d.kind);
+  }
+
+  it('does not report a template connection string in .env.example', () => {
+    // A real run against a repository whose only sin was a well-written
+    // .env.example produced 547 blockers. That makes the gate useless.
+    const kinds = kindsIn('.env.example', 'DATABASE_URL=postgres://app:password@localhost:5432/app');
+    expect(kinds).not.toContain('db_url');
+  });
+
+  it('does not report a template password field in .env.example', () => {
+    expect(kindsIn('.env.example', 'DB_PASSWORD=changeme')).not.toContain('hardcoded_password');
+  });
+
+  it('still reports a private key in .env.example', () => {
+    // A key is never a template, so the allowlist must not hide it.
+    expect(kindsIn('.env.example', '-----BEGIN RSA PRIVATE KEY-----')).toContain('private_key');
+  });
+
+  it('does not report a localhost connection string anywhere', () => {
+    const kinds = kindsIn('.env', 'DATABASE_URL=postgres://app:hunter2@127.0.0.1:5432/app');
+    expect(kinds).not.toContain('db_url');
+  });
+
+  it('still reports a real connection string', () => {
+    const kinds = kindsIn(
+      '.env',
+      'DATABASE_URL=postgres://svc:Xk9mQ2pLr7Tn4Yb@db.prod.internal:5432/app'
+    );
+    expect(kinds).toContain('db_url');
+  });
+
+  it('still reports a real credential in .env', () => {
+    expect(kindsIn('.env', 'STRIPE=sk_live_' + 'abcdefghijklmnopqrstuvwx')).toContain(
+      'stripe_live_key'
+    );
+  });
+});
