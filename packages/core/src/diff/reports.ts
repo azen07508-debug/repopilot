@@ -9,7 +9,7 @@
  * by rule. `ruleDeltas` answers "why did the score move" without asking
  * an LLM to guess.
  */
-import type { Report } from '../schemas/report.js';
+import type { Finding, Report } from '../schemas/report.js';
 import type {
   AuditDiff,
   AuditRef,
@@ -18,6 +18,7 @@ import type {
   ScoreDimension,
 } from '../schemas/audit-diff.js';
 import { SCORE_DIMENSIONS } from '../schemas/audit-diff.js';
+import { findingKey } from '../findings/fingerprint.js';
 import { collectFixableFindings } from '../fixplan/builder.js';
 
 export interface DiffOptions {
@@ -90,10 +91,60 @@ export function computeRuleDeltas(before: Report, after: Report): RuleDelta[] {
   });
 }
 
-function findingIds(report: Report): string[] {
-  return collectFixableFindings(report)
-    .map((f) => f.id)
-    .sort((a, b) => a.localeCompare(b));
+/**
+ * Findings keyed by their comparison identity.
+ *
+ * `findingKey` prefers the fingerprint and falls back to rule + location
+ * for reports written before fingerprints existed, so an old audit can
+ * still be compared against a new one.
+ */
+function findingsByKey(report: Report): Map<string, Finding> {
+  const out = new Map<string, Finding>();
+  for (const f of collectFixableFindings(report)) {
+    out.set(findingKey(f), f);
+  }
+  return out;
+}
+
+/**
+ * Findings that kept their rule and their file but changed line.
+ *
+ * A moved finding shows up in both the resolved and the new set, so it is
+ * matched across them. Without this step, shifting a secret ten lines
+ * down would read as one fix plus one brand-new problem — which is how a
+ * team learns to distrust the report.
+ */
+function computeMoved(
+  resolved: string[],
+  fresh: string[],
+  before: Map<string, Finding>,
+  after: Map<string, Finding>
+): AuditDiff['moved'] {
+  const ruleFile = (f: Finding) => `${f.ruleId ?? f.id}::${f.evidence[0]?.file ?? ''}`;
+
+  const freshByRuleFile = new Map<string, Finding>();
+  for (const key of fresh) {
+    const f = after.get(key);
+    if (f) freshByRuleFile.set(ruleFile(f), f);
+  }
+
+  const out: AuditDiff['moved'] = [];
+  for (const key of resolved) {
+    const f = before.get(key);
+    if (!f) continue;
+    const other = freshByRuleFile.get(ruleFile(f));
+    if (!other) continue;
+    out.push({
+      ruleId: f.ruleId ?? f.id,
+      file: f.evidence[0]?.file ?? '',
+      fromLine: f.evidence[0]?.line ?? null,
+      toLine: other.evidence[0]?.line ?? null,
+    });
+  }
+
+  return out.sort(
+    (a, b) => a.ruleId.localeCompare(b.ruleId) || a.file.localeCompare(b.file)
+  );
 }
 
 /**
@@ -116,12 +167,18 @@ export function diffReports(before: Report, after: Report, opts: DiffOptions = {
     ),
   };
 
-  const beforeIds = new Set(findingIds(before));
-  const afterIds = new Set(findingIds(after));
+  const beforeFindings = findingsByKey(before);
+  const afterFindings = findingsByKey(after);
 
-  const resolved = [...beforeIds].filter((id) => !afterIds.has(id)).sort((a, b) => a.localeCompare(b));
-  const fresh = [...afterIds].filter((id) => !beforeIds.has(id)).sort((a, b) => a.localeCompare(b));
-  const persistent = [...afterIds].filter((id) => beforeIds.has(id)).sort((a, b) => a.localeCompare(b));
+  const resolved = [...beforeFindings.keys()]
+    .filter((k) => !afterFindings.has(k))
+    .sort((a, b) => a.localeCompare(b));
+  const fresh = [...afterFindings.keys()]
+    .filter((k) => !beforeFindings.has(k))
+    .sort((a, b) => a.localeCompare(b));
+  const persistent = [...afterFindings.keys()]
+    .filter((k) => beforeFindings.has(k))
+    .sort((a, b) => a.localeCompare(b));
 
   const verdict =
     scoreDelta > epsilon ? 'improved' : scoreDelta < -epsilon ? 'regressed' : 'unchanged';
@@ -136,6 +193,7 @@ export function diffReports(before: Report, after: Report, opts: DiffOptions = {
     resolved,
     new: fresh,
     persistent,
+    moved: computeMoved(resolved, fresh, beforeFindings, afterFindings),
     verdict,
   };
 }

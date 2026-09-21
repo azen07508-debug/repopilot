@@ -194,9 +194,15 @@ describe('diffReports — rule deltas', () => {
 });
 
 describe('diffReports — finding classification', () => {
-  const resolved = makeFinding({ id: 'gone' });
-  const persistentFinding = makeFinding({ id: 'stays', severity: 'medium' });
-  const fresh = makeFinding({ id: 'appeared' });
+  // Fingerprints are what the diff compares on. These stand in for the
+  // ones ReportBuilder assigns.
+  const resolved = makeFinding({ id: 'gone', fingerprint: 'fp-gone' });
+  const persistentFinding = makeFinding({
+    id: 'stays',
+    severity: 'medium',
+    fingerprint: 'fp-stays',
+  });
+  const fresh = makeFinding({ id: 'appeared', fingerprint: 'fp-appeared' });
 
   const before = makeReport({
     documentationGaps: [resolved, persistentFinding],
@@ -205,11 +211,54 @@ describe('diffReports — finding classification', () => {
     documentationGaps: [persistentFinding, fresh],
   });
 
-  it('classifies by finding id', () => {
+  it('classifies by finding fingerprint', () => {
     const diff = diffReports(before, after);
-    expect(diff.resolved).toEqual(['gone']);
-    expect(diff.new).toEqual(['appeared']);
-    expect(diff.persistent).toEqual(['stays']);
+    expect(diff.resolved).toEqual(['fp-gone']);
+    expect(diff.new).toEqual(['fp-appeared']);
+    expect(diff.persistent).toEqual(['fp-stays']);
+  });
+
+  it('falls back to rule and location for reports written before fingerprints', () => {
+    const legacyBefore = makeReport({ documentationGaps: [makeFinding({ id: 'gone' })] });
+    const legacyAfter = makeReport({ documentationGaps: [] });
+    // The fallback key is `rule::file:line`, so an old audit still
+    // compares against a new one instead of reading as fully resolved.
+    expect(diffReports(legacyBefore, legacyAfter).resolved).toEqual(['gone::src/index.ts:12']);
+  });
+
+  it('reports a finding that moved as moved, not as resolved plus new', () => {
+    const at = (line: number) =>
+      makeReport({
+        documentationGaps: [
+          makeFinding({
+            id: 'secret-x',
+            ruleId: 'SEC-SECRET-001',
+            fingerprint: `fp-line-${line}`,
+            evidence: [{ file: 'src/a.ts', line, reason: 'r' }],
+          }),
+        ],
+      });
+
+    const diff = diffReports(at(10), at(20));
+    expect(diff.moved).toEqual([
+      { ruleId: 'SEC-SECRET-001', file: 'src/a.ts', fromLine: 10, toLine: 20 },
+    ]);
+  });
+
+  it('does not call a genuinely deleted finding moved', () => {
+    const beforeReport = makeReport({
+      documentationGaps: [
+        makeFinding({
+          id: 'secret-x',
+          ruleId: 'SEC-SECRET-001',
+          fingerprint: 'fp-a',
+          evidence: [{ file: 'src/a.ts', line: 10, reason: 'r' }],
+        }),
+      ],
+    });
+    const diff = diffReports(beforeReport, makeReport({ documentationGaps: [] }));
+    expect(diff.resolved).toEqual(['fp-a']);
+    expect(diff.moved).toEqual([]);
   });
 
   it('handles reports with no findings at all', () => {
@@ -221,10 +270,14 @@ describe('diffReports — finding classification', () => {
   });
 
   it('treats a finding that only changed severity as persistent', () => {
-    const beforeReport = makeReport({ documentationGaps: [makeFinding({ id: 'x', severity: 'high' })] });
-    const afterReport = makeReport({ documentationGaps: [makeFinding({ id: 'x', severity: 'low' })] });
+    const beforeReport = makeReport({
+      documentationGaps: [makeFinding({ id: 'x', severity: 'high', fingerprint: 'fp-x' })],
+    });
+    const afterReport = makeReport({
+      documentationGaps: [makeFinding({ id: 'x', severity: 'low', fingerprint: 'fp-x' })],
+    });
     const diff = diffReports(beforeReport, afterReport);
-    expect(diff.persistent).toEqual(['x']);
+    expect(diff.persistent).toEqual(['fp-x']);
     expect(diff.resolved).toEqual([]);
     expect(diff.new).toEqual([]);
   });

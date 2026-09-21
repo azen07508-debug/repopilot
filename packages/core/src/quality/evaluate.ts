@@ -24,6 +24,7 @@ import {
   type QualityContract,
   type QualityContractResult,
 } from '../schemas/quality-contract.js';
+import { findingKey } from '../findings/fingerprint.js';
 
 /**
  * Every finding in the report, deduplicated.
@@ -50,12 +51,9 @@ export function collectFindings(report: Report): Finding[] {
   return out;
 }
 
-export function findingKey(f: Finding): string {
-  if (f.fingerprint) return f.fingerprint;
-  const rule = f.ruleId ?? f.id;
-  const e = f.evidence[0];
-  return `${rule}::${e?.file ?? ''}:${e?.line ?? ''}`;
-}
+// Defined in findings/fingerprint.ts; re-exported so callers that already
+// import it from here keep working.
+export { findingKey };
 
 function byRule(findings: Finding[], ...ruleIds: string[]): Finding[] {
   const wanted = new Set(ruleIds);

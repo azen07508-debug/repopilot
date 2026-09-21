@@ -70,12 +70,36 @@ export const AuditDiffSchema = z.object({
   dimensionDeltas: DimensionDeltasSchema,
   /** Sorted by absolute delta, descending. */
   ruleDeltas: z.array(RuleDeltaSchema).default([]),
-  /** Finding ids present in base but not in head. */
+  /**
+   * Finding fingerprints present in base but not in head.
+   *
+   * Fingerprint rather than `id`: a location-bearing id — secrets,
+   * injections, per-section README checks — embeds a line number, so
+   * inserting one line above a secret used to read as "resolved plus
+   * new" instead of "unchanged". See findings/fingerprint.ts.
+   */
   resolved: z.array(z.string()).default([]),
-  /** Finding ids present in head but not in base. */
+  /** Fingerprints present in head but not in base. */
   new: z.array(z.string()).default([]),
-  /** Finding ids present in both. */
+  /** Fingerprints present in both. */
   persistent: z.array(z.string()).default([]),
+  /**
+   * Findings that kept their rule and their file but changed line —
+   * usually something was inserted above them.
+   *
+   * Reported separately so `resolved` keeps meaning "actually gone"
+   * rather than "moved slightly".
+   */
+  moved: z
+    .array(
+      z.object({
+        ruleId: z.string(),
+        file: z.string(),
+        fromLine: z.number().int().positive().nullable(),
+        toLine: z.number().int().positive().nullable(),
+      })
+    )
+    .default([]),
   verdict: DiffVerdictSchema,
 });
 export type AuditDiff = z.infer<typeof AuditDiffSchema>;

@@ -39,6 +39,29 @@ export function findingFingerprint(input: FingerprintInput): string {
   return fingerprintOf(`${input.ruleId}|${locations}`);
 }
 
+/**
+ * The identity used to compare findings across audits.
+ *
+ * Prefers the fingerprint, and falls back to rule + location for reports
+ * written before fingerprints existed — so an old audit can still be
+ * compared against a new one instead of everything reading as resolved.
+ *
+ * Takes a structural type rather than `Finding` to keep this module
+ * dependency-free: the quality contract and the report diff both need
+ * it, and neither should have to import the other.
+ */
+export function findingKey(f: {
+  fingerprint?: string | undefined;
+  ruleId?: string | undefined;
+  id: string;
+  evidence: ReadonlyArray<{ file: string; line: number | null }>;
+}): string {
+  if (f.fingerprint) return f.fingerprint;
+  const rule = f.ruleId ?? f.id;
+  const e = f.evidence[0];
+  return `${rule}::${e?.file ?? ''}:${e?.line ?? ''}`;
+}
+
 function fnv1a(input: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
