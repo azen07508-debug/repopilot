@@ -208,6 +208,41 @@ describe('custom contracts', () => {
     expect(evaluateQualityContract(report, strict).ship).toBe(false);
     expect(evaluateQualityContract(report).ship).toBe(true);
   });
+
+  it('ignores fixtures by default, but can be told to count them', () => {
+    // A credential under a fixture path, already downgraded by the
+    // scanner — which is what every finding in a test suite looks like.
+    const report = reportWithFindings([
+      makeFinding({
+        ruleId: 'SEC-SECRET-001',
+        fingerprint: 'fp-fixture',
+        severity: 'medium',
+        evidence: [{ file: 'tests/a.test.ts', line: 1, reason: 'r' }],
+      }),
+    ]);
+
+    // Default: out of scope, so it does not block.
+    expect(evaluateQualityContract(report).ship).toBe(true);
+
+    // Strict: the same finding blocks, even though it was downgraded.
+    const strict: QualityContract = QualityContractSchema.parse({
+      schemaVersion: '1.0',
+      security: { scanFixtures: true },
+    });
+    expect(evaluateQualityContract(report, strict).ship).toBe(false);
+  });
+
+  it('still blocks a credential in ordinary source', () => {
+    const report = reportWithFindings([
+      makeFinding({
+        ruleId: 'SEC-SECRET-001',
+        fingerprint: 'fp-src',
+        severity: 'critical',
+        evidence: [{ file: 'src/config.ts', line: 3, reason: 'r' }],
+      }),
+    ]);
+    expect(evaluateQualityContract(report).ship).toBe(false);
+  });
 });
 
 describe('warnings', () => {

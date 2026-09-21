@@ -20,6 +20,19 @@ const SecuritySection = z.object({
   maxCritical: z.number().int().min(0).default(0),
   /** Maximum credentials allowed to remain reachable through history. */
   maxHistorySecrets: z.number().int().min(0).default(0),
+  /**
+   * Whether findings under fixture paths — test files, fixtures, sample
+   * apps, documents — count toward the limits above.
+   *
+   * Off by default. A scanner's own test suite has to hold fake keys in
+   * order to prove it detects them, and counting those turns the gate
+   * into noise: a real run produced 542 of them.
+   *
+   * Turning this on is the strict setting. It is the right choice for a
+   * project with no such excuse, or one that wants to be certain a real
+   * key is never hiding behind a `tests/` directory.
+   */
+  scanFixtures: z.boolean().default(false),
 });
 
 const TestingSection = z.object({

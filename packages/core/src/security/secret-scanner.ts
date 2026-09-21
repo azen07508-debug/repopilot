@@ -10,6 +10,7 @@
  */
 import type { Evidence, Finding, Severity } from '../schemas/report.js';
 import { slugify } from './security-slug.js';
+import { severityForPath } from './severity.js';
 
 export type SecretKind =
   | 'private_key'
@@ -152,21 +153,9 @@ const TEMPLATE_ONLY_KINDS = new Set<SecretKind>(['db_url', 'hardcoded_password']
  * against a repository whose only sin was testing its own scanner
  * reported 542 live credentials.
  */
-const TEST_FIXTURE_PATH =
-  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\/|\.(md|mdx|rst|txt|adoc)$/i;
-
-/**
- * Downgrade, never drop.
- *
- * A real credential committed into a test file is still a real
- * credential and still belongs in the report. It just stops being a
- * release blocker, because "there is a fake AWS key in the scanner's own
- * test suite" is not a reason to hold a ship.
- */
-export function severityForPath(path: string, severity: Severity): Severity {
-  if (!TEST_FIXTURE_PATH.test(path)) return severity;
-  return severity === 'critical' ? 'medium' : 'low';
-}
+// Moved to security/severity.ts so the AI-pattern rules and the quality
+// contract can reach it without importing the secret scanner.
+export { isFixturePath, severityForPath } from './severity.js';
 
 /**
  * A connection string aimed at localhost, or one whose password is

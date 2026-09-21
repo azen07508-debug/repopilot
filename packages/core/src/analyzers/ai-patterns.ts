@@ -24,6 +24,7 @@
 import type { FileEntry } from '../git/files.js';
 import type { Finding } from '../schemas/report.js';
 import { slugify } from '../security/security-slug.js';
+import { severityForPath } from '../security/severity.js';
 
 export interface AiPatternAnalysis {
   findings: Finding[];
@@ -142,7 +143,11 @@ export function analyzeAiPatterns(
       const already = findings.filter(
         (x) => rulePrefix(x.id) === rulePrefix(f.id) && x.evidence[0]?.file === entry.path
       ).length;
-      if (already < MAX_PER_FILE) findings.push(f);
+      if (already >= MAX_PER_FILE) return;
+      // Test files hold deliberately bad code in order to exercise these
+      // rules — the empty catch in this analyzer's own test suite is the
+      // proof. Same downgrade the secret scanner applies, same reason.
+      findings.push({ ...f, severity: severityForPath(entry.path, f.severity) });
     };
 
     // ---- a constant return behind a name that promises a decision -----

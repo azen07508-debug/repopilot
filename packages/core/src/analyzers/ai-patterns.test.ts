@@ -159,4 +159,17 @@ describe('limits and evidence', () => {
     const result = scan({ 'src/x.ts': '// TODO: a\n' });
     expect(result.findings.every((f) => f.category === 'meta')).toBe(true);
   });
+
+  it('downgrades findings in test files, the way the secret scanner does', () => {
+    const bad = 'try { y(); } catch (e) {}\n';
+    // This analyzer's own test suite is full of deliberately bad code.
+    expect(scan({ 'src/x.test.ts': bad }).findings[0]?.severity).toBe('low');
+    expect(scan({ 'src/x.ts': bad }).findings[0]?.severity).toBe('medium');
+  });
+
+  it('downgrades findings under fixtures as well', () => {
+    expect(scan({ 'fixtures/app.ts': 'try { y(); } catch (e) {}\n' }).findings[0]?.severity).toBe(
+      'low'
+    );
+  });
 });

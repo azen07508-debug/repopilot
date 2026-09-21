@@ -25,6 +25,7 @@ import {
   type QualityContractResult,
 } from '../schemas/quality-contract.js';
 import { findingKey } from '../findings/fingerprint.js';
+import { isFixturePath } from '../security/severity.js';
 
 /**
  * Every finding in the report, deduplicated.
@@ -82,16 +83,23 @@ function count(n: number, one: string, many = `${one}s`): string {
 }
 
 function securitySection(findings: Finding[], c: QualityContract): ContractSection {
-  // Fixture paths — test files, sample apps — downgrade their findings
-  // to medium. Counting only critical and high here means a fake key in a
-  // scanner's own test suite does not block a ship, while a real key in
-  // source still does.
-  const secrets = byRule(findings, 'SEC-SECRET-001').filter(
-    (f) => f.severity === 'critical' || f.severity === 'high'
-  );
-  const historySecrets = byRule(findings, 'SEC-HISTORY-001').filter(
-    (f) => f.severity === 'critical' || f.severity === 'high'
-  );
+  // Fixture paths — test files, sample apps, documents — downgrade their
+  // findings to medium, so counting only critical and high means a fake
+  // key in a scanner's own test suite does not block a ship while a real
+  // key in source still does. A contract can opt back in with
+  // `security.scanFixtures`.
+  const counts = (f: Finding): boolean => {
+    // Strict mode: every credential counts, wherever it lives and whatever
+    // severity the scanner downgraded it to.
+    if (c.security.scanFixtures) return true;
+    // Default: a fixture path is out of scope, and a downgraded finding
+    // does not block.
+    if (isFixturePath(f.evidence[0]?.file ?? '')) return false;
+    return f.severity === 'critical' || f.severity === 'high';
+  };
+
+  const secrets = byRule(findings, 'SEC-SECRET-001').filter(counts);
+  const historySecrets = byRule(findings, 'SEC-HISTORY-001').filter(counts);
   const critical = findings.filter((f) => f.severity === 'critical');
 
   const checks: ContractCheck[] = [
