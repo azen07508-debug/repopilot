@@ -69,7 +69,43 @@ const TODO_MARKER = new RegExp(
 );
 
 /** Minimum run of identical lines before a block counts as duplicated. */
-const DUP_MIN_LINES = 8;
+const DUP_MIN_LINES = 10;
+
+/** How many of those lines must actually do something. */
+const DUP_MIN_LOGIC_LINES = 3;
+
+/**
+ * A line that does work, as opposed to one that declares shape.
+ *
+ * This distinction is the whole point of the rule. An OpenAPI schema
+ * repeats `type: string` fifty times and nothing can ever drift; a
+ * duplicated SQL projection or a duplicated validation branch drifts the
+ * moment somebody edits one copy. Reporting the first kind buried the
+ * second: 27 of 27 findings on a real repository were structural.
+ */
+function isLogicLine(line: string): boolean {
+  const t = line.trim();
+  if (t.length === 0) return false;
+
+  // Declarations describe structure.
+  if (/^(import|export|type|interface|declare|enum|namespace|package)\b/.test(t)) return false;
+  // Punctuation only.
+  if (/^[{}()[\],;:]+$/.test(t)) return false;
+  // A bare literal.
+  if (/^["'`]/.test(t)) return false;
+  // A property assigned a bare literal or a type, e.g. `type: "string",`
+  // or `field0: string;` — a declaration, not behaviour.
+  if (/^[\w$]+:\s*("[^"]*"|'[^']*'|`[^`]*`|[\w<>[\]|.]*)\s*[;,]?$/.test(t)) return false;
+
+  // SQL and other statement-shaped lines do work.
+  if (/^(select|insert|update|delete|from|where|join|values|group\s+by|order\s+by)\b/i.test(t)) {
+    return true;
+  }
+
+  return /(=|\(|\breturn\b|\bif\b|\bfor\b|\bwhile\b|\bawait\b|=>|\bnew\b|\bthrow\b|\bswitch\b)/.test(
+    t
+  );
+}
 
 function lineAt(text: string, index: number): number {
   let line = 1;
@@ -108,14 +144,23 @@ export function duplicateRuns(lines: string[]): Array<{ first: number; second: n
   const out: Array<{ first: number; second: number }> = [];
 
   for (let i = 0; i + DUP_MIN_LINES <= norm.length; i += 1) {
-    const window = norm.slice(i, i + DUP_MIN_LINES).join('\n');
-    // Ignore runs that are mostly blank or trivially short: closing
-    // braces and blank lines repeat everywhere and mean nothing.
-    if (window.replace(/[\s\n]/g, '').length < 40) continue;
+    const window = norm.slice(i, i + DUP_MIN_LINES);
 
-    const previous = seen.get(window);
+    // Blank lines separate things; they are not content. Without this, a
+    // run of nine real lines followed by a blank reads as ten.
+    if (window.filter((l) => l.length > 0).length < DUP_MIN_LINES) continue;
+
+    // Structure repeats harmlessly; behaviour repeats dangerously. A block
+    // of declarations is not worth reporting even when it is identical.
+    if (window.filter(isLogicLine).length < DUP_MIN_LOGIC_LINES) continue;
+
+    const key = window.join('\n');
+    // Ignore runs that are trivially short.
+    if (key.replace(/[\s\n]/g, '').length < 40) continue;
+
+    const previous = seen.get(key);
     if (previous === undefined) {
-      seen.set(window, i);
+      seen.set(key, i);
       continue;
     }
     out.push({ first: previous, second: i });

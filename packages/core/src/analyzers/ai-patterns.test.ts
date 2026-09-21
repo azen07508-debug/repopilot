@@ -106,7 +106,7 @@ describe('TODO markers', () => {
 });
 
 describe('duplicate blocks', () => {
-  const block = Array.from({ length: 8 }, (_, i) => `  const value${i} = compute(${i});`).join('\n');
+  const block = Array.from({ length: 10 }, (_, i) => `  const value${i} = compute(${i});`).join('\n');
 
   it('finds a repeated run', () => {
     const found = ids({ 'src/x.ts': `${block}\n\nsomethingElse();\n\n${block}\n` });
@@ -127,6 +127,60 @@ describe('duplicate blocks', () => {
     const runs = duplicateRuns(`${block}\n${block}\n${block}`.split('\n'));
     expect(runs.length).toBeGreaterThan(0);
     expect(runs.length).toBeLessThan(3);
+  });
+});
+
+describe('duplicate blocks — structure versus behaviour', () => {
+  /** OpenAPI-style schema definition: shape only, nothing can drift. */
+  function schemaBlock(n: number): string {
+    return Array.from({ length: n }, (_, i) =>
+      [`  prop${i}: {`, '    type: string,', '    description: "a field",', '  },'].join('\n')
+    ).join('\n');
+  }
+
+  /** Type declarations: same shape, same conclusion. */
+  function typeBlock(n: number): string {
+    return Array.from({ length: n }, (_, i) => `  field${i}: string;`).join('\n');
+  }
+
+  /** Real work. */
+  function logicBlock(n: number): string {
+    return Array.from({ length: n }, (_, i) => `  total += compute(${i});`).join('\n');
+  }
+
+  /** SQL projections drift the moment someone edits one copy. */
+  function sqlBlock(n: number): string {
+    return Array.from({ length: n }, () => '  SELECT id, name, email FROM users').join('\n');
+  }
+
+  function duplicateCount(text: string): number {
+    return scan({ 'src/x.ts': `${text}\n\nconst other = 1;\n\n${text}\n` }).findings.filter((f) =>
+      f.id.startsWith('ai-duplicated-block')
+    ).length;
+  }
+
+  it('does not report a repeated OpenAPI-style schema', () => {
+    expect(duplicateCount(schemaBlock(12))).toBe(0);
+  });
+
+  it('does not report a repeated type declaration block', () => {
+    expect(duplicateCount(typeBlock(12))).toBe(0);
+  });
+
+  it('reports a repeated block of business logic', () => {
+    expect(duplicateCount(logicBlock(12))).toBeGreaterThan(0);
+  });
+
+  it('reports a repeated SQL projection', () => {
+    expect(duplicateCount(sqlBlock(12))).toBeGreaterThan(0);
+  });
+
+  it('does not report a run of exactly 9 lines', () => {
+    expect(duplicateCount(logicBlock(9))).toBe(0);
+  });
+
+  it('reports a run of exactly 10 lines with at least three logic lines', () => {
+    expect(duplicateCount(logicBlock(10))).toBeGreaterThan(0);
   });
 });
 
