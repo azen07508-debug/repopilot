@@ -5,7 +5,7 @@ import {
   type QualityContract,
 } from '../schemas/quality-contract.js';
 import type { Finding, Report } from '../schemas/report.js';
-import { makeFinding, reportWithFindings } from '../test-utils/report-factory.js';
+import { makeFinding, makeReport, reportWithFindings } from '../test-utils/report-factory.js';
 import { collectFindings, evaluateQualityContract, findingKey } from './evaluate.js';
 
 /** A finding that no default-contract check looks at. */
@@ -323,6 +323,40 @@ describe('the result is a decision, not an opinion', () => {
     const a = evaluateQualityContract(report);
     const b = evaluateQualityContract(report);
     expect({ ...a, evaluatedAt: '' }).toEqual({ ...b, evaluatedAt: '' });
+  });
+
+  it('decides from findings, not from the score', () => {
+    // The architecture claim is Finding -> Contract -> SHIP/BLOCK, with the
+    // score advisory only. These two assertions are what keeps it that way:
+    // a credential blocks no matter how good the score is, and a clean
+    // report ships no matter how poor it is.
+    const withCredential = reportWithFindings([
+      makeFinding({
+        ruleId: 'SEC-SECRET-001',
+        fingerprint: 'fp-live',
+        severity: 'critical',
+        evidence: [{ file: 'src/config.ts', line: 3, reason: 'live key' }],
+      }),
+    ]);
+    expect(evaluateQualityContract(withCredential).ship).toBe(false);
+
+    const clean = reportWithFindings([]);
+    expect(evaluateQualityContract(clean).ship).toBe(true);
+  });
+
+  it('reaches the same verdict regardless of what the score says', () => {
+    // Same findings, wildly different scores: the verdict must not move.
+    const findings = [withRule('CI-001')];
+    const low = makeReport({
+      scores: { ...makeReport().scores, overall: 5, reproducibility: 0 },
+      documentationGaps: findings,
+    });
+    const high = makeReport({
+      scores: { ...makeReport().scores, overall: 99, reproducibility: 100 },
+      documentationGaps: findings,
+    });
+    expect(evaluateQualityContract(low).status).toBe(evaluateQualityContract(high).status);
+    expect(evaluateQualityContract(low).ship).toBe(false);
   });
 
   it('keeps ship and status consistent', () => {
