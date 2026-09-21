@@ -168,6 +168,11 @@ function shannonEntropy(s: string): number {
   return h;
 }
 
+/** True when a path's basename is a known placeholder file. */
+export function isAllowlistedPath(filePath: string): boolean {
+  return ALLOWLIST_FILES.has(filePath.split('/').pop() ?? '');
+}
+
 export interface SecretScanInput {
   path: string;
   content: string;
@@ -180,60 +185,79 @@ export interface SecretFindingDraft {
   file: string;
 }
 
+export interface SecretLineHit {
+  kind: SecretKind;
+  severity: Severity;
+  reason: string;
+  /** 1-based line number within the scanned text. */
+  line: number;
+}
+
+/**
+ * Scan a block of text for credential patterns.
+ *
+ * Shared by the working-tree scanner and the commit-history scanner, so
+ * a pattern added here covers both at once. The matched value is never
+ * returned, copied or logged — only the kind, severity and a short
+ * low-entropy reason.
+ *
+ * @param allowlist true for files whose contents are expected to hold
+ *   placeholders (`.env.example`, fixtures); skips the entropy heuristic
+ *   but still applies the explicit patterns.
+ */
+export function scanTextForSecrets(
+  content: string,
+  opts: { allowlist?: boolean } = {}
+): SecretLineHit[] {
+  const isAllowlist = opts.allowlist ?? false;
+  const hits: SecretLineHit[] = [];
+  const lines = content.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+
+    for (const pat of PATTERNS) {
+      const m = pat.pattern.exec(line);
+      if (!m) continue;
+      if (looksLikeSample(m[0])) continue;
+      hits.push({ kind: pat.kind, severity: pat.severity, reason: pat.reason, line: i + 1 });
+    }
+
+    // Generic high-entropy token heuristic (catch-all for unknown formats).
+    if (isAllowlist) continue;
+    const entropyMatches = line.match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
+    for (const token of entropyMatches) {
+      const cleaned = token.replace(/^['"]|['"]$/g, '');
+      if (looksLikeSample(cleaned)) continue;
+      if (shannonEntropy(cleaned) < 4.0) continue;
+      // Avoid double-reporting when a more specific pattern already matched
+      // on this line.
+      if (hits.some((h) => h.line === i + 1)) continue;
+      hits.push({
+        kind: 'generic_high_entropy',
+        severity: 'medium',
+        reason: `High-entropy string (${cleaned.length} chars, H=${shannonEntropy(
+          cleaned
+        ).toFixed(2)}) — possible API key, token or signing material`,
+        line: i + 1,
+      });
+    }
+  }
+
+  return hits;
+}
+
 export function scanForSecrets(inputs: SecretScanInput[]): SecretFindingDraft[] {
   const drafts: SecretFindingDraft[] = [];
   for (const { path: filePath, content } of inputs) {
-    const isAllowlist = ALLOWLIST_FILES.has(filePath.split('/').pop() ?? '');
-    const lines = content.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? '';
-      for (const pat of PATTERNS) {
-        const m = pat.pattern.exec(line);
-        if (!m) continue;
-        const matchValue = m[0];
-        if (looksLikeSample(matchValue)) continue;
-        drafts.push({
-          kind: pat.kind,
-          severity: pat.severity,
-          file: filePath,
-          evidence: [
-            {
-              file: filePath,
-              line: i + 1,
-              reason: pat.reason,
-            },
-          ],
-        });
-      }
-
-      // Generic high-entropy token heuristic (catch-all for unknown formats).
-      if (!isAllowlist) {
-        const entropyMatches = line.match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
-        for (const token of entropyMatches) {
-          const cleaned = token.replace(/^['"]|['"]$/g, '');
-          if (looksLikeSample(cleaned)) continue;
-          if (shannonEntropy(cleaned) < 4.0) continue;
-          // Avoid double-reporting when a more specific pattern already matched.
-          const alreadyReported = drafts.some(
-            (d) => d.file === filePath && d.evidence[0]?.line === i + 1
-          );
-          if (alreadyReported) continue;
-          drafts.push({
-            kind: 'generic_high_entropy',
-            severity: 'medium',
-            file: filePath,
-            evidence: [
-              {
-                file: filePath,
-                line: i + 1,
-                reason: `High-entropy string (${cleaned.length} chars, H=${shannonEntropy(
-                  cleaned
-                ).toFixed(2)}) — possible API key, token or signing material`,
-              },
-            ],
-          });
-        }
-      }
+    const allowlist = ALLOWLIST_FILES.has(filePath.split('/').pop() ?? '');
+    for (const hit of scanTextForSecrets(content, { allowlist })) {
+      drafts.push({
+        kind: hit.kind,
+        severity: hit.severity,
+        file: filePath,
+        evidence: [{ file: filePath, line: hit.line, reason: hit.reason }],
+      });
     }
   }
   return drafts;
@@ -270,11 +294,11 @@ export function toSecretFindings(
   return [...byKey.values()];
 }
 
-function slugify(s: string): string {
+export function slugify(s: string): string {
   return s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
 }
 
-function titleForKind(k: SecretKind): string {
+export function titleForKind(k: SecretKind): string {
   switch (k) {
     case 'private_key':
       return 'Embedded private key';

@@ -36,6 +36,12 @@ export interface ReportBuilderInput {
   target: 'hackathon' | 'open_source' | 'production';
   outputLanguage: 'en' | 'zh-CN';
   includeLaunchCopy: boolean;
+  /**
+   * Findings from the commit-history scan. The pipeline owns that scan
+   * because it needs network access; the builder only folds the results
+   * into the security findings.
+   */
+  historyFindings?: Finding[];
   llm?: LLMProvider;
 }
 
@@ -70,7 +76,11 @@ export class ReportBuilder {
     const allReproFindings = enrichFindings(repro.findings);
     const web3Findings = enrichFindings(web3.findings);
     const hackathonFindings = enrichFindings(hackathon.findings);
-    const securityFindings = enrichFindings([...secretFindings, ...injectionFindings]);
+    const securityFindings = enrichFindings([
+      ...secretFindings,
+      ...injectionFindings,
+      ...(input.historyFindings ?? []),
+    ]);
 
     // Categorize findings.
     const documentationGaps = docFindings;

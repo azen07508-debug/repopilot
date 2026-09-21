@@ -12,7 +12,12 @@ import { GitHubFetcher, parseRepoUrl, RepoFetchError, type FetchedRepo, type Fil
 import { filterFiles } from './git/files.js';
 import { MetadataAnalyzer, type RepoMetadata } from './analyzers/metadata.js';
 import { ReportBuilder } from './report/builder.js';
-import type { Report } from './schemas/report.js';
+import {
+  scanCommitsForSecrets,
+  toHistoryFindings,
+  type ScannedCommit,
+} from './security/history-scanner.js';
+import type { Finding, Report } from './schemas/report.js';
 import { DEFAULT_LIMITS } from './utils/constants.js';
 import type { Logger } from 'pino';
 
@@ -22,6 +27,11 @@ export interface PipelineOptions {
   maxFiles?: number;
   maxFileBytes?: number;
   maxTotalBytes?: number;
+  /**
+   * How many recent commits to read for the secret-history scan.
+   * 0 disables it. Each commit costs one GitHub request.
+   */
+  historyScanCommits?: number;
   log?: Logger;
 }
 
@@ -53,6 +63,7 @@ export class AuditPipeline {
       maxFiles: opts.maxFiles ?? DEFAULT_LIMITS.maxFiles,
       maxFileBytes: opts.maxFileBytes ?? DEFAULT_LIMITS.maxFileBytes,
       maxTotalBytes: opts.maxTotalBytes ?? DEFAULT_LIMITS.maxTotalBytes,
+      historyScanCommits: opts.historyScanCommits ?? DEFAULT_LIMITS.historyScanCommits,
       log: opts.log,
     };
   }
@@ -80,6 +91,8 @@ export class AuditPipeline {
       log: (msg, meta) => this.opts.log?.debug({ msg, ...meta }, 'fetcher'),
     });
 
+    const historyFindings = await this.scanHistory(fetcher, parsed.owner, parsed.repo);
+
     const builder = new ReportBuilder();
     const { report, truncated: reportTruncated } = builder.build({
       metadata,
@@ -90,9 +103,45 @@ export class AuditPipeline {
       target: input.target,
       outputLanguage: input.outputLanguage,
       includeLaunchCopy: input.includeLaunchCopy,
+      historyFindings,
     });
 
     return { report, truncated: reportTruncated };
+  }
+
+  /**
+   * Read recent commit diffs and look for credentials.
+   *
+   * Best-effort by design: a rate limit, a network blip or a repository
+   * with no readable history must not fail an audit that otherwise
+   * succeeded. Returns an empty list and logs the reason instead.
+   */
+  private async scanHistory(
+    fetcher: GitHubFetcher,
+    owner: string,
+    repo: string
+  ): Promise<Finding[]> {
+    const depth = this.opts.historyScanCommits;
+    if (depth <= 0) return [];
+
+    try {
+      const commits = await fetcher.listCommits(owner, repo, { limit: depth });
+      if (commits.length === 0) return [];
+
+      const scanned: ScannedCommit[] = [];
+      for (const c of commits) {
+        const files = await fetcher.fetchCommitChanges(owner, repo, c.sha);
+        scanned.push({ sha: c.sha, subject: c.subject, date: c.date, files });
+      }
+
+      return toHistoryFindings(scanCommitsForSecrets(scanned));
+    } catch (e) {
+      this.opts.log?.warn(
+        { err: (e as Error).message, owner, repo },
+        'commit-history secret scan skipped'
+      );
+      return [];
+    }
   }
 }
 

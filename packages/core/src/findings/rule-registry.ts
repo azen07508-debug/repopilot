@@ -147,10 +147,14 @@ const PREFIX_MATCH: Array<{ prefix: string; def: RuleDefinition }> = [
   },
   {
     // `secret-<kind>-<line>-<file>` — an exact regex hit inside a file.
-    // Verification is manual because proving a secret is gone requires
-    // reading git history, which is a separate rule (SEC-HISTORY-001).
     prefix: 'secret-',
     def: rule('SEC-SECRET-001', 'text_match', EXACT),
+  },
+  {
+    // `secret-history-<kind>-<sha>-<file>` — found in a commit diff.
+    // Longer than `secret-`, so the longest-prefix rule picks this one.
+    prefix: 'secret-history-',
+    def: rule('SEC-HISTORY-001', 'git_history', EXACT),
   },
   {
     // `injection-<file>` — keyword matcher + invisible-unicode detector.
@@ -166,7 +170,6 @@ const PREFIX_MATCH: Array<{ prefix: string; def: RuleDefinition }> = [
 export const PLANNED_RULES = {
   'SEC-ENV-001': 'a tracked .env file',
   'SEC-KEY-001': 'a private key pattern in the working tree',
-  'SEC-HISTORY-001': 'a secret that appears in commit history',
   'AI-PLACEHOLDER-001': 'a constant placeholder return',
   'AI-CATCH-001': 'an empty catch block',
   'AI-MOCK-001': 'a mock dependency imported from production source',

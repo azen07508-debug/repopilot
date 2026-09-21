@@ -33,6 +33,28 @@ export interface FetchedRepo {
   truncated: boolean;
 }
 
+export interface CommitRef {
+  sha: string;
+  /** First line of the commit message. */
+  subject: string;
+  /** ISO timestamp, or null when GitHub omits it. */
+  date: string | null;
+  url: string;
+}
+
+export interface CommitFileChange {
+  filename: string;
+  /** added | modified | removed | renamed | copied | changed | unchanged */
+  status: string;
+  /**
+   * Unified diff, or null when GitHub omits it — binary files and diffs
+   * above the size limit come back without one.
+   */
+  patch: string | null;
+  additions: number;
+  deletions: number;
+}
+
 export class GitHubFetcher {
   private octokit: Octokit;
 
@@ -121,6 +143,79 @@ export class GitHubFetcher {
       }
     }
     return out;
+  }
+
+  /**
+   * List the most recent commits.
+   *
+   * Deliberately bounded and non-recursive: reading one commit's diff
+   * costs one further request, and anonymous access is 60 requests/hour
+   * for the whole IP. The caller picks the depth; this method never walks
+   * history on its own.
+   */
+  async listCommits(
+    owner: string,
+    repo: string,
+    opts: { limit: number; since?: string }
+  ): Promise<CommitRef[]> {
+    const perPage = Math.min(Math.max(opts.limit, 1), 100);
+    try {
+      const { data } = await this.octokit.repos.listCommits({
+        owner,
+        repo,
+        per_page: perPage,
+        ...(opts.since ? { since: opts.since } : {}),
+      });
+      return data.map((c) => ({
+        sha: c.sha,
+        subject: (c.commit.message ?? '').split('\n')[0] ?? '',
+        date: c.commit.author?.date ?? null,
+        url: c.html_url,
+      }));
+    } catch (e) {
+      throw this.toFetchError(e, `Failed to list commits for ${owner}/${repo}`);
+    }
+  }
+
+  /**
+   * Read the file changes and diffs of a single commit.
+   *
+   * Returns an empty array when GitHub omits `files` (it does for some
+   * merge commits) rather than throwing: a missing diff is not an error,
+   * it is simply no evidence.
+   */
+  async fetchCommitChanges(
+    owner: string,
+    repo: string,
+    sha: string
+  ): Promise<CommitFileChange[]> {
+    try {
+      const { data } = await this.octokit.repos.getCommit({ owner, repo, ref: sha });
+      const files = (data as { files?: Array<Record<string, unknown>> }).files ?? [];
+      return files.map((f) => ({
+        filename: String(f['filename'] ?? ''),
+        status: String(f['status'] ?? 'modified'),
+        patch: typeof f['patch'] === 'string' ? f['patch'] : null,
+        additions: typeof f['additions'] === 'number' ? f['additions'] : 0,
+        deletions: typeof f['deletions'] === 'number' ? f['deletions'] : 0,
+      }));
+    } catch (e) {
+      throw this.toFetchError(e, `Failed to read commit ${sha} of ${owner}/${repo}`);
+    }
+  }
+
+  private toFetchError(e: unknown, fallback: string): RepoFetchError {
+    const status = (e as { status?: number }).status;
+    if (status === 404) {
+      return new RepoFetchError(`${fallback}: not found or not accessible.`, 404);
+    }
+    if (status === 403) {
+      return new RepoFetchError(
+        `${fallback}: rate-limited or forbidden. Set GITHUB_TOKEN to raise the limit.`,
+        403
+      );
+    }
+    return new RepoFetchError(`${fallback}: ${(e as Error).message ?? String(e)}`, 500);
   }
 }
 

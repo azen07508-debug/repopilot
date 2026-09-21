@@ -11,6 +11,14 @@ export const DEFAULT_LIMITS = {
   rateLimitPerMinute: 60,
   fetchTimeoutMs: 30_000,
   jobTimeoutMs: 300_000,
+  /**
+   * How many recent commits the secret-history scan reads.
+   *
+   * Each commit costs one GitHub request to fetch its diff, and anonymous
+   * access is 60 requests/hour for a whole IP — so this stays small on
+   * purpose. 0 disables the scan.
+   */
+  historyScanCommits: 20,
 };
 
 export const DEFAULT_PRICING = {
