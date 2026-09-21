@@ -43,6 +43,9 @@ export function collectFindings(report: Report): Finding[] {
     ...report.documentationGaps,
     ...report.securityFindings,
     ...report.qualityFindings,
+    // Fixture findings are collected so `security.scanFixtures` can opt
+    // them into the gate. The default policy filters them back out.
+    ...report.fixtureFindings,
   ]) {
     const key = findingKey(f);
     if (seen.has(key)) continue;

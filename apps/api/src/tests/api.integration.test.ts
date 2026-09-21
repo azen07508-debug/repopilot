@@ -53,6 +53,7 @@ function fakeReport(): Report {
     documentationGaps: [],
     securityFindings: [],
     qualityFindings: [],
+    fixtureFindings: [],
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],

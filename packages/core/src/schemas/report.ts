@@ -138,6 +138,17 @@ export const FindingSchema = z.object({
 export type Finding = z.infer<typeof FindingSchema>;
 
 /**
+ * Where a finding sits relative to the release decision.
+ *
+ * Only two values are implemented. The type exists so the future ones —
+ * suppressed, informational — have a home that is not `fixture`, which
+ * would otherwise become a bucket for everything non-blocking and rot
+ * within a release or two.
+ */
+export const FindingDispositionSchema = z.enum(['active', 'fixture']);
+export type FindingDisposition = z.infer<typeof FindingDispositionSchema>;
+
+/**
  * How much of the commit history the secret scan actually read.
  *
  * This exists because "no secrets in history" is a claim with a scope. A
@@ -262,6 +273,22 @@ export const ReportSchema = z.object({
    * may well decide it cares.
    */
   qualityFindings: z.array(FindingSchema).default([]),
+  /**
+   * Findings under fixture paths — test files, fixtures, sample apps,
+   * generated files, documents.
+   *
+   * Kept separate rather than dropped. A real credential committed into a
+   * test file is still a real credential and still belongs in the report;
+   * it just does not participate in the release decision by default.
+   * `security.scanFixtures` turns that around for a project that wants
+   * the strict reading.
+   *
+   * Separate from `qualityFindings` because the two answer different
+   * questions: that one is "code hygiene, not launch readiness", this one
+   * is "the finding is real but lives somewhere its blast radius is
+   * smaller".
+   */
+  fixtureFindings: z.array(FindingSchema).default([]),
   /**
    * Scope of the commit-history secret scan.
    *

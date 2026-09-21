@@ -14,6 +14,7 @@ import { analyzeHackathon, type HackathonAnalysis } from '../analyzers/hackathon
 import { analyzeAiPatterns } from '../analyzers/ai-patterns.js';
 import { analyzeHygiene } from '../analyzers/hygiene.js';
 import { enrichFindings } from '../findings/enrich.js';
+import { isFixturePath } from '../security/severity.js';
 import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
 import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
 import { scoreAll, type ScoringInput } from '../scoring/score.js';
@@ -79,19 +80,37 @@ export class ReportBuilder {
     // diffs, the quality contract, MCP — reads findings from here, so
     // this is the single place a finding acquires its ruleId, confidence,
     // verification and fingerprint.
-    const docFindings = enrichFindings(doc.findings);
-    const allReproFindings = enrichFindings(repro.findings);
-    const web3Findings = enrichFindings(web3.findings);
-    const hackathonFindings = enrichFindings(hackathon.findings);
-    const securityFindings = enrichFindings([
-      ...secretFindings,
-      ...injectionFindings,
-      ...(input.historyFindings ?? []),
-      ...hygiene.findings.filter((f) => f.category === 'security'),
-    ]);
+    //
+    // Every set is then split by where the finding lives. A finding in a
+    // test file, a lockfile or a document is still real — it just does not
+    // get a vote on the release by default. Dropping them would hide a
+    // genuine credential committed into a test file; leaving them in
+    // drowns the report, which a real run demonstrated with 542 of them.
+    const fixtureFindings: Finding[] = [];
+    const split = (list: Finding[]): Finding[] =>
+      list.filter((f) => {
+        if (isFixturePath(f.evidence[0]?.file ?? '')) {
+          fixtureFindings.push(f);
+          return false;
+        }
+        return true;
+      });
+
+    const docFindings = split(enrichFindings(doc.findings));
+    const allReproFindings = split(enrichFindings(repro.findings));
+    const web3Findings = split(enrichFindings(web3.findings));
+    const hackathonFindings = split(enrichFindings(hackathon.findings));
+    const securityFindings = split(
+      enrichFindings([
+        ...secretFindings,
+        ...injectionFindings,
+        ...(input.historyFindings ?? []),
+        ...hygiene.findings.filter((f) => f.category === 'security'),
+      ])
+    );
     // Code hygiene, not launch readiness: kept out of the score but still
     // visible to the quality contract.
-    const qualityFindings = enrichFindings(aiPatterns.findings);
+    const qualityFindings = split(enrichFindings(aiPatterns.findings));
 
     // Categorize findings.
     const documentationGaps = docFindings;
@@ -107,7 +126,7 @@ export class ReportBuilder {
       ...allReproFindings.filter((f) => !deploymentFindings.some((d) => d.id === f.id)),
       // The non-security hygiene rules (missing .gitignore, a workflow
       // that cannot run, no test runner) are reproducibility concerns.
-      ...enrichFindings(hygiene.findings.filter((f) => f.category !== 'security')),
+      ...split(enrichFindings(hygiene.findings.filter((f) => f.category !== 'security'))),
     ];
 
     const blockers = collectBlockers(
@@ -188,6 +207,7 @@ export class ReportBuilder {
       documentationGaps,
       securityFindings,
       qualityFindings,
+      fixtureFindings,
       historyScan: input.historyScan,
       deploymentPlan,
       recommendedTasks,

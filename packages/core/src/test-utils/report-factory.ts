@@ -53,6 +53,7 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     documentationGaps: [],
     securityFindings: [],
     qualityFindings: [],
+    fixtureFindings: [],
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],

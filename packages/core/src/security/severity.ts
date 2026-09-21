@@ -26,7 +26,19 @@
 import type { Severity } from '../schemas/report.js';
 
 const FIXTURE_PATH =
-  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\/|\.(md|mdx|rst|txt|adoc)$/i;
+  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\//i;
+
+/**
+ * Documents.
+ *
+ * Deliberately separate from FIXTURE_PATH, because the two play different
+ * roles. A secret in a deployment guide is an illustration and should not
+ * block a release — but a missing README is a real repository gap, and
+ * its evidence file happens to be called `README.md`. Treating documents
+ * as fixtures would file that gap under "not important" and quietly drop
+ * it from the main report.
+ */
+const DOCUMENT_PATH = /\.(md|mdx|rst|txt|adoc)$/i;
 
 export function isFixturePath(path: string): boolean {
   return FIXTURE_PATH.test(path);
@@ -58,7 +70,8 @@ const GENERATED_PATH =
   /(^|\/)(pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|composer\.lock|Gemfile\.lock|poetry\.lock|Cargo\.lock|go\.sum)$/i;
 
 export function severityForPath(path: string, severity: Severity): Severity {
-  const downgrade = GENERATED_PATH.test(path) || FIXTURE_PATH.test(path);
+  const downgrade =
+    GENERATED_PATH.test(path) || FIXTURE_PATH.test(path) || DOCUMENT_PATH.test(path);
   if (!downgrade) return severity;
   // Never blocks. Critical becomes medium so it still reads as worth a
   // look; everything else drops to low.
