@@ -11,6 +11,7 @@ import { analyzeReproducibility, type ReproAnalysis } from '../analyzers/reprodu
 import { detectStack, stackLabels, type StackSignal } from '../analyzers/stack.js';
 import { analyzeWeb3, type Web3Analysis } from '../analyzers/web3.js';
 import { analyzeHackathon, type HackathonAnalysis } from '../analyzers/hackathon.js';
+import { enrichFindings } from '../findings/enrich.js';
 import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
 import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
 import { scoreAll, type ScoringInput } from '../scoring/score.js';
@@ -61,28 +62,37 @@ export class ReportBuilder {
       )
     );
 
+    // Enrich once, at the source. Every downstream consumer — fix plans,
+    // diffs, the quality contract, MCP — reads findings from here, so
+    // this is the single place a finding acquires its ruleId, confidence,
+    // verification and fingerprint.
+    const docFindings = enrichFindings(doc.findings);
+    const allReproFindings = enrichFindings(repro.findings);
+    const web3Findings = enrichFindings(web3.findings);
+    const hackathonFindings = enrichFindings(hackathon.findings);
+    const securityFindings = enrichFindings([...secretFindings, ...injectionFindings]);
+
     // Categorize findings.
-    const documentationGaps = doc.findings;
-    const securityFindings = [...secretFindings, ...injectionFindings];
+    const documentationGaps = docFindings;
     const deploymentFindings = [
-      ...repro.findings.filter((f) =>
+      ...allReproFindings.filter((f) =>
         ['repro-no-ci', 'repro-no-docker', 'repro-no-env-example', 'repro-no-test-script', 'repro-no-run-script', 'repro-no-scripts'].includes(
           f.id
         )
       ),
-      ...web3.findings.filter((f) => f.id.startsWith('web3-')),
+      ...web3Findings.filter((f) => f.id.startsWith('web3-')),
     ];
-    const reproFindings = repro.findings.filter(
+    const reproFindings = allReproFindings.filter(
       (f) => !deploymentFindings.some((d) => d.id === f.id)
     );
 
     const blockers = collectBlockers(
-      doc.findings,
-      repro.findings,
+      docFindings,
+      allReproFindings,
       securityFindings,
       deploymentFindings,
-      web3.findings,
-      hackathon.findings
+      web3Findings,
+      hackathonFindings
     );
 
     const scoring: ScoringInput = {
@@ -113,8 +123,8 @@ export class ReportBuilder {
       documentationFindings: documentationGaps,
       reproducibilityFindings: reproFindings,
       deploymentFindings,
-      web3Findings: web3.findings,
-      hackathonFindings: hackathon.findings,
+      web3Findings,
+      hackathonFindings,
     };
 
     const scores = scoreAll(scoring, { target: input.target });

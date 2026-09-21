@@ -4,15 +4,91 @@
  */
 import { z } from 'zod';
 
+/**
+ * Which remote source produced a piece of evidence.
+ *
+ * Distinct from `EvidenceSourceSchema` in schemas/intelligence, which
+ * answers "which analyzer produced this?". This one answers "where did
+ * the data come from?", and that is the axis the quality gate cares
+ * about: a rule that cannot name one of these does not belong in a
+ * deterministic finding.
+ *
+ * RepoPilot never clones a repository, so `git_history` means "read
+ * through the GitHub API", not "read a local git directory".
+ */
+export const EvidenceOriginSchema = z.enum([
+  'file', // contents of a single file
+  'file_tree', // path listing / presence check
+  'git_history', // commit history via the GitHub API
+  'github_api', // repository metadata
+  'text_match', // a pattern found inside a file
+  'dependency_manifest', // package.json / lockfile / requirements.txt
+  'workflow', // CI workflow definition
+]);
+export type EvidenceOrigin = z.infer<typeof EvidenceOriginSchema>;
+
 export const EvidenceSchema = z.object({
   file: z.string(),
   line: z.number().int().positive().nullable(),
   reason: z.string().min(1),
+  /**
+   * Where the data came from.
+   *
+   * Optional on the wire so the thirty-odd existing evidence literals in
+   * the analyzers keep working; the rule registry declares each rule's
+   * origin and `enrichFinding` fills it in. An analyzer that mixes
+   * sources for one finding can set it explicitly and win.
+   */
+  source: EvidenceOriginSchema.optional(),
+  /**
+   * The matching text, truncated and redacted. MUST NOT carry a full
+   * secret: `security/redact.ts` is the only thing allowed to build one.
+   * Absent means "not captured", not "empty".
+   */
+  excerpt: z.string().nullable().optional(),
+  /** Absent means "assumed reproducible". */
+  reproducible: z.boolean().optional(),
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low']);
 export type Severity = z.infer<typeof SeveritySchema>;
+
+/**
+ * How a finding can be checked as fixed, mechanically.
+ *
+ * This exists because acceptance criteria are prose and prose cannot be
+ * evaluated. Re-audit needs to decide "is this finding gone?" without an
+ * LLM in the loop, so each rule declares a machine-checkable shape.
+ */
+export const VerificationSchema = z.object({
+  kind: z.enum([
+    'file_absent', // target path must not exist in the tree
+    'file_present', // target path must exist
+    'text_absent', // pattern must not appear in target
+    'text_present', // pattern must appear in target
+    'manifest_field', // a field must be present in a dependency manifest
+    'manual', // cannot be checked remotely; never satisfies a contract
+  ]),
+  /** Path, glob or manifest key the check applies to. */
+  target: z.string(),
+  /** Expected value for `manifest_field`; null otherwise. */
+  expected: z.string().nullable().default(null),
+  /** Why the check is shaped this way, for a human reading the plan. */
+  note: z.string().nullable().default(null),
+});
+export type Verification = z.infer<typeof VerificationSchema>;
+
+/** Confidence is a property of the rule's detection method, never of an LLM. */
+export const RuleConfidence = {
+  /** Exact match: file presence, a regex hit, a manifest field. */
+  exact: 1,
+  /** Structural: parsed AST, resolved dependency graph. */
+  structural: 0.9,
+  /** Heuristic: entropy, similarity, repetition. */
+  heuristic: 0.7,
+} as const;
+export type RuleConfidenceLevel = keyof typeof RuleConfidence;
 
 export const FindingCategorySchema = z.enum([
   'documentation',
@@ -26,13 +102,37 @@ export const FindingCategorySchema = z.enum([
 export type FindingCategory = z.infer<typeof FindingCategorySchema>;
 
 export const FindingSchema = z.object({
+  /** Stable slug produced by the rule, e.g. `doc-license`. */
   id: z.string().min(1),
+  /**
+   * Stable rule identifier, e.g. `REPO-LICENSE-001`.
+   *
+   * Optional on the wire so an analyzer can emit a finding before
+   * enrichment runs; `enrichFinding` fills it. Anything reading findings
+   * out of a built Report can rely on it being present.
+   */
+  ruleId: z.string().min(1).optional(),
+  /**
+   * Deterministic identity of this hit: same rule + same evidence
+   * locations => same fingerprint. Before/after comparison keys on this.
+   *
+   * `id` alone is not enough: location-sensitive rules (secrets,
+   * injections, per-section README checks) emit ids that embed a line
+   * number, so inserting one line above a secret would read as "old
+   * finding resolved, new finding appeared" instead of "same finding,
+   * moved".
+   */
+  fingerprint: z.string().optional(),
   category: FindingCategorySchema,
   severity: SeveritySchema,
+  /** From the rule's detection method, never from an LLM. */
+  confidence: z.number().min(0).max(1).optional(),
   title: z.string().min(1),
   description: z.string(),
   evidence: z.array(EvidenceSchema).min(1),
   recommendedAction: z.string().min(1),
+  /** How to check the fix mechanically. Absent when not expressible. */
+  verification: VerificationSchema.nullable().optional(),
   acceptanceCriteria: z.array(z.string()).default([]),
 });
 export type Finding = z.infer<typeof FindingSchema>;
