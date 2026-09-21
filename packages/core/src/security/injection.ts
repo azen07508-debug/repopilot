@@ -108,7 +108,12 @@ export function injectionFindingsToReport(findings: InjectionFinding[]): Finding
     out.push({
       id: `injection-${slugify(file)}`,
       category: 'security',
-      severity: 'high',
+      // Low, not high. This is a keyword matcher with a confidence of 0.7,
+      // and a run against a real repository produced seven hits, every one
+      // of them false: a prompt template containing "system:", an English
+      // sentence containing "act as", and the detector's own source
+      // comment. A heuristic with that hit rate must never block a release.
+      severity: 'low',
       title: `Prompt-injection patterns in ${file}`,
       description: `Detected ${list.length} line(s) that look like instructions to an AI consumer (e.g. "ignore previous instructions", "reveal the api key"). RepoPilot reads repository content as untrusted data and does not execute it, but downstream agents that consume the report should be aware.`,
       evidence: list.map((l) => l.evidence),

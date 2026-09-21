@@ -153,7 +153,7 @@ const TEMPLATE_ONLY_KINDS = new Set<SecretKind>(['db_url', 'hardcoded_password']
  * reported 542 live credentials.
  */
 const TEST_FIXTURE_PATH =
-  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\//i;
+  /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?|fixtures?|testdata|examples?)\/|\.(md|mdx|rst|txt|adoc)$/i;
 
 /**
  * Downgrade, never drop.
@@ -177,7 +177,19 @@ export function severityForPath(path: string, severity: Severity): Severity {
 function looksLikePlaceholderDbUrl(match: string): boolean {
   const lower = match.toLowerCase();
   if (lower.includes('localhost') || lower.includes('127.0.0.1')) return true;
-  return /:\/\/[^:@/]*:(?:password|passwd|pass|secret|changeme|your[-_]?password)@/i.test(match);
+
+  // Docker Compose and Compose-style local stacks address each other by
+  // service name, so `@db:5432` is a container link rather than a public
+  // host. A real leaked URL does not point at a service called `db`.
+  if (
+    /@(?:db|database|postgres|postgresql|mysql|mariadb|mongo|mongodb|redis|host):\d+/i.test(match)
+  ) {
+    return true;
+  }
+
+  return /:\/\/[^:@/]*:(?:password|passwd|pass|secret|changeme|change[_-]me|your[-_]?password)@/i.test(
+    match
+  );
 }
 
 const SAMPLE_KEYWORDS = [
@@ -186,6 +198,7 @@ const SAMPLE_KEYWORDS = [
   'placeholder',
   'changeme',
   'change-me',
+  'change_me',
   'your-key',
   'your_key',
   'xxxxx',
