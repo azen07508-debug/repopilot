@@ -20,5 +20,6 @@ export * from './findings/rule-registry.js';
 export * from './fixplan/builder.js';
 export * from './fixplan/template.js';
 export * from './diff/reports.js';
+export * from './quality/evaluate.js';
 export * from './utils/index.js';
 export const VERSION = '0.1.0';
