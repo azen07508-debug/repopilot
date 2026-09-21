@@ -42,9 +42,25 @@ export function isFixturePath(path: string): boolean {
  *
  * A contract can opt back in with `security.scanFixtures`.
  */
+/**
+ * Machine-generated files.
+ *
+ * A lockfile is mostly integrity hashes — `sha512-<base64>` content
+ * digests. They are high-entropy by construction, which is exactly what
+ * the generic secret heuristic looks for, but they grant access to
+ * nothing. A real run produced 500 of them from a single pnpm-lock.yaml.
+ *
+ * Downgraded rather than skipped, for the same reason fixtures are: a
+ * registry URL with an embedded token is a real credential, and it would
+ * live in exactly this kind of file.
+ */
+const GENERATED_PATH =
+  /(^|\/)(pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|composer\.lock|Gemfile\.lock|poetry\.lock|Cargo\.lock|go\.sum)$/i;
+
 export function severityForPath(path: string, severity: Severity): Severity {
-  if (!FIXTURE_PATH.test(path)) return severity;
-  // A fixture never blocks. Critical becomes medium so it still reads as
-  // worth a look; everything else drops to low.
+  const downgrade = GENERATED_PATH.test(path) || FIXTURE_PATH.test(path);
+  if (!downgrade) return severity;
+  // Never blocks. Critical becomes medium so it still reads as worth a
+  // look; everything else drops to low.
   return severity === 'critical' ? 'medium' : 'low';
 }

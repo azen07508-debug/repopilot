@@ -118,3 +118,36 @@ describe('placeholder files', () => {
     );
   });
 });
+
+describe('generated files', () => {
+  function draftsIn(path: string, content: string) {
+    return scanForSecrets([{ path, content }]);
+  }
+
+  it('downgrades integrity hashes in a lockfile', () => {
+    // 500 of these came out of one pnpm-lock.yaml in a real run.
+    const drafts = draftsIn('pnpm-lock.yaml', `integrity: sha512-${'A'.repeat(64)}`);
+    expect(drafts.every((d) => d.severity === 'medium' || d.severity === 'low')).toBe(true);
+  });
+
+  it('downgrades package-lock.json too', () => {
+    const drafts = draftsIn('package-lock.json', `"integrity": "sha512-${'B'.repeat(64)}"`);
+    expect(drafts.every((d) => d.severity === 'medium' || d.severity === 'low')).toBe(true);
+  });
+
+  it('does not hide a real credential in a lockfile, only downgrades it', () => {
+    // A registry URL with an embedded token is a real credential, and it
+    // lives in exactly this kind of file. Visible, not blocking.
+    const drafts = draftsIn(
+      'pnpm-lock.yaml',
+      `resolved: https://svc:ghp_${'a1b2c3d4'.repeat(5)}@npm.example.com/x.tgz`
+    );
+    expect(drafts.length).toBeGreaterThan(0);
+    expect(drafts.every((d) => d.severity !== 'critical')).toBe(true);
+  });
+
+  it('leaves ordinary source untouched', () => {
+    const drafts = draftsIn('src/config.ts', 'const key = "AKIA' + 'Z3XJ7QW2PLK9MNV4";');
+    expect(drafts.some((d) => d.severity === 'critical')).toBe(true);
+  });
+});
