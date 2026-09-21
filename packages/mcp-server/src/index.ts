@@ -8,6 +8,8 @@
  *   - reaudit_repository: run a fresh audit of a repo you already audited
  *
  *   Free (pure derivations of a report that already exists):
+ *   - quality_status: may this ship? pass / pass_with_warnings / blocked
+ *   - release_check: which findings block a release, by fingerprint
  *   - get_fix_plan: actionable plans with evidence and agent instructions
  *   - compare_audits: before/after with rule-level score attribution
  *   - list_audit_history: audits recorded for a repository this session
@@ -28,7 +30,10 @@ import {
   AuditPipeline,
   CreateAuditInputSchema,
   buildFixPlanSet,
+  collectFindings,
   diffReports,
+  evaluateQualityContract,
+  findingKey,
   type CreateAuditInput,
   type Report,
   type Capabilities,
@@ -52,6 +57,8 @@ const BILLING = {
   audit_github_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
   reaudit_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
   get_fix_plan: { paid: false, reason: 'Derived from an existing report.' },
+  quality_status: { paid: false, reason: 'Derived from an existing report.' },
+  release_check: { paid: false, reason: 'Derived from an existing report.' },
   compare_audits: { paid: false, reason: 'Derived from two existing reports.' },
   list_audit_history: { paid: false, reason: 'Reads recorded job metadata.' },
   get_audit_status: { paid: false, reason: 'Reads recorded job metadata.' },
@@ -203,6 +210,57 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
       const job = jobStore.get(args.job_id);
       if (!job) return textResult({ error: 'job_not_found' });
       return textResult(job);
+    }
+  );
+
+  server.tool(
+    'quality_status',
+    'Answer "may this ship?" for a completed audit. Returns pass / pass_with_warnings / blocked, the blocker and warning counts, and a per-section verdict. Free — a deterministic function of the stored report: no LLM, no repository scan. The status is never model-assigned.',
+    {
+      job_id: z.string().describe('The jobId of a completed audit'),
+    },
+    async (args) => {
+      const loaded = requireReport(args.job_id);
+      if ('error' in loaded) return textResult(loaded);
+
+      const result = evaluateQualityContract(loaded.report);
+      return textResult({
+        status: result.status,
+        ship: result.ship,
+        blockers: result.blockerCount,
+        warnings: result.warningCount,
+        sections: result.sections.map((s) => ({ id: s.id, status: s.status })),
+      });
+    }
+  );
+
+  server.tool(
+    'release_check',
+    'The release gate in detail: exactly which findings block a ship, by rule id and fingerprint. Feed the fingerprints to compare_audits after fixing to confirm the blockers are gone. Free.',
+    {
+      job_id: z.string().describe('The jobId of a completed audit'),
+    },
+    async (args) => {
+      const loaded = requireReport(args.job_id);
+      if ('error' in loaded) return textResult(loaded);
+
+      const result = evaluateQualityContract(loaded.report);
+      const blocking = new Set(result.blockingFingerprints);
+      const blockers = collectFindings(loaded.report)
+        .filter((f) => blocking.has(findingKey(f)))
+        .map((f) => ({
+          ruleId: f.ruleId ?? f.id,
+          fingerprint: findingKey(f),
+          severity: f.severity,
+          title: f.title,
+        }));
+
+      return textResult({
+        status: result.status,
+        ship: result.ship,
+        blockerCount: result.blockerCount,
+        blockers,
+      });
     }
   );
 
