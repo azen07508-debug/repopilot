@@ -38,10 +38,53 @@ interface Step {
   ok: boolean;
   detail?: string;
   durationMs: number;
+  /**
+   * Set when a step could not exercise its contract because of an
+   * environmental limit (typically the anonymous GitHub rate limit)
+   * rather than a defect. Skipped steps do not fail the run, but they
+   * are counted in the summary so a green result is never overstated.
+   */
+  skipped?: boolean;
 }
 const steps: Step[] = [];
 
-function sh(cmd: string, opts: { cwd?: string; env?: NodeJS.ProcessEnv; allowFail?: boolean; stdio?: 'pipe' | 'inherit' } = {}): string {
+/**
+ * Record that a step could not run its contract for an environmental
+ * reason. Use this instead of throwing: a missing GITHUB_TOKEN is not a
+ * defect in the code under test.
+ */
+function skipNote(name: string, reason: string): void {
+  console.log(`  SKIP — ${reason}`);
+  steps.push({ name, ok: true, skipped: true, detail: reason, durationMs: 0 });
+}
+
+/** Job error codes that mean "the upstream call did not succeed". */
+const UPSTREAM_ERROR_CODES = new Set([
+  'UPSTREAM_RATE_LIMITED',
+  'UPSTREAM_FAILED',
+  'REPO_NOT_FOUND',
+]);
+
+function isUpstreamFailure(err: { code?: string } | null | undefined): boolean {
+  return typeof err?.code === 'string' && UPSTREAM_ERROR_CODES.has(err.code);
+}
+
+function sh(
+  cmd: string,
+  opts: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    allowFail?: boolean;
+    /**
+     * Exit codes to treat as success. `env-check` deliberately exits 2
+     * when it has warnings and 1 on errors, so a caller that only wants
+     * to fail on real errors can pass [0, 2]. `allowFail` is broader and
+     * swallows everything — prefer this.
+     */
+    allowExitCodes?: number[];
+    stdio?: 'pipe' | 'inherit';
+  } = {},
+): string {
   try {
     return execSync(cmd, {
       cwd: opts.cwd ?? REPO,
@@ -53,6 +96,14 @@ function sh(cmd: string, opts: { cwd?: string; env?: NodeJS.ProcessEnv; allowFai
       maxBuffer: 32 * 1024 * 1024,
     });
   } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (
+      opts.allowExitCodes &&
+      typeof status === 'number' &&
+      opts.allowExitCodes.includes(status)
+    ) {
+      return (e as { stdout?: string }).stdout ?? '';
+    }
     if (opts.allowFail) {
       return (e as { stdout?: string }).stdout ?? '';
     }
@@ -136,7 +187,15 @@ async function main(): Promise<void> {
   // 1. env:check
   header('1. env:check');
   await runStep('env:check', () => {
-    sh('pnpm env:check', { env: { NODE_ENV: 'development', PAYMENT_MODE: 'mock' } });
+    // env-check exits 2 when it only has warnings — for example "no .env
+    // loaded, falling back to default". A warning must not block a
+    // release smoke, so exit 2 is accepted; exit 1 (real errors) still
+    // fails the run.
+    const out = sh('pnpm env:check', {
+      env: { NODE_ENV: 'development', PAYMENT_MODE: 'mock' },
+      allowExitCodes: [0, 2],
+    });
+    if (out.trim()) process.stdout.write(out);
   });
   console.log('  OK');
 
@@ -305,6 +364,17 @@ async function main(): Promise<void> {
         // 1. First call → cache miss.
         const j1 = await submit();
         const pb1 = await pollUntilDone(cacheTestPort, j1.jobId);
+        if (pb1.status === 'failed' && isUpstreamFailure(pb1.error)) {
+          // The cache contract stores a real report, so there is nothing
+          // to assert when the upstream audit never produced one. The
+          // contract itself is locked deterministically by
+          // cache-service.test.ts; here we only need the end-to-end path.
+          skipNote(
+            'cache: miss/hit',
+            `upstream audit failed (${pb1.error?.code}); set GITHUB_TOKEN to exercise this end to end`,
+          );
+          return;
+        }
         if (pb1.status !== 'completed') throw new Error(`first call expected completed, got ${pb1.status}`);
         if (!pb1.cache) throw new Error('cache field missing on first call');
         if (pb1.cache.hit !== false) throw new Error(`expected first call miss, got hit=${pb1.cache.hit}`);
@@ -461,6 +531,15 @@ async function main(): Promise<void> {
 
       // 3. Poll until completed.
       const final = await pollUntilDone(4099, jobId);
+      if (final.status === 'failed' && isUpstreamFailure(final.error)) {
+        // No token, or the shared runner IP is over the anonymous limit.
+        // The failure path is still covered by step 11b below.
+        skipNote(
+          'POST /audits (live repo)',
+          `upstream audit failed (${final.error?.code}); set GITHUB_TOKEN to exercise the happy path`,
+        );
+        return;
+      }
       if (final.status !== 'completed') throw new Error(`expected completed, got ${final.status}`);
       if (typeof final.report?.scores?.overall !== 'number') {
         throw new Error('report missing scores.overall');
@@ -590,14 +669,30 @@ async function main(): Promise<void> {
   // Summary
   console.log('\n\x1b[1m── verify:release summary ──\x1b[0m');
   for (const s of steps) {
-    const mark = s.ok ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
+    const mark = s.skipped
+      ? '\x1b[33m–\x1b[0m'
+      : s.ok
+        ? '\x1b[32m✓\x1b[0m'
+        : '\x1b[31m✗\x1b[0m';
     console.log(`  ${mark}  ${s.name.padEnd(38)} ${s.durationMs}ms`);
-    if (!s.ok && s.detail) console.log(`     ${s.detail.slice(0, 200)}`);
+    if (s.skipped && s.detail) console.log(`     skipped: ${s.detail.slice(0, 200)}`);
+    if (!s.ok && !s.skipped && s.detail) console.log(`     ${s.detail.slice(0, 200)}`);
   }
   const failed = steps.filter((s) => !s.ok);
+  const skipped = steps.filter((s) => s.skipped);
   if (failed.length > 0) {
     console.log(`\n\x1b[31m${failed.length} step(s) failed\x1b[0m`);
     process.exit(1);
+  }
+  if (skipped.length > 0) {
+    // Never claim "all green" when part of the contract was not actually
+    // exercised. Exit 0 — a missing token is an environment gap, not a
+    // defect — but say plainly what did not run.
+    console.log(
+      `\n\x1b[33m${skipped.length} step(s) skipped, ${steps.length - skipped.length} passed\x1b[0m`,
+    );
+    console.log('\x1b[33mSkipped steps need real GitHub access; set GITHUB_TOKEN to run them.\x1b[0m');
+    return;
   }
   console.log('\n\x1b[32mall green — release candidate smoke OK\x1b[0m');
 }

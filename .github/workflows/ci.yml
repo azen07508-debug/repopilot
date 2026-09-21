@@ -105,6 +105,10 @@ jobs:
       - name: Test
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgres://repopilot:repopilot_test@localhost:5432/repopilot_test') || 'file::memory:?cache=shared' }}
+          # Some integration tests resolve a repository through the GitHub
+          # API. Anonymous access is capped at 60 requests/hour per IP and
+          # runner IPs are shared, so a token is required for reliability.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm -r test
 
       - name: Build
@@ -112,6 +116,12 @@ jobs:
 
       - name: Verify release (current env)
         if: matrix.db == 'sqlite'
+        env:
+          # verify:release audits a real public repository end to end. The
+          # actions-provided token is enough to stay inside the rate limit;
+          # without it the audit steps degrade to SKIP (see
+          # scripts/verify-release.ts).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm verify:release
 
       - name: Upload API dist (postgres run only, for debugging)
