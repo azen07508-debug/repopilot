@@ -52,6 +52,7 @@ function fakeReport(): Report {
     blockers: [],
     documentationGaps: [],
     securityFindings: [],
+    qualityFindings: [],
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],

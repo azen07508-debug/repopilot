@@ -228,6 +228,16 @@ export const ReportSchema = z.object({
   blockers: z.array(FindingSchema),
   documentationGaps: z.array(FindingSchema),
   securityFindings: z.array(FindingSchema),
+  /**
+   * Code-hygiene findings that are neither documentation gaps nor
+   * security problems — the AI-pattern rules, mostly.
+   *
+   * Deliberately outside the score: the score answers "is this ready to
+   * launch", and a duplicated block or a leftover TODO does not change
+   * that answer. The quality contract still sees them, because a team
+   * may well decide it cares.
+   */
+  qualityFindings: z.array(FindingSchema).default([]),
   deploymentPlan: z.array(DeploymentStepSchema),
   recommendedTasks: z.array(TaskSchema),
   launchChecklist: z.array(LaunchChecklistItemSchema),

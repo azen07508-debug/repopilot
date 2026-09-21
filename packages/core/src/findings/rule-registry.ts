@@ -77,6 +77,14 @@ const EXACT_MATCH: Record<string, RuleDefinition> = {
     EXACT,
     verify('file_present', '.env.example', 'and .env must be listed in .gitignore')
   ),
+  'repo-no-gitignore': rule(
+    'REPO-GITIGNORE-001',
+    'file_tree',
+    EXACT,
+    verify('file_present', '.gitignore')
+  ),
+  // Security, but it reads .gitignore, so it sits with the .env rules.
+  'env-not-ignored': rule('SEC-ENV-002', 'text_match', EXACT),
 
   // ---- CI / testing / build --------------------------------------------
   'repro-no-ci': rule(
@@ -91,6 +99,7 @@ const EXACT_MATCH: Record<string, RuleDefinition> = {
     EXACT,
     verify('manifest_field', 'package.json#scripts.test')
   ),
+  'test-no-runner': rule('TEST-001', 'dependency_manifest', STRUCTURAL),
   'repro-no-run-script': rule(
     'BUILD-002',
     'dependency_manifest',
@@ -161,6 +170,43 @@ const PREFIX_MATCH: Array<{ prefix: string; def: RuleDefinition }> = [
     prefix: 'injection-',
     def: rule('SEC-INJECTION-001', 'text_match', HEURISTIC),
   },
+  {
+    // `env-committed-<file>` — a .env present in the tracked tree.
+    prefix: 'env-committed-',
+    def: rule('SEC-ENV-001', 'file_tree', EXACT),
+  },
+  {
+    // `ci-workflow-invalid-<path>` — a workflow that cannot run.
+    prefix: 'ci-workflow-invalid-',
+    def: rule('CI-002', 'workflow', EXACT),
+  },
+  {
+    // `ai-placeholder-return-<file>-<line>` — a name promising a check,
+    // a body returning a constant.
+    prefix: 'ai-placeholder-return-',
+    def: rule('AI-PLACEHOLDER-001', 'text_match', EXACT),
+  },
+  {
+    // `ai-empty-catch-<file>-<line>`
+    prefix: 'ai-empty-catch-',
+    def: rule('AI-CATCH-001', 'text_match', EXACT),
+  },
+  {
+    // `ai-mock-in-production-<file>`
+    prefix: 'ai-mock-in-production-',
+    def: rule('AI-MOCK-001', 'text_match', EXACT),
+  },
+  {
+    // `ai-todo-in-implementation-<file>-<line>`
+    prefix: 'ai-todo-in-implementation-',
+    def: rule('AI-TODO-001', 'text_match', EXACT),
+  },
+  {
+    // `ai-duplicated-block-<file>-<line>` — similarity, not equality of
+    // meaning, so this one is heuristic rather than exact.
+    prefix: 'ai-duplicated-block-',
+    def: rule('AI-DUP-001', 'text_match', HEURISTIC),
+  },
 ];
 
 /**
@@ -168,13 +214,10 @@ const PREFIX_MATCH: Array<{ prefix: string; def: RuleDefinition }> = [
  * reserved and the roadmap is visible in code rather than only in docs.
  */
 export const PLANNED_RULES = {
-  'SEC-ENV-001': 'a tracked .env file',
-  'SEC-KEY-001': 'a private key pattern in the working tree',
-  'AI-PLACEHOLDER-001': 'a constant placeholder return',
-  'AI-CATCH-001': 'an empty catch block',
-  'AI-MOCK-001': 'a mock dependency imported from production source',
-  'AI-TODO-001': 'a TODO inside an implementation body',
-  'AI-DUP-001': 'a duplicated code block',
+  // Private keys are already covered by SEC-SECRET-001's `private_key`
+  // pattern, so there is no separate SEC-KEY-001: two ids for one check
+  // would just make the contract harder to write.
+  'DEP-ADVISORY-001': 'a dependency with a published advisory',
 } as const;
 
 export function ruleFor(findingId: string): RuleDefinition {

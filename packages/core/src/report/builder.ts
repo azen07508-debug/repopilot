@@ -11,6 +11,8 @@ import { analyzeReproducibility, type ReproAnalysis } from '../analyzers/reprodu
 import { detectStack, stackLabels, type StackSignal } from '../analyzers/stack.js';
 import { analyzeWeb3, type Web3Analysis } from '../analyzers/web3.js';
 import { analyzeHackathon, type HackathonAnalysis } from '../analyzers/hackathon.js';
+import { analyzeAiPatterns } from '../analyzers/ai-patterns.js';
+import { analyzeHygiene } from '../analyzers/hygiene.js';
 import { enrichFindings } from '../findings/enrich.js';
 import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
 import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
@@ -62,6 +64,8 @@ export class ReportBuilder {
       [...input.contents.entries()].map(([p, c]) => ({ path: p, content: c }))
     );
     const secretFindings = toSecretFindings(secretDrafts);
+    const hygiene = analyzeHygiene(input.entries, input.contents);
+    const aiPatterns = analyzeAiPatterns(input.entries, input.contents);
     const injectionFindings = injectionFindingsToReport(
       detectPromptInjection(
         [...input.contents.entries()].map(([p, c]) => ({ path: p, content: c }))
@@ -80,7 +84,11 @@ export class ReportBuilder {
       ...secretFindings,
       ...injectionFindings,
       ...(input.historyFindings ?? []),
+      ...hygiene.findings.filter((f) => f.category === 'security'),
     ]);
+    // Code hygiene, not launch readiness: kept out of the score but still
+    // visible to the quality contract.
+    const qualityFindings = enrichFindings(aiPatterns.findings);
 
     // Categorize findings.
     const documentationGaps = docFindings;
@@ -92,9 +100,12 @@ export class ReportBuilder {
       ),
       ...web3Findings.filter((f) => f.id.startsWith('web3-')),
     ];
-    const reproFindings = allReproFindings.filter(
-      (f) => !deploymentFindings.some((d) => d.id === f.id)
-    );
+    const reproFindings = [
+      ...allReproFindings.filter((f) => !deploymentFindings.some((d) => d.id === f.id)),
+      // The non-security hygiene rules (missing .gitignore, a workflow
+      // that cannot run, no test runner) are reproducibility concerns.
+      ...enrichFindings(hygiene.findings.filter((f) => f.category !== 'security')),
+    ];
 
     const blockers = collectBlockers(
       docFindings,
@@ -173,6 +184,7 @@ export class ReportBuilder {
       blockers,
       documentationGaps,
       securityFindings,
+      qualityFindings,
       deploymentPlan,
       recommendedTasks,
       launchChecklist,
@@ -219,6 +231,8 @@ function buildProvenance(input: {
     'analyzers.stack': 'filename + extension + manifest-keyword',
     'analyzers.web3': 'path-pattern + content-keyword',
     'analyzers.hackathon': 'readme-content + url-classifier',
+    'analyzers.hygiene': 'file-tree + gitignore-parse + workflow-shape',
+    'analyzers.ai-patterns': 'regex + brace-balanced body inspection',
     'analyzers.scoring': 'deterministic-rule-engine',
     'analyzers.llm': 'optional; disabled by default',
     'detectedStackKeys': input.stack.map((s) => `${s.key}:${s.confidence.toFixed(2)}`).join(','),

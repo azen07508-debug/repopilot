@@ -36,7 +36,12 @@ import {
 export function collectFindings(report: Report): Finding[] {
   const seen = new Set<string>();
   const out: Finding[] = [];
-  for (const f of [...report.blockers, ...report.documentationGaps, ...report.securityFindings]) {
+  for (const f of [
+    ...report.blockers,
+    ...report.documentationGaps,
+    ...report.securityFindings,
+    ...report.qualityFindings,
+  ]) {
     const key = findingKey(f);
     if (seen.has(key)) continue;
     seen.add(key);

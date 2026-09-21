@@ -9,6 +9,7 @@
  *   - short, low-entropy reason string (NOT the secret itself).
  */
 import type { Evidence, Finding, Severity } from '../schemas/report.js';
+import { slugify } from './security-slug.js';
 
 export type SecretKind =
   | 'private_key'
@@ -294,9 +295,8 @@ export function toSecretFindings(
   return [...byKey.values()];
 }
 
-export function slugify(s: string): string {
-  return s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
-}
+// Re-exported for callers that already import it from this module.
+export { slugify };
 
 export function titleForKind(k: SecretKind): string {
   switch (k) {
