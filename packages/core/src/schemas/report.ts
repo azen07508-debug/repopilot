@@ -137,6 +137,30 @@ export const FindingSchema = z.object({
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
+/**
+ * How much of the commit history the secret scan actually read.
+ *
+ * This exists because "no secrets in history" is a claim with a scope. A
+ * report that omits the scope is making a stronger claim than it can
+ * support: scanning 20 commits and saying "history clean" reads as "all
+ * of history", which may be false.
+ */
+export const HistoryScanSchema = z.object({
+  mode: z.enum(['quick', 'full', 'custom', 'disabled']),
+  /** How many commits the caller asked for. */
+  requestedCommits: z.number().int().min(0),
+  /** How many were actually read. */
+  scannedCommits: z.number().int().min(0),
+  /**
+   * True only when the scan reached the beginning of the repository.
+   * False whenever older history exists that nobody looked at.
+   */
+  complete: z.boolean(),
+  /** Why the scan was skipped or stopped short, when it was. */
+  note: z.string().nullable().default(null),
+});
+export type HistoryScan = z.infer<typeof HistoryScanSchema>;
+
 export const ScoreBreakdownSchema = z.object({
   raw: z.number().min(0).max(100),
   rules: z.array(
@@ -238,6 +262,13 @@ export const ReportSchema = z.object({
    * may well decide it cares.
    */
   qualityFindings: z.array(FindingSchema).default([]),
+  /**
+   * Scope of the commit-history secret scan.
+   *
+   * Optional so reports written before this field existed still parse.
+   * When it is absent, a caller must not claim the history was checked.
+   */
+  historyScan: HistoryScanSchema.optional(),
   deploymentPlan: z.array(DeploymentStepSchema),
   recommendedTasks: z.array(TaskSchema),
   launchChecklist: z.array(LaunchChecklistItemSchema),

@@ -17,7 +17,7 @@ import {
   toHistoryFindings,
   type ScannedCommit,
 } from './security/history-scanner.js';
-import type { Finding, Report } from './schemas/report.js';
+import type { Finding, HistoryScan, Report } from './schemas/report.js';
 import { DEFAULT_LIMITS } from './utils/constants.js';
 import type { Logger } from 'pino';
 
@@ -91,7 +91,7 @@ export class AuditPipeline {
       log: (msg, meta) => this.opts.log?.debug({ msg, ...meta }, 'fetcher'),
     });
 
-    const historyFindings = await this.scanHistory(fetcher, parsed.owner, parsed.repo);
+    const history = await this.scanHistory(fetcher, parsed.owner, parsed.repo, input.mode);
 
     const builder = new ReportBuilder();
     const { report, truncated: reportTruncated } = builder.build({
@@ -103,7 +103,8 @@ export class AuditPipeline {
       target: input.target,
       outputLanguage: input.outputLanguage,
       includeLaunchCopy: input.includeLaunchCopy,
-      historyFindings,
+      historyFindings: history.findings,
+      historyScan: history.scan,
     });
 
     return { report, truncated: reportTruncated };
@@ -119,14 +120,26 @@ export class AuditPipeline {
   private async scanHistory(
     fetcher: GitHubFetcher,
     owner: string,
-    repo: string
-  ): Promise<Finding[]> {
+    repo: string,
+    auditMode: 'quick' | 'full'
+  ): Promise<{ findings: Finding[]; scan: HistoryScan }> {
     const depth = this.opts.historyScanCommits;
-    if (depth <= 0) return [];
+
+    if (depth <= 0) {
+      return {
+        findings: [],
+        scan: {
+          mode: 'disabled',
+          requestedCommits: 0,
+          scannedCommits: 0,
+          complete: false,
+          note: 'commit-history scanning is disabled',
+        },
+      };
+    }
 
     try {
       const commits = await fetcher.listCommits(owner, repo, { limit: depth });
-      if (commits.length === 0) return [];
 
       const scanned: ScannedCommit[] = [];
       for (const c of commits) {
@@ -134,13 +147,33 @@ export class AuditPipeline {
         scanned.push({ sha: c.sha, subject: c.subject, date: c.date, files });
       }
 
-      return toHistoryFindings(scanCommitsForSecrets(scanned));
+      return {
+        findings: toHistoryFindings(scanCommitsForSecrets(scanned)),
+        scan: {
+          mode: auditMode,
+          requestedCommits: depth,
+          scannedCommits: commits.length,
+          // Asking for more commits than exist means we reached the
+          // beginning of the repository: the coverage really is complete.
+          complete: commits.length < depth,
+          note: null,
+        },
+      };
     } catch (e) {
       this.opts.log?.warn(
         { err: (e as Error).message, owner, repo },
         'commit-history secret scan skipped'
       );
-      return [];
+      return {
+        findings: [],
+        scan: {
+          mode: auditMode,
+          requestedCommits: depth,
+          scannedCommits: 0,
+          complete: false,
+          note: 'commit history could not be read',
+        },
+      };
     }
   }
 }

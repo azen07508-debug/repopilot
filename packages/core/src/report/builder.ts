@@ -20,6 +20,7 @@ import { scoreAll, type ScoringInput } from '../scoring/score.js';
 import type {
   DeploymentStep,
   Finding,
+  HistoryScan,
   LaunchChecklistItem,
   Report,
   Task,
@@ -44,6 +45,8 @@ export interface ReportBuilderInput {
    * into the security findings.
    */
   historyFindings?: Finding[];
+  /** Scope of the history scan that produced those findings. */
+  historyScan?: HistoryScan;
   llm?: LLMProvider;
 }
 
@@ -185,11 +188,12 @@ export class ReportBuilder {
       documentationGaps,
       securityFindings,
       qualityFindings,
+      historyScan: input.historyScan,
       deploymentPlan,
       recommendedTasks,
       launchChecklist,
       launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
-      limitations: buildLimitations(input.truncated, input.auditMode, web3),
+      limitations: buildLimitations(input.truncated, input.auditMode, web3, input.historyScan),
       generatedAt: new Date().toISOString(),
       auditMode: input.auditMode,
       target: input.target,
@@ -443,13 +447,28 @@ function buildLaunchChecklist(
 function buildLimitations(
   truncated: boolean,
   mode: 'quick' | 'full',
-  web3: Web3Analysis
+  web3: Web3Analysis,
+  historyScan?: HistoryScan
 ): string[] {
   const out: string[] = [
     'Static analysis only — repository code is NEVER executed by RepoPilot.',
     'No formal security audit is performed; secret detection is best-effort.',
     'LLM is optional; without one, the report uses deterministic templates.',
   ];
+
+  // The scope of the history scan belongs in plain sight, not buried in
+  // metadata. "No secrets in history" with no stated scope reads as "all
+  // of history", which may be false.
+  if (historyScan) {
+    if (historyScan.scannedCommits === 0) {
+      out.push(`Commit history was not scanned${historyScan.note ? `: ${historyScan.note}` : ''}.`);
+    } else if (!historyScan.complete) {
+      out.push(
+        `Commit history was scanned for the most recent ${historyScan.scannedCommits} ` +
+          'commits only; older history was not examined.'
+      );
+    }
+  }
   if (truncated) {
     out.push('The repository tree is large; the listing was truncated. Some files were not analyzed.');
   }
