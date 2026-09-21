@@ -88,16 +88,23 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm -r lint
-
       # Workspace packages are consumed through their `exports` field,
       # which points at ./dist. `pnpm -r typecheck` runs `tsc --noEmit`
       # in every package, so it never emits those dists — without this
       # step every cross-package import fails to resolve (TS2307) or
       # degrades to `any` and produces a wall of TS7006 noise.
+      #
+      # It has to run before lint, because the root lint also type-checks
+      # every package.
       - name: Build workspace packages (types for downstream packages)
         run: pnpm --filter "./packages/*" build
+
+      # Every package's own `lint` script is `echo skip-package-lint`, so
+      # `pnpm -r lint` checked nothing at all. The real lint — tsc across
+      # all packages plus the custom rules in scripts/lint.ts — lives at
+      # the root and had never run in CI.
+      - name: Lint (tsc + custom rules)
+        run: pnpm lint
 
       - name: Typecheck
         run: pnpm -r typecheck
