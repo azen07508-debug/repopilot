@@ -6,6 +6,7 @@
  *
  *   GET /api/v1/audits/:jobId/fix-plan          Report -> FixPlanSet
  *   GET /api/v1/audits/:jobId/diff?base=<jobId> Report + Report -> AuditDiff
+ *   GET /api/v1/audits/:jobId/quality           Report -> QualityContractResult
  *   GET /api/v1/repositories/:owner/:repo/audits                 history list
  *
  * Two invariants hold for everything in this file:
@@ -17,7 +18,13 @@
  *      design is broken — a derived view must never re-scan.
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { buildFixPlanSet, diffReports, type AuditJob, type Report } from '@repopilot/core';
+import {
+  buildFixPlanSet,
+  diffReports,
+  evaluateQualityContract,
+  type AuditJob,
+  type Report,
+} from '@repopilot/core';
 import { sendError, HttpError } from '../utils/errors.js';
 import type { JobService } from '../services/job-service.js';
 
@@ -162,6 +169,31 @@ export function registerAuditDerivedRoutes(app: FastifyInstance, deps: AuditDeri
           headCommitSha: headJob?.commitSha ?? null,
         })
       );
+    }
+  );
+
+  /**
+   * The quality contract for one completed audit: may this ship?
+   *
+   * Generated on read, like the fix plan, and for a sharper reason: the
+   * contract is a policy. Storing a verdict would freeze yesterday's
+   * policy onto yesterday's report, so tightening `maxSecrets` would
+   * leave every existing audit still reporting `ship: true`. Re-deriving
+   * means a policy change is felt immediately.
+   *
+   * The same verdict the MCP `quality_status` / `release_check` tools
+   * report, from the same function. This returns the whole result —
+   * every check with its requirement, what was observed, and the rule
+   * ids behind it — where the tools return a summary of it, so an agent
+   * and a human reading the API cannot end up with two answers.
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/api/v1/audits/:jobId/quality',
+    async (req, reply) => {
+      const job = await deps.service.get(req.params.jobId);
+      const report = requireReport(job, reply, req.params.jobId);
+      if (!report) return reply;
+      return reply.send(evaluateQualityContract(report));
     }
   );
 

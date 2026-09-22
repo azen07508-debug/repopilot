@@ -367,6 +367,49 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           },
         },
       },
+      '/api/v1/audits/{jobId}/quality': {
+        get: {
+          tags: ['derived'],
+          summary: 'Quality contract for a completed audit — may this ship?',
+          description:
+            'A deterministic pass / pass_with_warnings / blocked verdict, the blocker and warning counts, and every check with its requirement, what was observed, and the rule ids behind it. Free, derived from the stored report, and re-evaluated on each read so a contract change applies to existing audits. The verdict is never model-assigned.',
+          operationId: 'getAuditQuality',
+          parameters: [
+            {
+              name: 'jobId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'A QualityContractResult for the job.',
+              content: {
+                'application/json': {
+                  schema: { type: 'object' },
+                },
+              },
+            },
+            '404': {
+              description: 'Unknown job',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+            '409': {
+              description: 'The job has not completed yet, so there is no report to evaluate.',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' },
+                },
+              },
+            },
+          },
+        },
+      },
       '/api/v1/repositories/{owner}/{repo}/reaudit': {
         post: {
           tags: ['derived'],

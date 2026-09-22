@@ -200,7 +200,7 @@ envelope plus the full `Report`:
 {
   "jobId": "job_8a3b9d...",
   "status": "completed",
-  "report": { "reportVersion": "1.0", "scores": { "overall": 82 }, "...": "..." }
+  "report": { "reportVersion": "1.1", "scores": { "overall": 82 }, "...": "..." }
 }
 ```
 
@@ -256,7 +256,7 @@ If the payment verifies, the route runs the pipeline and returns
   "jobId": "job_8a3b9d...",
   "status": "completed",
   "report": {
-    "reportVersion": "1.0",
+    "reportVersion": "1.1",
     "repository": { "url": "...", "owner": "...", "name": "..." },
     "summary": "...",
     "detectedStack": ["TypeScript", "Node.js"],
@@ -324,7 +324,7 @@ Fetch the current state of a job.
 {
   "jobId": "job_8a3b9d...",
   "status": "completed",
-  "report": { "reportVersion": "1.0", "...": "..." },
+  "report": { "reportVersion": "1.1", "...": "..." },
   "createdAt": "2026-09-20T10:30:00.000Z",
   "completedAt": "2026-09-20T10:30:09.000Z",
   "cache": { "hit": false, "keyVersion": "v1", "expiresAt": "2026-09-21T10:30:09.000Z" }
@@ -345,10 +345,11 @@ Fetch the current state of a job.
 
 ## Derived, read-only endpoints
 
-These four answer questions about audits that **already happened**. The
-three `GET`s are free and never scan a repository — they are pure
-functions of reports already stored (`buildFixPlanSet`, `diffReports`).
-The `POST` runs the pipeline again and is paid.
+These five answer questions about audits that **already happened**. The
+four `GET`s are free and never scan a repository — they are pure
+functions of reports already stored (`buildFixPlanSet`, `diffReports`,
+`evaluateQualityContract`). The `POST` runs the pipeline again and is
+paid.
 
 ## `GET /api/v1/audits/:jobId/fix-plan`
 
@@ -368,7 +369,7 @@ Every fix plan for a completed audit, derived from the stored report.
     "commitSha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
   },
   "generatedAt": "2026-09-20T10:30:00.000Z",
-  "reportVersion": "1.0",
+  "reportVersion": "1.1",
   "plans": [
     {
       "schemaVersion": "1.0",
@@ -515,6 +516,68 @@ Audits recorded before the repository-identity columns existed carry
 guessed at. `overall` and `findingCount` are `null` for jobs that have
 not completed.
 
+## `GET /api/v1/audits/:jobId/quality`
+
+The quality contract for a completed audit: **may this ship?**
+
+**Free.** No payment challenge. **Never scans the repository.**
+
+A score answers "how good is this?". This answers "may we ship?", which
+is the question a team actually acts on. The verdict is deterministic —
+no LLM is involved at any point — and it is re-evaluated on every read,
+so tightening the contract applies to audits that already exist instead
+of leaving yesterday's verdict frozen on the job row.
+
+`status` is one of:
+
+| status | meaning |
+|---|---|
+| `pass` | every check passed |
+| `pass_with_warnings` | nothing blocking, but something could not be evaluated |
+| `blocked` | at least one check failed — `ship` is `false` |
+
+**Response `200`**
+
+```json
+{
+  "schemaVersion": "1.0",
+  "status": "blocked",
+  "ship": false,
+  "blockerCount": 2,
+  "warningCount": 0,
+  "sections": [
+    {
+      "id": "security",
+      "status": "fail",
+      "checks": [
+        {
+          "id": "security.no-secrets",
+          "section": "security",
+          "requirement": "at most 0 credentials in the working tree",
+          "observed": "1 credential found",
+          "status": "fail",
+          "ruleIds": ["SEC-SECRET-001"]
+        }
+      ]
+    }
+  ],
+  "blockingFingerprints": ["3f9c1a0b7d2e4f81"],
+  "evaluatedAt": "2026-09-20T10:31:00.000Z"
+}
+```
+
+`blockingFingerprints` is the list a re-audit compares against to answer
+"did the blockers go away?" — the same fingerprints `GET
+/api/v1/audits/:jobId/diff` reports on.
+
+Findings under fixture paths (test files, fixtures, sample apps,
+documents) do **not** count by default, because a scanner's own test
+suite has to hold fake keys in order to prove it detects them. A real
+credential in source still blocks.
+
+**Errors** — `404 JOB_NOT_FOUND` for an unknown job, `409
+REPORT_NOT_READY` when the audit has not completed.
+
 ## `POST /api/v1/repositories/:owner/:repo/reaudit`
 
 Run a fresh audit using coordinates the caller already has. **Paid** —
@@ -556,10 +619,12 @@ payment challenge on the first call, then `202` with `Location` and
 
 ```bash
 # 1. Audit (paid) -> jobId
-# 2. GET /api/v1/audits/<jobId>/fix-plan          (free)
-# 3. Fix the code
-# 4. POST /api/v1/repositories/<owner>/<repo>/reaudit  (paid) -> newJobId
-# 5. GET /api/v1/audits/<newJobId>/diff?base=<jobId>   (free)
+# 2. GET /api/v1/audits/<jobId>/quality          (free)  may this ship?
+# 3. GET /api/v1/audits/<jobId>/fix-plan         (free)
+# 4. Fix the code
+# 5. POST /api/v1/repositories/<owner>/<repo>/reaudit  (paid) -> newJobId
+# 6. GET /api/v1/audits/<newJobId>/quality       (free)  did the blockers go?
+# 7. GET /api/v1/audits/<newJobId>/diff?base=<jobId>   (free)
 ```
 
 ## `GET /docs/openapi.json`
@@ -587,6 +652,6 @@ and the `HealthResponse` schemas under `components.schemas`.
   N callers cause one GitHub fetch, not N.
 - `GET /api/v1/audits/:jobId` returns a `cache` object with `hit`,
   `keyVersion` and `expiresAt`.
-- The derived endpoints (`fix-plan`, `diff`, `history`) do not consult
-  the cache: they read the report stored on the job row.
+- The derived endpoints (`fix-plan`, `diff`, `quality`, `history`) do not
+  consult the cache: they read the report stored on the job row.
 - Config: `REPORT_CACHE_ENABLED`, `REPORT_CACHE_TTL_SECONDS`.

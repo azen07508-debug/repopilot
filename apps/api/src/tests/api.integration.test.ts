@@ -12,10 +12,23 @@ const FIXTURE_DIR = path.resolve(__dirname, '../../../../fixtures/complete-proje
 
 class FakePipeline {
   lastInput: unknown = null;
+  /**
+   * Per-repository report overrides.
+   *
+   * Keyed by repoUrl rather than held in a single mutable field, so a
+   * test that needs a blocking report cannot leak it into the tests that
+   * expect a clean one — whichever order they happen to run in.
+   */
+  private overrides = new Map<string, Report>();
+
+  setReport(repoUrl: string, report: Report): void {
+    this.overrides.set(repoUrl, report);
+  }
+
   async run(input: { repoUrl: string }) {
     this.lastInput = input;
     return {
-      report: fakeReport(),
+      report: this.overrides.get(input.repoUrl) ?? fakeReport(),
       truncated: false,
     };
   }
@@ -69,6 +82,72 @@ function fakeReport(): Report {
     outputLanguage: 'en',
     analyzerProvenance: {},
   };
+}
+
+/**
+ * A report carrying one live credential — the case the quality contract
+ * exists to catch. Nothing else about the report changes, so a `blocked`
+ * verdict can only come from the finding.
+ */
+function blockedReport(): Report {
+  const base = fakeReport();
+  return {
+    ...base,
+    securityFindings: [
+      {
+        id: 'SEC-SECRET-001:src/config.ts:12',
+        ruleId: 'SEC-SECRET-001',
+        fingerprint: 'fp-live-credential',
+        category: 'security',
+        severity: 'critical',
+        confidence: 0.7,
+        title: 'Live credential committed to source',
+        description: 'An assignment to `apiKey` in src/config.ts looks like a real key.',
+        evidence: [
+          { file: 'src/config.ts', line: 12, reason: 'high-entropy string assigned to apiKey' },
+        ],
+        recommendedAction: 'Rotate the credential, then read it from the environment.',
+        acceptanceCriteria: ['The credential no longer appears in the tree.'],
+      },
+    ],
+  };
+}
+
+/** Drive one audit through payment and the queue until it completes. */
+async function runAudit(app: FastifyInstance, repoUrl: string): Promise<string> {
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/v1/audits',
+    payload: { repoUrl, mode: 'quick' },
+  });
+  const { jobId, payment } = create.json() as { jobId: string; payment: { paymentId: string } };
+
+  const paid = await app.inject({
+    method: 'POST',
+    url: '/api/v1/audits',
+    headers: { 'x-payment': `mock:${payment.paymentId}` },
+    payload: { repoUrl, mode: 'quick' },
+  });
+  expect(paid.statusCode).toBe(202);
+
+  for (let i = 0; i < 50; i += 1) {
+    const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}` });
+    const got = res.json() as { status: string };
+    if (res.statusCode === 200 && got.status === 'completed') return jobId;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`job ${jobId} never completed`);
+}
+
+interface QualityBody {
+  schemaVersion: string;
+  status: string;
+  ship: boolean;
+  blockerCount: number;
+  warningCount: number;
+  sections: { id: string; status: string; checks: { id: string; status: string }[] }[];
+  blockingFingerprints: string[];
+  evaluatedAt: string;
 }
 
 describe('API integration', () => {
@@ -289,5 +368,90 @@ describe('API integration', () => {
       payload: { repoUrl: 'https://example.com/never-resolves/repo' },
     });
     expect([403, 502]).toContain(res.statusCode);
+  });
+
+  describe('derived routes', () => {
+    const CLEAN_REPO = 'https://github.com/okx/repopilot';
+    const BLOCKED_REPO = 'https://github.com/okx/repopilot-blocked-fixture';
+
+    it('GET /api/v1/audits/:jobId/quality answers "may this ship?"', async () => {
+      const jobId = await runAudit(app, CLEAN_REPO);
+      const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/quality` });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as QualityBody;
+      expect(body.schemaVersion).toBe('1.0');
+      expect(body.status).toBe('pass');
+      expect(body.ship).toBe(true);
+      expect(body.blockerCount).toBe(0);
+      expect(body.blockingFingerprints).toEqual([]);
+      expect(body.sections.map((s) => s.id)).toEqual([
+        'security',
+        'testing',
+        'ci',
+        'repository',
+        'release',
+        'coverage',
+      ]);
+      expect(Number.isNaN(Date.parse(body.evaluatedAt))).toBe(false);
+    });
+
+    it('blocks a report carrying a live credential, and names the fingerprint', async () => {
+      pipeline.setReport(BLOCKED_REPO, blockedReport());
+      const jobId = await runAudit(app, BLOCKED_REPO);
+      const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/quality` });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as QualityBody;
+      expect(body.status).toBe('blocked');
+      expect(body.ship).toBe(false);
+      expect(body.blockerCount).toBeGreaterThan(0);
+      // The fingerprint is what a re-audit compares against afterwards.
+      expect(body.blockingFingerprints).toContain('fp-live-credential');
+
+      const security = body.sections.find((s) => s.id === 'security');
+      const failed = (security?.checks ?? []).filter((c) => c.status === 'fail').map((c) => c.id);
+      expect(failed).toContain('security.no-secrets');
+      expect(failed).toContain('security.no-critical');
+    });
+
+    it('re-evaluates on every read instead of replaying a stored verdict', async () => {
+      const jobId = await runAudit(app, CLEAN_REPO);
+      const url = `/api/v1/audits/${jobId}/quality`;
+      const first = (await app.inject({ method: 'GET', url })).json() as QualityBody;
+      const second = (await app.inject({ method: 'GET', url })).json() as QualityBody;
+
+      // Same policy, same report, same verdict — plus a timestamp that
+      // moves, which is only possible because nothing was frozen at
+      // write time.
+      expect({ ...second, evaluatedAt: '' }).toEqual({ ...first, evaluatedAt: '' });
+      expect(second.evaluatedAt >= first.evaluatedAt).toBe(true);
+    });
+
+    it('never asks for payment', async () => {
+      const jobId = await runAudit(app, CLEAN_REPO);
+      const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/quality` });
+      expect(res.statusCode).not.toBe(402);
+    });
+
+    it('409 when the audit has no report yet', async () => {
+      // The 402 path still creates the job; it is simply never enqueued.
+      const create = await app.inject({
+        method: 'POST',
+        url: '/api/v1/audits',
+        payload: { repoUrl: CLEAN_REPO, mode: 'quick' },
+      });
+      const { jobId } = create.json() as { jobId: string };
+
+      const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/quality` });
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { error: { code: string } }).error.code).toBe('REPORT_NOT_READY');
+    });
+
+    it('404 for an unknown job', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/audits/job_missing/quality' });
+      expect(res.statusCode).toBe(404);
+      expect((res.json() as { error: { code: string } }).error.code).toBe('JOB_NOT_FOUND');
+    });
   });
 });
