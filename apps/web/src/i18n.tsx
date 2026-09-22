@@ -121,6 +121,9 @@ const en = {
   diffResolved: 'Resolved',
   diffNew: 'New',
   diffPersistent: 'Still open',
+  diffMoved: 'Moved',
+  diffMovedHint:
+    'Same rule and file, a different line. Each of these also appears under Resolved and New.',
 
   historyTitle: 'Audit history',
   historyHint: 'newest first',
@@ -246,6 +249,8 @@ const zhCN: Dict = {
   diffResolved: '已解决',
   diffNew: '新增',
   diffPersistent: '仍未解决',
+  diffMoved: '已移动',
+  diffMovedHint: '同一规则、同一文件，只是行号变了。它们同时也出现在「已解决」和「新增」里。',
 
   historyTitle: '审计历史',
   historyHint: '按时间倒序',

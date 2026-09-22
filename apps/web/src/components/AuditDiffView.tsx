@@ -175,6 +175,35 @@ export function AuditDiffView({ headJobId, baseJobId }: { headJobId: string; bas
             <ul className="plan-criteria">{diff.persistent.map((id) => <li key={id}><code>{id}</code></li>)}</ul>
           )}
         </div>
+        {/*
+          A moved finding has a different fingerprint before and after, so
+          `resolved` and `new` both list it — the schema says so, and says
+          the consumer subtracts. This view cannot: the fingerprints are
+          opaque, and `moved` carries no fingerprints to subtract with.
+          Without this group the panel reads "1 resolved, 1 new" on a diff
+          whose verdict is "unchanged", which looks like two events and is
+          one. Showing the annotation is what reconciles them.
+        */}
+        <div className="diff-group">
+          <div className="meta">{t.diffMoved}</div>
+          {diff.moved.length === 0 ? (
+            <span className="meta">—</span>
+          ) : (
+            <>
+              <ul className="plan-criteria">
+                {diff.moved.map((m, i) => (
+                  <li key={`${i}-${m.ruleId}-${m.file}-${m.fromLine}`}>
+                    <code>{m.ruleId}</code>{' '}
+                    <span className="meta">
+                      {m.file}:{m.fromLine ?? '—'} → {m.toLine ?? '—'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="meta">{t.diffMovedHint}</div>
+            </>
+          )}
+        </div>
       </div>
     </section>
   );
