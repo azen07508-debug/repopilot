@@ -103,4 +103,26 @@ describe('diffReports across a report version boundary', () => {
     expect(diff.resolved).toHaveLength(1);
     expect(diff.new).toHaveLength(1);
   });
+
+  it('still names a move across the boundary, instead of splitting it in two', () => {
+    // `moved` groups candidates by rule and file. Grouping on the raw
+    // `ruleId` field puts a legacy finding (slug only) and its modern twin
+    // (public id) in different groups, so the one annotation that explains
+    // "this shifted" goes quiet exactly when the two sides disagree about
+    // what to call the rule.
+    const before = makeReport({
+      reportVersion: '1.0',
+      documentationGaps: [legacyFinding(SAME_ID, 'LICENSE', 1)],
+    });
+    const after = makeReport({
+      reportVersion: '1.1',
+      documentationGaps: [currentFinding(SAME_ID, 'LICENSE', 12)],
+    });
+
+    const diff = diffReports(before, after);
+
+    expect(diff.moved).toEqual([
+      { ruleId: 'REPO-LICENSE-001', file: 'LICENSE', fromLine: 1, toLine: 12 },
+    ]);
+  });
 });

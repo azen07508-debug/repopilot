@@ -19,6 +19,7 @@ import type {
 } from '../schemas/audit-diff.js';
 import { SCORE_DIMENSIONS } from '../schemas/audit-diff.js';
 import { findingKey } from '../findings/fingerprint.js';
+import { ruleFor } from '../findings/rule-registry.js';
 import { collectFixableFindings } from '../fixplan/builder.js';
 
 export interface DiffOptions {
@@ -116,9 +117,22 @@ function findingsByKey(report: Report): Map<string, Finding> {
  */
 export const MAX_MOVE_DISTANCE = 50;
 
+/**
+ * The public rule id, resolved the way enrichment resolves it.
+ *
+ * A 1.0 finding has no `ruleId` — the slug in `id` was the only name it
+ * had. Grouping on the raw field would put a legacy finding and its
+ * modern twin in different groups, so a move across a version boundary
+ * would stop being named. Same resolution as `findingKey`, for the same
+ * reason: one identity per finding, whichever build wrote it.
+ */
+function publicRuleId(finding: Finding): string {
+  return finding.ruleId ?? ruleFor(finding.id).ruleId;
+}
+
 /** Same rule, same file — the pair of findings that could be one finding. */
 function ruleFile(finding: Finding): string {
-  return `${finding.ruleId ?? finding.id}::${finding.evidence[0]?.file ?? ''}`;
+  return `${publicRuleId(finding)}::${finding.evidence[0]?.file ?? ''}`;
 }
 
 /** The evidence line, or null when there is no line to compare. */
@@ -238,7 +252,7 @@ function computeMoved(
       pairedFrom.add(candidate.from);
       pairedTo.add(candidate.to);
       out.push({
-        ruleId: candidate.from.ruleId ?? candidate.from.id,
+        ruleId: publicRuleId(candidate.from),
         file: candidate.from.evidence[0]?.file ?? '',
         fromLine: candidate.fromLine,
         toLine: candidate.toLine,
