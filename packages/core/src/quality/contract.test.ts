@@ -361,24 +361,60 @@ describe('a report written before ruleId existed', () => {
     expect(result.blockingFingerprints).toHaveLength(1);
   });
 
-  it('still fails a requirement whose finding is present, rather than passing by absence', () => {
-    // The CI check asks "is CI-001 present?" and fails when it is. A 1.0
-    // report does carry that finding — it just has no `ruleId` to filter
-    // on — so the check reported `present` for a repository with no
-    // workflow. Same shape for the README, LICENSE, test-script and
-    // Dockerfile requirements.
-    const noCi = legacy({
-      id: 'repro-no-ci',
-      category: 'reproducibility',
-      severity: 'high',
-      evidence: [{ file: '.github/workflows', line: null, reason: 'no workflow found' }],
+  /**
+   * Every requirement decided by `byRule`, which resolves the rule from the
+   * finding. A 1.0 report has no `ruleId` to filter on, so before the
+   * resolver was shared each of these answered `present` for a repository
+   * that had just been told the opposite — the CI check said "a CI workflow
+   * runs install and test: present" about a repository with no workflow.
+   *
+   * Table-driven on purpose: a requirement added to the contract without
+   * going through the resolver fails here.
+   *
+   * The contract turns on the two checks that are off by default, so all of
+   * them are exercised rather than only the ones a default project sees.
+   */
+  const strict = QualityContractSchema.parse({
+    ...DEFAULT_QUALITY_CONTRACT,
+    testing: { ...DEFAULT_QUALITY_CONTRACT.testing, contractTestsRequired: true },
+    repository: { ...DEFAULT_QUALITY_CONTRACT.repository, envExample: true },
+  });
+
+  const RULE_SCOPED = [
+    { check: 'testing.test-script', slug: 'repro-no-test-script', ruleId: 'TEST-002' },
+    { check: 'testing.contract-tests', slug: 'web3-no-contract-tests', ruleId: 'TEST-003' },
+    { check: 'ci.workflow', slug: 'repro-no-ci', ruleId: 'CI-001' },
+    { check: 'repository.readme', slug: 'doc-readme', ruleId: 'REPO-README-001' },
+    { check: 'repository.license', slug: 'doc-license', ruleId: 'REPO-LICENSE-001' },
+    {
+      check: 'repository.env-example',
+      slug: 'doc-env-example',
+      ruleId: 'REPO-ENVEXAMPLE-001',
+    },
+  ];
+
+  for (const { check, slug, ruleId } of RULE_SCOPED) {
+    it(`fails ${check} when a legacy report carries ${ruleId}`, () => {
+      const report = makeReport({
+        reportVersion: '1.0',
+        blockers: [legacy({ id: slug, severity: 'high' })],
+      });
+
+      const result = evaluateQualityContract(report, strict);
+
+      expect(checkStatus(result, check)).toBe('fail');
+      expect(result.ship).toBe(false);
     });
-    const report = makeReport({ reportVersion: '1.0', blockers: [noCi] });
+  }
 
-    const result = evaluateQualityContract(report);
+  it('fails release.build-path when a legacy report carries both build rules', () => {
+    // Either path counts, so this one only fails with both findings present.
+    const report = makeReport({
+      reportVersion: '1.0',
+      blockers: [legacy({ id: 'repro-no-docker' }), legacy({ id: 'repro-no-run-script' })],
+    });
 
-    expect(checkStatus(result, 'ci.workflow')).toBe('fail');
-    expect(result.ship).toBe(false);
+    expect(checkStatus(evaluateQualityContract(report), 'release.build-path')).toBe('fail');
   });
 });
 
