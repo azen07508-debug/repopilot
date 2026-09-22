@@ -282,6 +282,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`disableRequestLogging` removed — it emitted FSTDEP023 on every
+  boot.** `apps/api/src/server.ts` set `disableRequestLogging: false`,
+  which is Fastify's default; the line existed only to say so out loud.
+  The option is deprecated in fastify@5 and will be removed in
+  fastify@6, and it warns on *presence* rather than on value
+  (`fastify.js`: `if (options.disableRequestLogging !== undefined)
+  FSTDEP023()`, while `config-validator.js` fills in `false` when the
+  option is undefined). So the declaration produced a deprecation
+  warning on every server start while changing nothing. Omitting it says
+  the same thing — request logging is still on: the integration suite
+  emits 118 `incoming request` lines with the option gone, and no
+  `FSTDEP` warning remains.
 - **An unreachable GitHub was recorded as the commit `'unknown'`.**
   `POST /api/v1/audits` resolves the head SHA before enqueueing and
   fell back to the string `'unknown'` when both `main` and `master`

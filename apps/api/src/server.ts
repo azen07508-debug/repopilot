@@ -126,7 +126,14 @@ export async function buildApp(
         censor: '[REDACTED]',
       },
     },
-    disableRequestLogging: false,
+    // Request logging is on by default. This used to spell that out with
+    // `disableRequestLogging: false`, but the option is deprecated in
+    // fastify@5 and will be removed in fastify@6 — and it warns on
+    // *presence*, not on value (`fastify.js`: `if (options
+    // .disableRequestLogging !== undefined) FSTDEP023()`), because
+    // `false` is already the default (`config-validator.js` fills it in
+    // when undefined). Omitting it says exactly the same thing, without
+    // the FSTDEP023 warning on every boot.
     bodyLimit: 64 * 1024,
     trustProxy: true,
   });

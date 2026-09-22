@@ -272,6 +272,10 @@ not wired yet.
 - Production guards: `production + PAYMENT_MODE=mock` and
   `production + AUDIT_QUEUE_DRIVER=inline` now both fail app start
   with a clear, secret-free error (schema-level + env-check).
+- Fastify boots without deprecation warnings. `server.ts` no longer sets
+  `disableRequestLogging: false` — it is the default, the option warns on
+  presence not value, and fastify@6 removes it. Request logging is
+  unaffected.
 - Async audit queue: `AuditQueue` interface with two adapters
   (`InlineAuditQueue`, `PgBossAuditQueue`) and a single
   `AuditWorker` owning the state machine.
