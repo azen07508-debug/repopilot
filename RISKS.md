@@ -246,6 +246,9 @@ must reject PRs that move these two pins without an accompanying ADR.
 
 **Severity:** High
 **Likelihood:** Certain (measured, not theorised)
+**Status:** Mitigated in 0.1.0-rc.2 by ADR D-022. The penalty is capped per
+`(file, rule)` at 3 findings, so one generated file can no longer zero a
+dimension. Breadth is unaffected.
 
 A lockfile is mostly integrity digests — `sha512-<base64>` — which are
 high-entropy by construction, which is exactly what the generic secret
@@ -283,17 +286,26 @@ touch this. Neither does lowering `SEVERITY_PENALTY.low`: the count is
 unbounded, so any non-zero weight still reaches 0 on a large enough
 lockfile.
 
-**Recommended fix (needs its own ADR and commit):** cap the contribution
-of any one `(file, ruleId)` pair, rather than removing lockfile findings
-from `securityFindings`. The 388th `sha512-` digest carries no
-information the first did not, and a cap is principled for every rule
-rather than a special case for lockfiles. Moving generated-file findings
-into `fixtureFindings` would also work, but it changes what
+**Fix applied (ADR D-022):** cap the contribution of any one
+`(file, ruleId)` pair, rather than removing lockfile findings from
+`securityFindings`. The 388th `sha512-` digest carries no information the
+first did not, and a cap is principled for every rule rather than a
+special case for lockfiles. Moving generated-file findings into
+`fixtureFindings` would also work, but it changes what
 `securityFindings` means and raises the score for every affected
 repository — a bigger semantic change than the cap.
 
-**Detection:** the probe above. There is deliberately no regression test
-pinning the current numbers: a test asserting `securityHygiene === 0` for
-a lockfile-only repository would freeze the bug in place. The test
-belongs with the fix.
+**Detection:** the probe above, now pinned in both directions by
+`packages/core/src/scoring/penalty-cap.test.ts`: a lockfile cannot zero
+`securityHygiene`, and forty files with one hit each still score 40 — the
+second half matters as much as the first, since a cap that also flattened
+breadth would trade a false alarm for a false pass. Reverting the cap
+fails 7 of the file's 8 tests.
+
+**Fixed:** ADR D-022 caps each `(file, ruleId)` pair at `MAX_PER_GROUP`
+(3) findings, worst severity first, keyed on the *resolved* rule id — a
+secret finding's `id` embeds its line number, so keying on it would give
+every hit its own group and the cap would never apply. Measured after the
+fix, same synthetic repository: `securityHygiene: 95.5`, and the overall
+score moves 1.1 points instead of 25.
 

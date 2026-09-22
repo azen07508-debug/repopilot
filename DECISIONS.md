@@ -338,3 +338,43 @@ Architecture Decision Records (ADR-style, lightweight).
 - **Consequences:** Both SQLite and Postgres `CREATE` statements must
   be updated together (D-005). Cache invalidation depends on
   `commitSha`, consistent with the report cache.
+
+## D-022 — The severity penalty is capped per `(file, rule)`
+
+- **Date:** 2026-09-22
+- **Status:** Accepted (0.1.0-rc.2)
+- **Context:** `severityPenalty()` summed `SEVERITY_PENALTY[severity]` over
+  every finding, with no bound on how many findings a single file could
+  contribute. That holds until a generated file produces hundreds of
+  hits. A lockfile is mostly `sha512-` integrity digests, which are
+  high-entropy by construction and therefore match the generic secret
+  heuristic; `severityForPath` downgrades those to `low` rather than
+  dropping them, so they stay in `securityFindings` and still accumulate.
+  Measured (see R-22): a repository whose only files were a lockfile, a
+  README, a LICENSE and a one-line source file scored
+  `securityHygiene: 0` and `overall: 53.7` — 25 points below the same
+  tree without the lockfile. The quality contract was already immune,
+  because it counts only `critical` and `high`; the score was not. This
+  is the same shape as the 547-blocker `.env.example` run that motivated
+  `TEMPLATE_ONLY_KINDS`: the gate was fixed, the score was not.
+- **Decision:** Cap the contribution of any one `(file, ruleId)` pair at
+  `MAX_PER_GROUP` (3) findings, keeping the worst severities first. The
+  group key is the **resolved** rule id (`ruleIdOf`), never the finding
+  `id`: a secret finding's id embeds its line number, so keying on it
+  would put every hit in a group of its own and the cap would never apply
+  to the case it exists for. The true finding count is preserved for the
+  `count > 0` gate and for the reason text, which gains "at most 3
+  counted per file and rule" when the cap bites. The cap applies to all
+  four dimensions, not only security.
+- **Alternatives rejected:** Lowering `SEVERITY_PENALTY.low` does not
+  work — the count is unbounded, so any non-zero weight still reaches 0
+  on a large enough lockfile. Moving generated-file findings into
+  `fixtureFindings` would also work, but it changes what
+  `securityFindings` means and raises the score for every affected
+  repository, a larger semantic change than a cap.
+- **Consequences:** Breadth is still punished in full — a hundred secrets
+  in a hundred files still costs a hundred penalties — so only repetition
+  *inside* one file is bounded, and `scoring/penalty-cap.test.ts` pins
+  both directions. A repository that previously scored 0 on a dimension
+  because of one generated file now scores higher, and the reported
+  breakdown says why.
