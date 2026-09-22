@@ -240,6 +240,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI actions moved to the first major that runs on Node 24.**
+  `actions/checkout@v4 → v5`, `actions/setup-node@v4 → v5`,
+  `actions/cache@v4 → v5`, `actions/upload-artifact@v4 → v6`. The `@v4`
+  majors target Node 20 and were being forced onto Node 24, so every run
+  carried a deprecation warning. `upload-artifact@v5` still declares
+  `node20` in its `action.yml`, which is why v6 and not v5 is the first
+  version that clears it — verified per tag by reading `runs.using`
+  rather than trusting the release notes. `docker.yml`'s checkout was on
+  the same `@v4` and moved with it.
+  - `setup-node` sets `package-manager-cache: false`. From v5 it caches
+    automatically whenever `package.json` declares `packageManager`, and
+    the root declares `pnpm@11.11.0` — so the default would have added a
+    second pnpm-store cache beside the explicit `actions/cache` step.
+    One cache, keyed the way the workflow chooses.
+  - Both workflows were parsed and their step wiring asserted after the
+    edit, because a workflow that fails to parse fails every run in 0s
+    with no logs — a failure mode this repository has already hit.
 - **`jobs` table gained repository identity columns** — `owner`,
   `repo`, `commit_sha`, `mode`, `target` — plus two indexes
   (`idx_jobs_owner_repo_created`, `idx_jobs_commit_sha`), on both

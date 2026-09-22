@@ -259,6 +259,16 @@ not wired yet.
 - `GET /api/v1/audits/:jobId/quality` serves the quality contract on
   read, from the same function the MCP `quality_status` tool uses.
 - CI pins `ubuntu-24.04` instead of tracking `ubuntu-latest`.
+- CI's `actions/*` steps moved to the first major that runs on Node 24:
+  `checkout@v5`, `setup-node@v5`, `cache@v5`, `upload-artifact@v6`. The
+  `@v4` majors target Node 20 and were being forced onto Node 24 with a
+  deprecation warning on every run. `upload-artifact@v5` still declares
+  `node20`, so v6 is the first major that actually clears it. Verified
+  per tag by reading `runs.using` from each action's own `action.yml`.
+  `setup-node` sets `package-manager-cache: false` because the root
+  `package.json` declares `packageManager`, which from v5 turns on
+  automatic caching that would duplicate the explicit `actions/cache`
+  step.
 - Production guards: `production + PAYMENT_MODE=mock` and
   `production + AUDIT_QUEUE_DRIVER=inline` now both fail app start
   with a clear, secret-free error (schema-level + env-check).

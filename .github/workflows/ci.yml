@@ -30,10 +30,21 @@ jobs:
     # makes that upgrade a decision instead of a surprise; bump the
     # version deliberately, after verifying it.
     #
-    # Separate, and not fixable here: the `actions/*@v4` steps target
-    # Node 20 and are currently being run on Node 24 with a deprecation
-    # warning. They need their major versions bumped before Node 20 is
-    # removed — that is an action upgrade, not a runner change.
+    # The `actions/*` steps are pinned to the first major that runs on
+    # Node 24. The `@v4` majors target Node 20 and were being forced onto
+    # Node 24 on every run, which is what the deprecation warning was.
+    #
+    # Verified against each action's own `action.yml` at the tag, reading
+    # `runs.using` rather than trusting the release prose:
+    #
+    #   checkout@v5         node24      setup-node@v5    node24
+    #   cache@v5            node24      upload-artifact@v6  node24
+    #
+    # upload-artifact is the odd one out: its v5 still declares `node20`,
+    # so v6 is the first major that actually clears the warning.
+    # Newer majors exist (checkout v7, setup-node v7, cache v6,
+    # upload-artifact v7); these are the minimum that resolve it, which
+    # keeps the upgrade a decision rather than a surprise.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -70,12 +81,18 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
+          # Off on purpose. From v5 this action caches automatically
+          # whenever `packageManager` is set in package.json, and the
+          # root sets `pnpm@11.11.0` — so the default would add a second
+          # pnpm-store cache beside the explicit `actions/cache` step
+          # below. One cache, keyed the way this workflow chooses.
+          package-manager-cache: false
 
       - name: Enable Corepack
         run: corepack enable
@@ -88,7 +105,7 @@ jobs:
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ matrix.node }}-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -143,7 +160,7 @@ jobs:
 
       - name: Upload API dist (postgres run only, for debugging)
         if: matrix.db == 'postgres' && failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: api-dist
           path: apps/api/dist
