@@ -16,7 +16,10 @@ permissions:
 jobs:
   build:
     name: docker build (no push)
-    runs-on: ubuntu-latest
+    # Pinned for the same reason as ci.yml: `ubuntu-latest` moves to
+    # Ubuntu 26 on 2026-10-19, and a runner image change is not something
+    # a Dockerfile should have to absorb unannounced.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
