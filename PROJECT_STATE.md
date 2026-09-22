@@ -154,8 +154,8 @@ RepoPilot is gaining a closed loop:
 Re-Audit → Compare**. The P0 slice is core-only; API, MCP and Web are
 not wired yet.
 
-- `FixPlanSchema` / `AuditDiffSchema` — own `schemaVersion`, decoupled
-  from `Report.reportVersion`, which stays `'1.0'`.
+- `FixPlanSchema` / `AuditDiffSchema` — own `schemaVersion`, versioned
+  independently of `Report.reportVersion`.
 - `buildFixPlan()` / `buildFixPlanSet()` — pure derivations from an
   existing `Report`. No scan, no analyzer, no network, no
   `AuditPipeline.run()`.

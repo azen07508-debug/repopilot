@@ -1,7 +1,18 @@
 /**
  * Constants and defaults used across the core package.
  */
-export const REPORT_VERSION = '1.0' as const;
+/**
+ * Bumped to 1.1 when findings gained ruleId, fingerprint, confidence and
+ * verification. Those fields are additive, so a 1.0 report still parses —
+ * which is why the schema accepts both rather than only the new one. A
+ * consumer can branch on the version to know whether fingerprints are
+ * available, instead of guessing from the shape.
+ */
+export const REPORT_VERSION = '1.1' as const;
+
+/** Every report version this build can parse, oldest first. */
+export const SUPPORTED_REPORT_VERSIONS = ['1.0', '1.1'] as const;
+
 export const CORE_VERSION = '0.1.0';
 
 export const DEFAULT_LIMITS = {

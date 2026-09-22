@@ -33,7 +33,8 @@ audit. It does not custody funds or read private keys.
   what moved: the score delta per dimension, the exact scoring rules
   that changed, and which findings were resolved, appeared or persist.
 - **Built for AI agents.** The report is a single JSON document with a
-  stable schema (`reportVersion: "1.0"`). The MCP server exposes seven
+  stable schema (`reportVersion: "1.1"`; `"1.0"` still parses). The MCP
+  server exposes seven
   tools and marks which of them are free, so any MCP-compatible client
   can drive the whole loop.
 - **No surprise charges.** Reading a fix plan or a comparison is free;

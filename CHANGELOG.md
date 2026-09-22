@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for `RepositoryMap`, `SymbolMap`, `DependencyGraph`,
     `ArchitectureGraph`, `ChangeImpact`, `AgentContextPack` and
     `EvidenceV2`. Every artifact carries its own `schemaVersion`,
-    decoupled from `Report.reportVersion`, which stays `'1.0'`.
+    versioned independently of `Report.reportVersion`.
   - `EvidenceV2` is a strict superset of v1 `Evidence`: `file` and
     `line` survive as optional mirrors, so existing consumers are
     unaffected. `toEvidenceV2` / `toLegacyEvidence` round-trip between

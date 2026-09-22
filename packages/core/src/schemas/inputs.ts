@@ -52,6 +52,12 @@ export type CreateAuditInput = z.infer<typeof CreateAuditInputSchema>;
 /**
  * FreeCheckReport — slim JSON shape returned from `/api/v1/free-check`.
  * Validated end-to-end before being sent back to the caller.
+ *
+ * The version here is deliberately NOT `SUPPORTED_REPORT_VERSIONS`. This
+ * is a different document with a different shape; it has not changed, so
+ * it stays at 1.0 and says so. Sharing the constant would make it accept
+ * versions it never emits, and would widen it again the next time the
+ * audit report moves.
  */
 export const FreeCheckReportSchema = z.object({
   reportVersion: z.literal('1.0'),

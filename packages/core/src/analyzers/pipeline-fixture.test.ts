@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { REPORT_VERSION } from '../utils/constants.js';
 import { detectStack, stackLabels } from '../analyzers/stack.js';
 import { analyzeDocumentation } from '../analyzers/documentation.js';
 import { analyzeReproducibility } from '../analyzers/reproducibility.js';
@@ -168,7 +169,7 @@ describe('Pipeline on complete-project fixture', () => {
 
     // Report must validate against schema
     const parsed = ReportSchema.parse(result.report);
-    expect(parsed.reportVersion).toBe('1.0');
+    expect(parsed.reportVersion).toBe(REPORT_VERSION);
     // complete-project is well set up; should be at least passable
     expect(parsed.scores.overall).toBeGreaterThan(50);
     // Every finding has evidence

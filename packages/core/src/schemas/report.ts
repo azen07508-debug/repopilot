@@ -3,6 +3,7 @@
  * Every field the report exposes is validated by Zod before being returned.
  */
 import { z } from 'zod';
+import { SUPPORTED_REPORT_VERSIONS } from '../utils/constants.js';
 
 /**
  * Which remote source produced a piece of evidence.
@@ -255,7 +256,7 @@ export const LaunchCopySchema = z.object({
 export type LaunchCopy = z.infer<typeof LaunchCopySchema>;
 
 export const ReportSchema = z.object({
-  reportVersion: z.literal('1.0'),
+  reportVersion: z.enum(SUPPORTED_REPORT_VERSIONS),
   repository: RepositorySchema,
   summary: z.string(),
   detectedStack: z.array(z.string()),

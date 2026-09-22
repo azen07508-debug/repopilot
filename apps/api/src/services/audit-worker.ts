@@ -18,6 +18,7 @@
 import {
   AuditPipeline,
   MetadataAnalyzer,
+  REPORT_VERSION,
   ReportSchema,
   parseRepoUrl,
   type AuditJob,
@@ -161,6 +162,11 @@ export class AuditWorker {
     // verification; by the time we are here, payment is confirmed.
     // We re-use the existing buildCacheKey shape: owner/repo/sha/mode/
     // target/lang/includeLaunchCopy/reportVersion.
+    //
+    // The report version has to come from the constant, not a literal.
+    // It is in the key precisely so a format change does not serve a
+    // report written by an older build — which is what a stale literal
+    // here would have done the moment the version moved to 1.1.
     const keyVersion = 'v1';
     // Resolve the head SHA. We re-resolve here (instead of trusting
     // the route) so the worker is self-contained: an enqueued job can
@@ -187,7 +193,7 @@ export class AuditWorker {
       mode: input.mode,
       target: input.target,
       outputLanguage: input.outputLanguage,
-      reportVersion: '1.0',
+      reportVersion: REPORT_VERSION,
       includeLaunchCopy: input.includeLaunchCopy ?? false,
     });
 

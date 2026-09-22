@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { REPORT_VERSION } from '../utils/constants.js';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ReportBuilder } from '../report/builder.js';
@@ -111,7 +112,7 @@ describe('fix plans across all fixtures', () => {
   for (const name of FIXTURE_NAMES) {
     it(`derives valid plans for the ${name} fixture`, () => {
       const report = buildReport(name);
-      expect(report.reportVersion).toBe('1.0');
+      expect(report.reportVersion).toBe(REPORT_VERSION);
 
       const set = buildFixPlanSet(report, { commitSha: 'fixture-sha' });
       expect(() => FixPlanSchema.array().parse(set.plans)).not.toThrow();
@@ -178,10 +179,10 @@ describe('schema boundaries', () => {
   });
 });
 
-describe('reportVersion 1.0 backward compatibility', () => {
+describe('plans stay out of the report', () => {
   it('still parses a report that has no fix-plan fields', () => {
     const report = buildReport('minimal');
-    expect(report.reportVersion).toBe('1.0');
+    expect(report.reportVersion).toBe(REPORT_VERSION);
     expect(Object.keys(report)).not.toContain('fixPlan');
     expect(() => ReportSchema.parse(report)).not.toThrow();
     expect(() => ReportSchema.parse({ ...report, fixPlan: undefined })).not.toThrow();
@@ -193,6 +194,6 @@ describe('reportVersion 1.0 backward compatibility', () => {
     const after = buildReport('no-readme');
     expect(after.scores).toEqual(before.scores);
     expect(after.documentationGaps).toEqual(before.documentationGaps);
-    expect(after.reportVersion).toBe('1.0');
+    expect(after.reportVersion).toBe(REPORT_VERSION);
   });
 });
