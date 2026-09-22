@@ -24,7 +24,7 @@ import {
   type QualityContract,
   type QualityContractResult,
 } from '../schemas/quality-contract.js';
-import { findingKey } from '../findings/fingerprint.js';
+import { findingKey, ruleIdOf } from '../findings/fingerprint.js';
 import { isFixturePath } from '../security/severity.js';
 
 /**
@@ -59,9 +59,18 @@ export function collectFindings(report: Report): Finding[] {
 // import it from here keep working.
 export { findingKey };
 
+/**
+ * The findings a rule produced.
+ *
+ * Matched on the resolved rule id, not the raw field. `ruleId` did not
+ * exist in 1.0, so filtering on it finds nothing in a stored report and
+ * every requirement phrased as "is this rule's finding present?" answers
+ * `present` — including the ones that mean the opposite, like "a CI
+ * workflow runs install and test".
+ */
 function byRule(findings: Finding[], ...ruleIds: string[]): Finding[] {
   const wanted = new Set(ruleIds);
-  return findings.filter((f) => wanted.has(f.ruleId ?? ''));
+  return findings.filter((f) => wanted.has(ruleIdOf(f)));
 }
 
 function check(
@@ -130,7 +139,7 @@ function securitySection(findings: Finding[], c: QualityContract): ContractSecti
       `at most ${count(c.security.maxCritical, 'critical finding')}`,
       critical.length === 0 ? 'none found' : `${count(critical.length, 'critical finding')} found`,
       critical.length <= c.security.maxCritical,
-      [...new Set(critical.map((f) => f.ruleId ?? f.id))].sort()
+      [...new Set(critical.map(ruleIdOf))].sort()
     ),
   ];
 
@@ -314,7 +323,7 @@ export function evaluateQualityContract(
   const blockingRuleIds = new Set(failing.flatMap((c) => c.ruleIds));
   const blockingFingerprints = [
     ...new Set(
-      findings.filter((f) => blockingRuleIds.has(f.ruleId ?? '')).map((f) => findingKey(f))
+      findings.filter((f) => blockingRuleIds.has(ruleIdOf(f))).map((f) => findingKey(f))
     ),
   ].sort();
 

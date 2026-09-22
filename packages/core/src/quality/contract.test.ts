@@ -327,6 +327,61 @@ describe('finding collection', () => {
   });
 });
 
+describe('a report written before ruleId existed', () => {
+  /**
+   * A finding as a 1.0 build wrote it: enriched, then stripped back to the
+   * fields 1.0 had. `ruleId` did not exist yet, so the slug in `id` is the
+   * only name it carries.
+   */
+  function legacy(overrides: Partial<Finding> = {}): Finding {
+    const enriched = enrichFinding(makeFinding(overrides));
+    const { ruleId, fingerprint, confidence, verification, ...rest } = enriched;
+    return rest as Finding;
+  }
+
+  it('still blocks on a critical secret, rather than passing for lack of a rule id', () => {
+    // Every "is this rule's finding present?" check in the contract resolves
+    // the rule from `ruleId`. Filtering on the raw field finds nothing in a
+    // 1.0 report, so each of those checks passes by absence — and a stored
+    // report carrying a live credential reads as shippable. `GET
+    // /audits/:jobId/quality` re-evaluates stored reports on every read, so
+    // this is the verdict a user would actually be shown.
+    const secret = legacy({
+      id: 'secret-private_key-10-src-a-ts',
+      category: 'security',
+      severity: 'critical',
+      evidence: [{ file: 'src/a.ts', line: 10, reason: 'a private key sits here' }],
+    });
+    const report = makeReport({ reportVersion: '1.0', securityFindings: [secret] });
+
+    const result = evaluateQualityContract(report);
+
+    expect(result.status).toBe('blocked');
+    expect(result.ship).toBe(false);
+    expect(result.blockingFingerprints).toHaveLength(1);
+  });
+
+  it('still fails a requirement whose finding is present, rather than passing by absence', () => {
+    // The CI check asks "is CI-001 present?" and fails when it is. A 1.0
+    // report does carry that finding — it just has no `ruleId` to filter
+    // on — so the check reported `present` for a repository with no
+    // workflow. Same shape for the README, LICENSE, test-script and
+    // Dockerfile requirements.
+    const noCi = legacy({
+      id: 'repro-no-ci',
+      category: 'reproducibility',
+      severity: 'high',
+      evidence: [{ file: '.github/workflows', line: null, reason: 'no workflow found' }],
+    });
+    const report = makeReport({ reportVersion: '1.0', blockers: [noCi] });
+
+    const result = evaluateQualityContract(report);
+
+    expect(checkStatus(result, 'ci.workflow')).toBe('fail');
+    expect(result.ship).toBe(false);
+  });
+});
+
 describe('the result is a decision, not an opinion', () => {
   it('agrees with itself across runs', () => {
     const report = reportWithFindings([withRule('CI-001')]);

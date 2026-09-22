@@ -41,6 +41,20 @@ export function findingFingerprint(input: FingerprintInput): string {
 }
 
 /**
+ * The public rule id for a finding, whichever build wrote the report.
+ *
+ * A 1.0 finding has no `ruleId` — the slug in `id` was the only name it
+ * had. Everything that identifies a finding by rule has to resolve that
+ * slug through the same registry enrichment uses, or it sees a different
+ * finding depending on which build wrote the report. Three callers need
+ * this and got it wrong in three separate ways: the comparison key, the
+ * diff's move grouping, and the contract's per-rule checks.
+ */
+export function ruleIdOf(f: { ruleId?: string | undefined; id: string }): string {
+  return f.ruleId ?? ruleFor(f.id).ruleId;
+}
+
+/**
  * The identity used to compare findings across audits.
  *
  * Prefers the stored fingerprint, and derives it for reports written
@@ -67,8 +81,7 @@ export function findingKey(f: {
   evidence: ReadonlyArray<{ file: string; line: number | null }>;
 }): string {
   if (f.fingerprint) return f.fingerprint;
-  const rule = f.ruleId ?? ruleFor(f.id).ruleId;
-  return findingFingerprint({ ruleId: rule, evidence: f.evidence });
+  return findingFingerprint({ ruleId: ruleIdOf(f), evidence: f.evidence });
 }
 
 function fnv1a(input: string): string {
