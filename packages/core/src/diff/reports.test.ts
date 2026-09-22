@@ -9,6 +9,8 @@ import { computeRuleDeltas, diffReports, MAX_MOVE_DISTANCE } from './reports.js'
 import { AuditDiffSchema } from '../schemas/audit-diff.js';
 import type { ScoreDimension } from '../schemas/audit-diff.js';
 import { makeFinding, makeReport } from '../test-utils/report-factory.js';
+import { findingFingerprint } from '../findings/fingerprint.js';
+import { ruleFor } from '../findings/rule-registry.js';
 import type { Finding, Report } from '../schemas/report.js';
 
 interface Rule {
@@ -218,12 +220,22 @@ describe('diffReports — finding classification', () => {
     expect(diff.persistent).toEqual(['fp-stays']);
   });
 
-  it('falls back to rule and location for reports written before fingerprints', () => {
-    const legacyBefore = makeReport({ documentationGaps: [makeFinding({ id: 'gone' })] });
-    const legacyAfter = makeReport({ documentationGaps: [] });
-    // The fallback key is `rule::file:line`, so an old audit still
-    // compares against a new one instead of reading as fully resolved.
-    expect(diffReports(legacyBefore, legacyAfter).resolved).toEqual(['gone::src/index.ts:12']);
+  it('derives the key an enriched finding would carry, for reports written before fingerprints', () => {
+    const legacy = makeFinding({ id: 'gone' });
+    const diff = diffReports(
+      makeReport({ documentationGaps: [legacy] }),
+      makeReport({ documentationGaps: [] })
+    );
+
+    // Pinned against the derivation rather than against a literal, because
+    // the value is not the point — sharing the key space is. A 1.0 finding
+    // has no `fingerprint` and no `ruleId`, so the slug is resolved through
+    // the registry and hashed exactly as enrichment would have. Any second
+    // key format here puts stored audits and fresh ones in different spaces,
+    // and a diff between them reads as fully resolved plus fully new.
+    expect(diff.resolved).toEqual([
+      findingFingerprint({ ruleId: ruleFor('gone').ruleId, evidence: legacy.evidence }),
+    ]);
   });
 
   it('names a finding that moved, instead of leaving the caller to guess', () => {

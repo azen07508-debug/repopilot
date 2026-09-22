@@ -14,6 +14,7 @@
  * processes, machines and runs — which is what before/after comparison
  * needs.
  */
+import { ruleFor } from './rule-registry.js';
 
 export interface FingerprintInput {
   ruleId: string;
@@ -42,13 +43,22 @@ export function findingFingerprint(input: FingerprintInput): string {
 /**
  * The identity used to compare findings across audits.
  *
- * Prefers the fingerprint, and falls back to rule + location for reports
- * written before fingerprints existed — so an old audit can still be
- * compared against a new one instead of everything reading as resolved.
+ * Prefers the stored fingerprint, and derives it for reports written
+ * before fingerprints existed.
  *
- * Takes a structural type rather than `Finding` to keep this module
- * dependency-free: the quality contract and the report diff both need
- * it, and neither should have to import the other.
+ * Derives rather than inventing a second key format, and that detail is
+ * the whole point. A 1.0 finding has no `fingerprint` AND no `ruleId` —
+ * the slug in `id` was the only name it had. Keying it as
+ * `rule::file:line` puts it in a different key space from every 1.1
+ * finding, so a stored 1.0 audit compared against a fresh one reads as
+ * "everything fixed, everything brand new". Resolving the slug through
+ * the same registry enrichment uses, then hashing rule + evidence
+ * exactly as enrichment would have, yields the value that finding would
+ * carry today — so the two sides line up.
+ *
+ * Takes a structural type rather than `Finding` so this module does not
+ * have to import the report schema: the quality contract and the report
+ * diff both need it, and neither should have to import the other.
  */
 export function findingKey(f: {
   fingerprint?: string | undefined;
@@ -57,9 +67,8 @@ export function findingKey(f: {
   evidence: ReadonlyArray<{ file: string; line: number | null }>;
 }): string {
   if (f.fingerprint) return f.fingerprint;
-  const rule = f.ruleId ?? f.id;
-  const e = f.evidence[0];
-  return `${rule}::${e?.file ?? ''}:${e?.line ?? ''}`;
+  const rule = f.ruleId ?? ruleFor(f.id).ruleId;
+  return findingFingerprint({ ruleId: rule, evidence: f.evidence });
 }
 
 function fnv1a(input: string): string {

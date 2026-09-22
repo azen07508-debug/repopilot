@@ -94,9 +94,9 @@ export function computeRuleDeltas(before: Report, after: Report): RuleDelta[] {
 /**
  * Findings keyed by their comparison identity.
  *
- * `findingKey` prefers the fingerprint and falls back to rule + location
- * for reports written before fingerprints existed, so an old audit can
- * still be compared against a new one.
+ * `findingKey` prefers the stored fingerprint and derives it when absent,
+ * so an audit stored by an older build lines up with a fresh one. See
+ * version-boundary.test.ts for what that buys.
  */
 function findingsByKey(report: Report): Map<string, Finding> {
   const out = new Map<string, Finding>();
@@ -257,7 +257,9 @@ function computeMoved(
 /**
  * Diff two reports of the same repository.
  *
- * Finding classification is a plain set operation on `finding.id`:
+ * Finding classification is a plain set operation on the comparison key
+ * from `findingKey` — the stored fingerprint, or the derived one for
+ * reports written before fingerprints existed:
  *   base ∩ head = persistent, base - head = resolved, head - base = new.
  */
 export function diffReports(before: Report, after: Report, opts: DiffOptions = {}): AuditDiff {

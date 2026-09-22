@@ -5,6 +5,9 @@ import {
   type QualityContract,
 } from '../schemas/quality-contract.js';
 import type { Finding, Report } from '../schemas/report.js';
+import { enrichFinding } from '../findings/enrich.js';
+import { findingFingerprint } from '../findings/fingerprint.js';
+import { ruleFor } from '../findings/rule-registry.js';
 import { makeFinding, makeReport, reportWithFindings } from '../test-utils/report-factory.js';
 import { collectFindings, evaluateQualityContract, findingKey } from './evaluate.js';
 
@@ -299,13 +302,20 @@ describe('finding collection', () => {
     expect(collectFindings(report)).toHaveLength(1);
   });
 
-  it('falls back to rule and location when a report predates fingerprints', () => {
-    const legacy = makeFinding({
-      ruleId: 'CI-001',
-      fingerprint: undefined,
-      evidence: [{ file: 'a.ts', line: 3, reason: 'r' }],
-    });
-    expect(findingKey(legacy)).toBe('CI-001::a.ts:3');
+  it('derives the key an enriched finding would carry, when a report predates fingerprints', () => {
+    const evidence = [{ file: 'a.ts', line: 3, reason: 'r' }];
+    // A legacy finding carries only the slug — `repro-no-ci` is what the
+    // registry maps to CI-001, so the derivation has to go through that
+    // same registry. Deriving anything else puts a stored report and a
+    // fresh one in different key spaces, and a gate comparison between
+    // them reports every blocker as resolved and every one as new.
+    const legacy = makeFinding({ id: 'repro-no-ci', fingerprint: undefined, evidence });
+    const enriched = enrichFinding(makeFinding({ id: 'repro-no-ci', evidence }));
+
+    expect(findingKey(legacy)).toBe(findingKey(enriched));
+    expect(findingKey(legacy)).toBe(
+      findingFingerprint({ ruleId: ruleFor('repro-no-ci').ruleId, evidence })
+    );
   });
 
   it('counts distinct findings separately', () => {
