@@ -75,11 +75,15 @@ export const AuditDiffSchema = z.object({
    *
    * Fingerprint rather than `id`: a location-bearing id — secrets,
    * injections, per-section README checks — embeds a line number, so
-   * inserting one line above a secret used to read as "resolved plus
-   * new" instead of "unchanged". See findings/fingerprint.ts.
+   * inserting one line above a secret would otherwise compare as two
+   * unrelated findings. See findings/fingerprint.ts.
+   *
+   * Includes hits that merely moved, because a shifted hit really does
+   * have a different fingerprint. Subtract `moved` when the question is
+   * "what was actually fixed".
    */
   resolved: z.array(z.string()).default([]),
-  /** Fingerprints present in head but not in base. */
+  /** Fingerprints present in head but not in base. Includes hits that moved. */
   new: z.array(z.string()).default([]),
   /** Fingerprints present in both. */
   persistent: z.array(z.string()).default([]),
@@ -87,8 +91,13 @@ export const AuditDiffSchema = z.object({
    * Findings that kept their rule and their file but changed line —
    * usually something was inserted above them.
    *
-   * Reported separately so `resolved` keeps meaning "actually gone"
-   * rather than "moved slightly".
+   * An annotation over `resolved` and `new`, not a third bucket: the
+   * same hit is listed in both of those as well. Consumers that want
+   * "actually gone" subtract these.
+   *
+   * A move is capped at a distance (`MAX_MOVE_DISTANCE` in
+   * diff/reports.ts), because a finding that jumped a thousand lines is
+   * a different event, not the same one shifted.
    */
   moved: z
     .array(

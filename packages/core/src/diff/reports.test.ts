@@ -5,11 +5,11 @@
  * no repository is fetched.
  */
 import { describe, it, expect } from 'vitest';
-import { computeRuleDeltas, diffReports } from './reports.js';
+import { computeRuleDeltas, diffReports, MAX_MOVE_DISTANCE } from './reports.js';
 import { AuditDiffSchema } from '../schemas/audit-diff.js';
 import type { ScoreDimension } from '../schemas/audit-diff.js';
 import { makeFinding, makeReport } from '../test-utils/report-factory.js';
-import type { Report } from '../schemas/report.js';
+import type { Finding, Report } from '../schemas/report.js';
 
 interface Rule {
   rule: string;
@@ -226,7 +226,7 @@ describe('diffReports — finding classification', () => {
     expect(diffReports(legacyBefore, legacyAfter).resolved).toEqual(['gone::src/index.ts:12']);
   });
 
-  it('reports a finding that moved as moved, not as resolved plus new', () => {
+  it('names a finding that moved, instead of leaving the caller to guess', () => {
     const at = (line: number) =>
       makeReport({
         documentationGaps: [
@@ -243,6 +243,10 @@ describe('diffReports — finding classification', () => {
     expect(diff.moved).toEqual([
       { ruleId: 'SEC-SECRET-001', file: 'src/a.ts', fromLine: 10, toLine: 20 },
     ]);
+    // The two sets are unchanged by the pairing — see the note in the
+    // 'moved matching' block below.
+    expect(diff.resolved).toEqual(['fp-line-10']);
+    expect(diff.new).toEqual(['fp-line-20']);
   });
 
   it('does not call a genuinely deleted finding moved', () => {
@@ -280,6 +284,107 @@ describe('diffReports — finding classification', () => {
     expect(diff.persistent).toEqual(['fp-x']);
     expect(diff.resolved).toEqual([]);
     expect(diff.new).toEqual([]);
+  });
+});
+
+describe('diffReports — moved matching', () => {
+  const RULE = 'SEC-SECRET-001';
+  const FILE = 'src/a.ts';
+
+  function secret(line: number | null): Finding {
+    const id = `${RULE}:${line ?? 'none'}`;
+    return makeFinding({
+      id,
+      ruleId: RULE,
+      fingerprint: `fp:${id}`,
+      evidence: [{ file: FILE, line, reason: 'secret in source' }],
+    });
+  }
+
+  function reportOf(findings: Finding[]): Report {
+    return makeReport({ securityFindings: findings });
+  }
+
+  it('pairs every hit when a block of them shifts together', () => {
+    const before = [secret(10), secret(20), secret(30)];
+    const after = [secret(15), secret(25), secret(35)];
+    const diff = diffReports(reportOf(before), reportOf(after));
+
+    expect(diff.moved).toEqual([
+      { ruleId: RULE, file: FILE, fromLine: 10, toLine: 15 },
+      { ruleId: RULE, file: FILE, fromLine: 20, toLine: 25 },
+      { ruleId: RULE, file: FILE, fromLine: 30, toLine: 35 },
+    ]);
+    // `moved` is an annotation over the two sets, not a third bucket: a
+    // shifted hit still has a different fingerprint, so it is listed as
+    // resolved and as new as well. Consumers that want "actually gone"
+    // subtract `moved`. Pinned here so the contract is not a surprise.
+    expect(diff.resolved).toEqual(before.map((f) => f.fingerprint));
+    expect(diff.new).toEqual(after.map((f) => f.fingerprint));
+  });
+
+  it('pairs nearest first rather than in sorted order', () => {
+    // Zipping the two sorted lists would give 10→18 and 20→25, which
+    // invents a 15-line jump where a 2-line one is right there.
+    const diff = diffReports(reportOf([secret(10), secret(20)]), reportOf([secret(18), secret(25)]));
+
+    expect(diff.moved).toEqual([
+      { ruleId: RULE, file: FILE, fromLine: 10, toLine: 25 },
+      { ruleId: RULE, file: FILE, fromLine: 20, toLine: 18 },
+    ]);
+  });
+
+  it('refuses to call a distant hit a move', () => {
+    const before = reportOf([secret(10)]);
+    const after = reportOf([secret(10 + MAX_MOVE_DISTANCE + 1)]);
+    const diff = diffReports(before, after);
+
+    expect(diff.moved).toEqual([]);
+    expect(diff.resolved).toEqual(['fp:SEC-SECRET-001:10']);
+    expect(diff.new).toEqual([`fp:SEC-SECRET-001:${10 + MAX_MOVE_DISTANCE + 1}`]);
+  });
+
+  it('still calls a hit inside the distance a move', () => {
+    const diff = diffReports(reportOf([secret(10)]), reportOf([secret(10 + MAX_MOVE_DISTANCE)]));
+    expect(diff.moved).toEqual([
+      { ruleId: RULE, file: FILE, fromLine: 10, toLine: 10 + MAX_MOVE_DISTANCE },
+    ]);
+  });
+
+  it('leaves the unpaired extras in resolved when fewer hits came back', () => {
+    const diff = diffReports(reportOf([secret(10), secret(12)]), reportOf([secret(30)]));
+
+    // 12→30 is the shorter jump, so it is the one that counts as moved.
+    // 10 has no counterpart left and stays a plain resolution.
+    expect(diff.moved).toEqual([{ ruleId: RULE, file: FILE, fromLine: 12, toLine: 30 }]);
+    expect(diff.resolved).toEqual(['fp:SEC-SECRET-001:10', 'fp:SEC-SECRET-001:12']);
+    expect(diff.new).toEqual(['fp:SEC-SECRET-001:30']);
+  });
+
+  it('never pairs a hit that has no line to compare', () => {
+    const before = reportOf([secret(null)]);
+    const after = reportOf([{ ...secret(null), fingerprint: 'fp:other' }]);
+    const diff = diffReports(before, after);
+
+    expect(diff.moved).toEqual([]);
+    expect(diff.resolved).toEqual(['fp:SEC-SECRET-001:none']);
+    expect(diff.new).toEqual(['fp:other']);
+  });
+
+  it('keeps the pairing correct when a whole file of hits shifts', () => {
+    const lines = Array.from({ length: 60 }, (_, i) => (i + 1) * 10);
+    const diff = diffReports(
+      reportOf(lines.map((line) => secret(line))),
+      reportOf(lines.map((line) => secret(line + 1)))
+    );
+
+    // Exact equality, in order: one pair per hit, each matched to its own
+    // shifted line. A pairing that reused a hit or let the sliding window
+    // skip one would fail here.
+    expect(diff.moved).toEqual(
+      lines.map((line) => ({ ruleId: RULE, file: FILE, fromLine: line, toLine: line + 1 }))
+    );
+    expect(() => AuditDiffSchema.parse(diff)).not.toThrow();
   });
 });
 

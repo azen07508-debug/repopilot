@@ -5,9 +5,13 @@
  * the blockers go away, and may we ship now?
  *
  * Works on fingerprints, so "resolved" means this specific finding is
- * gone rather than the rule stopped firing somewhere. A blocker that
- * merely moved is not counted as resolved — see the `moved` set on
- * `AuditDiff` for that.
+ * gone rather than the rule stopped firing somewhere.
+ *
+ * A blocker whose line shifted has a different fingerprint, so it counts
+ * as resolved plus new rather than being silently matched to its old
+ * self. That is deliberate — the gate does not guess. `AuditDiff.moved`
+ * is where a line shift is named, and a caller that wants "actually
+ * gone" subtracts it.
  */
 import type { Report } from '../schemas/report.js';
 import {
