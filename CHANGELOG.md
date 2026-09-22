@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Integration tests for the three derived endpoints.**
+  - `apps/api/src/tests/api.integration.test.ts` covered `/quality` and
+    nothing else under `derived routes`. Twenty tests now pin
+    `fix-plan`, `/diff` and `/repositories/{owner}/{repo}/audits`: what
+    each returns, which commit each reports, and every error path
+    (`400` / `404` / `409` — the missing-`base` message names the
+    history endpoint that would supply one).
+  - `AppDeps.metadataAnalyzer` is injectable now, so a test can fix the
+    head SHA. Without it the only way to learn a SHA is to ask GitHub,
+    which makes the value non-deterministic and the endpoint that
+    reports it untestable — every job row would carry `commit_sha =
+    NULL`.
+  - Two tests state the invariant the module doc claims, rather than
+    trusting it: reading a fix plan, a diff, a quality verdict and a
+    history list leaves the pipeline's run count unchanged, and a
+    repository GitHub could not be reached records no commit.
+  - `api` suite: 36 passing in `api.integration.test.ts` (was 16).
 - **`Report.fixtureSummary` — fixture findings grouped for reading.**
   - `packages/core/src/report/fixtures.ts`: `summarizeFixtures()`
     groups findings by `(file, ruleId)` and returns
@@ -245,6 +262,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_repopilot_capabilities` gained a `billing` field. The three
   original MCP tool signatures are unchanged.
 - Nothing else changed in the existing API surface or report schema.
+
+### Fixed
+
+- **An unreachable GitHub was recorded as the commit `'unknown'`.**
+  `POST /api/v1/audits` resolves the head SHA before enqueueing and
+  fell back to the string `'unknown'` when both `main` and `master`
+  lookups failed. `commit_sha` is nullable and `getByCommitSha` filters
+  on it, so the sentinel read as a real SHA to anything looking a job
+  up by commit — and it was written into a column whose NULL is
+  meaningful. The fallback is now `null`, and
+  `JobService.setCommitSha()` takes `string | null` to make that
+  explicit at the call site.
 
 ## [0.1.0-rc.3] - 2026-07-19
 

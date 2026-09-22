@@ -201,6 +201,19 @@ not wired yet.
   fetcher, queue or payment adapter, and a test asserts that.
   `AuditJobSchema` gained `commitSha` so fix-plan instructions can name
   the exact commit. OpenAPI documents all three.
+- **Derived endpoints covered 2026-09-22:** those three routes had
+  `/quality` tested and nothing else. Twenty tests now pin what each
+  returns, which commit each reports, and every error path (`400` /
+  `404` / `409`). `AppDeps.metadataAnalyzer` became injectable so a test
+  can fix the head SHA without asking GitHub. Two tests assert the
+  invariant the module doc claims: reading a fix plan, a diff, a
+  verdict and a history list leaves the pipeline's run count unchanged,
+  and an unreachable GitHub records no commit. `api.integration`
+  suite: 36 passing (was 16).
+- **Bug fixed 2026-09-22:** an unreachable GitHub was recorded as the
+  commit `'unknown'`. `commit_sha` is nullable and `getByCommitSha`
+  filters on it, so the sentinel read as a real SHA. Now `null`, and
+  `setCommitSha()` takes `string | null`.
 - **Web UI connected 2026-09-20 (Step 8):** the report page now ends
   with a fix-plan section, and a `Report / History / Comparison` tab
   strip appears once an audit completes. Comparison shows rule-level

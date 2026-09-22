@@ -82,14 +82,20 @@ export class JobService {
   /**
    * Persist the resolved head SHA on the job row.
    *
-   * The route resolves it once so the worker can build a stable cache
-   * key without a second network round-trip.
+   * This is the commit the caller was quoted, and it is what the derived
+   * views report: `GET .../fix-plan` returns it as
+   * `repository.commitSha`, and `GET .../diff` returns it as
+   * `base.commitSha` and `head.commitSha`. The worker resolves its own
+   * SHA for the cache key, deliberately — a job re-delivered hours later
+   * should be keyed on the commit that is current then, not on the one
+   * from when it was queued.
    *
-   * This used to be a no-op placeholder: the SHA was silently dropped
-   * and the worker had to re-resolve it on every attempt. The
-   * `commit_sha` column now exists, so the value is actually stored.
+   * `null` means GitHub could not be reached, and is not interchangeable
+   * with a sentinel string: the column is nullable and `getByCommitSha`
+   * looks rows up by this value, so `'unknown'` would read as a real SHA
+   * to anything filtering on it.
    */
-  async setCommitSha(job: AuditJob, commitSha: string): Promise<void> {
+  async setCommitSha(job: AuditJob, commitSha: string | null): Promise<void> {
     await this.repo.update(job.jobId, { commitSha });
   }
 

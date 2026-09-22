@@ -292,13 +292,24 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
     if (job.paymentId !== priorPaymentId) {
       await deps.service.attachPayment(job, priorPaymentId);
     }
-    // Resolve the head SHA up front so the cache key is stable.
+    // Resolve the head SHA up front and record it on the row.
+    //
+    // The worker re-resolves its own for the cache key, on purpose, so a
+    // job re-delivered hours later is keyed on the commit that is
+    // current then. This value is the one the caller was quoted, and it
+    // is what the derived views report.
+    //
+    // Null when GitHub could not be reached — not the string 'unknown'.
+    // The column is nullable and `getByCommitSha` looks rows up by this
+    // value, so a sentinel would read as a real SHA to anything filtering
+    // on it.
     const headSha =
-      (await deps.metadataAnalyzer.getHeadSha(parsedRepo.owner, parsedRepo.repo, 'main').catch(() => null)) ??
-      (await deps.metadataAnalyzer.getHeadSha(parsedRepo.owner, parsedRepo.repo, 'master').catch(() => null)) ??
-      'unknown';
-    // Stash the head SHA on the job's input so the worker can reuse it
-    // without re-doing the network call.
+      (await deps.metadataAnalyzer
+        .getHeadSha(parsedRepo.owner, parsedRepo.repo, 'main')
+        .catch(() => null)) ??
+      (await deps.metadataAnalyzer
+        .getHeadSha(parsedRepo.owner, parsedRepo.repo, 'master')
+        .catch(() => null));
     await deps.service.setCommitSha(job, headSha);
 
     // Enqueue. If the queue is shutting down, fail the job and tell

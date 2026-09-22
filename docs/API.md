@@ -514,7 +514,9 @@ only; fetch a full report with `GET /api/v1/audits/:jobId`.
 Audits recorded before the repository-identity columns existed carry
 `NULL` owner/repo and are **excluded** from history rather than being
 guessed at. `overall` and `findingCount` are `null` for jobs that have
-not completed.
+not completed. `commitSha` is `null` when GitHub could not be reached
+at submit time — it is a real absence, not a placeholder string, so
+treat it as "unknown commit" and never as a value to compare.
 
 ## `GET /api/v1/audits/:jobId/quality`
 

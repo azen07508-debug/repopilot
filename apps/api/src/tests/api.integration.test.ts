@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, type AppDeps } from '../server.js';
 import type { AuditPipeline } from '@repopilot/core';
+import type { MetadataAnalyzer } from '@repopilot/core';
 import type { Report, RepoMetadata, FileEntry } from '@repopilot/core';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,14 +11,54 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../fixtures/complete-project');
 
+/**
+ * A fixed head SHA.
+ *
+ * Without it every job row carries `commit_sha = NULL`, because the only
+ * way to learn a SHA is to ask GitHub, and a test that asks GitHub is
+ * neither deterministic nor offline. The worker resolved it for the
+ * cache key and threw it away for several releases; pinning it here is
+ * what makes "the derived views report the commit they analysed"
+ * assertable at all.
+ */
+const HEAD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+class FakeMetadataAnalyzer {
+  /**
+   * The SHA every job is recorded against.
+   *
+   * Mutable so one test can exercise the unresolvable case, where the
+   * route has no commit to record. That test resets it in a `finally`,
+   * because every other test in this file asserts on the value.
+   */
+  sha: string | null = HEAD_SHA;
+
+  async getHeadSha(): Promise<string | null> {
+    return this.sha;
+  }
+  async fetch(): Promise<never> {
+    throw new Error('the fake pipeline never asks for repository metadata');
+  }
+}
+
 class FakePipeline {
   lastInput: unknown = null;
+  /**
+   * How many times the pipeline actually ran.
+   *
+   * The derived endpoints promise never to re-scan a repository. A count
+   * is how that promise is checked: read a fix plan, a diff and a
+   * history list, and this number must not move.
+   */
+  runs = 0;
   /**
    * Per-repository report overrides.
    *
    * Keyed by repoUrl rather than held in a single mutable field, so a
    * test that needs a blocking report cannot leak it into the tests that
-   * expect a clean one — whichever order they happen to run in.
+   * expect a clean one — whichever order they happen to run in. Setting
+   * the same url again replaces it, which is how a test gets two audits
+   * of one repository with different reports.
    */
   private overrides = new Map<string, Report>();
 
@@ -27,6 +68,7 @@ class FakePipeline {
 
   async run(input: { repoUrl: string }) {
     this.lastInput = input;
+    this.runs += 1;
     return {
       report: this.overrides.get(input.repoUrl) ?? fakeReport(),
       truncated: false,
@@ -151,13 +193,65 @@ interface QualityBody {
   evaluatedAt: string;
 }
 
+interface FixPlanSetBody {
+  schemaVersion: string;
+  reportVersion: string;
+  repository: { owner: string; name: string; url: string; commitSha: string | null };
+  generatedAt: string;
+  plans: {
+    planId: string;
+    findingId: string;
+    priority: string;
+    status: string;
+    title: string;
+    evidence: { file: string; line: number | null }[];
+    steps: { order: number; action: string }[];
+    acceptanceCriteria: string[];
+    agentInstructions: string;
+  }[];
+}
+
+interface AuditDiffBody {
+  schemaVersion: string;
+  base: { jobId: string | null; commitSha: string | null; overall: number };
+  head: { jobId: string | null; commitSha: string | null; overall: number };
+  scoreDelta: number;
+  dimensionDeltas: Record<string, number>;
+  ruleDeltas: unknown[];
+  resolved: string[];
+  new: string[];
+  persistent: string[];
+  moved: { ruleId: string; file: string; fromLine: number | null; toLine: number | null }[];
+  verdict: string;
+}
+
+interface AuditHistoryBody {
+  owner: string;
+  repo: string;
+  limit: number;
+  count: number;
+  audits: {
+    jobId: string;
+    status: string;
+    commitSha: string | null;
+    mode: string;
+    target: string;
+    createdAt: string;
+    completedAt: string | null;
+    overall: number | null;
+    findingCount: number | null;
+  }[];
+}
+
 describe('API integration', () => {
   let app: FastifyInstance;
   let pipeline: FakePipeline;
+  let metadata: FakeMetadataAnalyzer;
   let deps: AppDeps;
 
   beforeAll(async () => {
     pipeline = new FakePipeline();
+    metadata = new FakeMetadataAnalyzer();
     deps = {
       payment: {
         mode: 'mock',
@@ -169,6 +263,7 @@ describe('API integration', () => {
       },
       allowedHosts: ['github.com', 'raw.githubusercontent.com'],
       pipeline: pipeline as unknown as AuditPipeline,
+      metadataAnalyzer: metadata as unknown as MetadataAnalyzer,
       databaseUrl: 'file:./data/test-api-integration.db',
     };
     app = await buildApp(deps);
@@ -374,6 +469,13 @@ describe('API integration', () => {
   describe('derived routes', () => {
     const CLEAN_REPO = 'https://github.com/okx/repopilot';
     const BLOCKED_REPO = 'https://github.com/okx/repopilot-blocked-fixture';
+    /**
+     * A third repository, because the diff tests need two audits of ONE
+     * repository with different reports, and the override that makes the
+     * second one dirty would otherwise leak into every later test that
+     * audits `CLEAN_REPO`.
+     */
+    const EVOLVING_REPO = 'https://github.com/okx/repopilot-evolving-fixture';
 
     it('GET /api/v1/audits/:jobId/quality answers "may this ship?"', async () => {
       const jobId = await runAudit(app, CLEAN_REPO);
@@ -453,6 +555,329 @@ describe('API integration', () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/audits/job_missing/quality' });
       expect(res.statusCode).toBe(404);
       expect((res.json() as { error: { code: string } }).error.code).toBe('JOB_NOT_FOUND');
+    });
+
+    // ------------------------------------------------------------------
+    // fix-plan
+    // ------------------------------------------------------------------
+
+    describe('GET /api/v1/audits/:jobId/fix-plan', () => {
+      it('plans the fix for the finding that blocks the release', async () => {
+        const jobId = await runAudit(app, BLOCKED_REPO);
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/fix-plan` });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as FixPlanSetBody;
+        expect(body.schemaVersion).toBe('1.0');
+        expect(body.reportVersion).toBe('1.0');
+        // The commit the caller was quoted, not the one the worker
+        // happened to key on.
+        expect(body.repository).toEqual({
+          owner: 'okx',
+          name: 'repopilot',
+          url: 'https://github.com/okx/repopilot',
+          commitSha: HEAD_SHA,
+        });
+
+        expect(body.plans).toHaveLength(1);
+        const plan = body.plans[0]!;
+        expect(plan.planId).toBe('fixplan:SEC-SECRET-001:src/config.ts:12');
+        expect(plan.findingId).toBe('SEC-SECRET-001:src/config.ts:12');
+        // critical -> P0, from the deterministic mapping. An LLM never
+        // touches this field.
+        expect(plan.priority).toBe('P0');
+        expect(plan.status).toBe('open');
+        expect(plan.evidence[0]?.file).toBe('src/config.ts');
+        expect(plan.steps.length).toBeGreaterThan(0);
+        expect(plan.acceptanceCriteria.length).toBeGreaterThan(0);
+        // The point of a fix plan is that it can be handed to an agent.
+        expect(plan.agentInstructions).toContain('src/config.ts');
+      });
+
+      it('invents no work for a report with no findings', async () => {
+        const jobId = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/fix-plan` });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as FixPlanSetBody;
+        expect(body.plans).toEqual([]);
+      });
+
+      it('never asks for payment', async () => {
+        const jobId = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/fix-plan` });
+        expect(res.statusCode).not.toBe(402);
+      });
+
+      it('409 when the audit has no report yet', async () => {
+        const create = await app.inject({
+          method: 'POST',
+          url: '/api/v1/audits',
+          payload: { repoUrl: CLEAN_REPO, mode: 'quick' },
+        });
+        const { jobId } = create.json() as { jobId: string };
+
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/fix-plan` });
+        expect(res.statusCode).toBe(409);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('REPORT_NOT_READY');
+      });
+
+      it('404 for an unknown job', async () => {
+        const res = await app.inject({ method: 'GET', url: '/api/v1/audits/job_missing/fix-plan' });
+        expect(res.statusCode).toBe(404);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('JOB_NOT_FOUND');
+      });
+    });
+
+    // ------------------------------------------------------------------
+    // diff
+    // ------------------------------------------------------------------
+
+    describe('GET /api/v1/audits/:jobId/diff', () => {
+      it('400 without a base, and says how to find one', async () => {
+        const jobId = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/diff` });
+
+        expect(res.statusCode).toBe(400);
+        const body = res.json() as { error: { code: string; message: string } };
+        expect(body.error.code).toBe('INVALID_INPUT');
+        // A 400 that does not say what to pass is a dead end.
+        expect(body.error.message).toContain('/api/v1/repositories/');
+      });
+
+      it('400 when a job is compared with itself', async () => {
+        const jobId = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${jobId}/diff?base=${jobId}`,
+        });
+
+        expect(res.statusCode).toBe(400);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('INVALID_INPUT');
+      });
+
+      it('400 when the two audits are of different repositories', async () => {
+        const clean = await runAudit(app, CLEAN_REPO);
+        const other = await runAudit(app, BLOCKED_REPO);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${other}/diff?base=${clean}`,
+        });
+
+        expect(res.statusCode).toBe(400);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('REPO_MISMATCH');
+      });
+
+      it('reports an unchanged repository as unchanged, not as churn', async () => {
+        const base = await runAudit(app, CLEAN_REPO);
+        const head = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${head}/diff?base=${base}`,
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as AuditDiffBody;
+        expect(body.schemaVersion).toBe('1.0');
+        expect(body.base.jobId).toBe(base);
+        expect(body.head.jobId).toBe(head);
+        expect(body.base.commitSha).toBe(HEAD_SHA);
+        expect(body.head.commitSha).toBe(HEAD_SHA);
+        expect(body.scoreDelta).toBe(0);
+        expect(body.verdict).toBe('unchanged');
+        expect(body.resolved).toEqual([]);
+        expect(body.new).toEqual([]);
+        expect(body.persistent).toEqual([]);
+        expect(body.moved).toEqual([]);
+      });
+
+      it('names a newly introduced finding by fingerprint', async () => {
+        // Two audits of one repository, with the second one dirty. Keyed
+        // by url, so the override cannot leak into the tests above.
+        const base = await runAudit(app, EVOLVING_REPO);
+        pipeline.setReport(EVOLVING_REPO, blockedReport());
+        const head = await runAudit(app, EVOLVING_REPO);
+
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${head}/diff?base=${base}`,
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as AuditDiffBody;
+        // Fingerprint, not id: inserting a line above a secret would
+        // otherwise read as two unrelated findings.
+        expect(body.new).toEqual(['fp-live-credential']);
+        expect(body.resolved).toEqual([]);
+        expect(body.persistent).toEqual([]);
+      });
+
+      it('404 when the base job does not exist', async () => {
+        const head = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${head}/diff?base=job_missing`,
+        });
+
+        expect(res.statusCode).toBe(404);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('JOB_NOT_FOUND');
+      });
+
+      it('409 when the base job has no report yet', async () => {
+        const create = await app.inject({
+          method: 'POST',
+          url: '/api/v1/audits',
+          payload: { repoUrl: CLEAN_REPO, mode: 'quick' },
+        });
+        const { jobId: unpaid } = create.json() as { jobId: string };
+        const head = await runAudit(app, CLEAN_REPO);
+
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/audits/${head}/diff?base=${unpaid}`,
+        });
+
+        expect(res.statusCode).toBe(409);
+        expect((res.json() as { error: { code: string } }).error.code).toBe('REPORT_NOT_READY');
+      });
+    });
+
+    // ------------------------------------------------------------------
+    // history
+    // ------------------------------------------------------------------
+
+    describe('GET /api/v1/repositories/:owner/:repo/audits', () => {
+      it('lists this repository, newest first, with the commit analysed', async () => {
+        const first = await runAudit(app, CLEAN_REPO);
+        const second = await runAudit(app, CLEAN_REPO);
+
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/repositories/okx/repopilot/audits',
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as AuditHistoryBody;
+        expect(body.owner).toBe('okx');
+        expect(body.repo).toBe('repopilot');
+        expect(body.limit).toBe(20);
+        expect(body.count).toBe(body.audits.length);
+        expect(body.count).toBeGreaterThanOrEqual(2);
+
+        const ids = body.audits.map((a) => a.jobId);
+        expect(ids).toContain(first);
+        expect(ids).toContain(second);
+        // Newest first: the second audit was created after the first.
+        expect(ids.indexOf(second)).toBeLessThan(ids.indexOf(first));
+
+        const entry = body.audits.find((a) => a.jobId === second)!;
+        expect(entry.status).toBe('completed');
+        expect(entry.commitSha).toBe(HEAD_SHA);
+        expect(entry.mode).toBe('quick');
+        expect(entry.target).toBe('open_source');
+        expect(entry.overall).toBe(90);
+        expect(entry.findingCount).toBe(0);
+        expect(entry.completedAt).not.toBeNull();
+        expect(Number.isNaN(Date.parse(entry.createdAt))).toBe(false);
+      });
+
+      it('reports null rather than guessing for a job with no report', async () => {
+        const create = await app.inject({
+          method: 'POST',
+          url: '/api/v1/audits',
+          payload: { repoUrl: CLEAN_REPO, mode: 'quick' },
+        });
+        const { jobId } = create.json() as { jobId: string };
+
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/repositories/okx/repopilot/audits',
+        });
+        const body = res.json() as AuditHistoryBody;
+        const entry = body.audits.find((a) => a.jobId === jobId)!;
+
+        expect(entry.status).not.toBe('completed');
+        expect(entry.overall).toBeNull();
+        expect(entry.findingCount).toBeNull();
+        expect(entry.completedAt).toBeNull();
+      });
+
+      it('clamps the limit instead of trusting it', async () => {
+        const cases: { query: string; expected: number }[] = [
+          { query: '', expected: 20 },
+          { query: '?limit=1', expected: 1 },
+          // Zero and nonsense fall back to the default rather than
+          // returning an empty page or everything.
+          { query: '?limit=0', expected: 20 },
+          { query: '?limit=abc', expected: 20 },
+          // A caller cannot ask for more than the maximum.
+          { query: '?limit=500', expected: 100 },
+        ];
+
+        for (const { query, expected } of cases) {
+          const res = await app.inject({
+            method: 'GET',
+            url: `/api/v1/repositories/okx/repopilot/audits${query}`,
+          });
+          expect(res.statusCode).toBe(200);
+          expect((res.json() as AuditHistoryBody).limit).toBe(expected);
+        }
+      });
+
+      it('returns an empty list for a repository nobody has audited', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/repositories/okx/nothing-here/audits',
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json() as AuditHistoryBody;
+        expect(body.count).toBe(0);
+        expect(body.audits).toEqual([]);
+      });
+
+      it('never asks for payment', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/repositories/okx/repopilot/audits',
+        });
+        expect(res.statusCode).not.toBe(402);
+      });
+    });
+
+    // ------------------------------------------------------------------
+    // the promise that holds for all of them
+    // ------------------------------------------------------------------
+
+    it('never re-scans a repository to answer a derived question', async () => {
+      const base = await runAudit(app, CLEAN_REPO);
+      const head = await runAudit(app, CLEAN_REPO);
+
+      // Everything below is a read. The pipeline has already done its
+      // work for these two jobs, so the count must not move — a derived
+      // view that re-scans would turn a free query into a paid one.
+      const before = pipeline.runs;
+      await app.inject({ method: 'GET', url: `/api/v1/audits/${head}/fix-plan` });
+      await app.inject({ method: 'GET', url: `/api/v1/audits/${head}/quality` });
+      await app.inject({ method: 'GET', url: `/api/v1/audits/${head}/diff?base=${base}` });
+      await app.inject({ method: 'GET', url: '/api/v1/repositories/okx/repopilot/audits' });
+
+      expect(pipeline.runs).toBe(before);
+    });
+
+    it('records no commit when GitHub could not be reached', async () => {
+      // The route resolves the head SHA before enqueueing. When that
+      // fails there is no commit to record, and the column is nullable —
+      // a sentinel like 'unknown' would read as a real SHA to anything
+      // filtering on it.
+      metadata.sha = null;
+      try {
+        const jobId = await runAudit(app, CLEAN_REPO);
+        const res = await app.inject({ method: 'GET', url: `/api/v1/audits/${jobId}/fix-plan` });
+        expect((res.json() as FixPlanSetBody).repository.commitSha).toBeNull();
+      } finally {
+        metadata.sha = HEAD_SHA;
+      }
     });
   });
 });

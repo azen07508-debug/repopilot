@@ -57,6 +57,14 @@ export interface AppDeps {
   queueJobTimeoutMs?: number;
   /** Override the graceful shutdown grace period (ms). */
   shutdownGraceMs?: number;
+  /**
+   * Override the metadata analyzer.
+   *
+   * Used by tests to fix the head SHA. Without it a test run has to
+   * reach the real GitHub API to learn a SHA, which makes the value
+   * non-deterministic and the endpoint that reports it untestable.
+   */
+  metadataAnalyzer?: MetadataAnalyzer;
   /** Skip queue start (tests that exercise the route directly). */
   skipQueueStart?: boolean;
   /**
@@ -152,10 +160,12 @@ export async function buildApp(
       log,
     });
 
-  const metadataAnalyzer = new MetadataAnalyzer({
-    token: deps.githubToken ?? cfg.GITHUB_TOKEN,
-    timeoutMs: 15_000,
-  });
+  const metadataAnalyzer =
+    deps.metadataAnalyzer ??
+    new MetadataAnalyzer({
+      token: deps.githubToken ?? cfg.GITHUB_TOKEN,
+      timeoutMs: 15_000,
+    });
 
   const adapter = buildPaymentAdapter(deps.payment);
   const service = new JobService(repo, pipeline, adapter);
