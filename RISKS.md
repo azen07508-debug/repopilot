@@ -241,3 +241,59 @@ is safe: it is already present at `^5.7.2`.
 **Detection:** CI runs `pnpm install --frozen-lockfile` followed by
 `pnpm typecheck`; a resolution or type failure is the gate. Reviewers
 must reject PRs that move these two pins without an accompanying ADR.
+
+## R-22 — A lockfile drives `securityHygiene` to 0
+
+**Severity:** High
+**Likelihood:** Certain (measured, not theorised)
+
+A lockfile is mostly integrity digests — `sha512-<base64>` — which are
+high-entropy by construction, which is exactly what the generic secret
+heuristic looks for. `security/severity.ts` downgrades those hits rather
+than skipping them, so the *quality contract* stops counting them (it
+only counts `critical` and `high`). The **score** does not.
+
+`scoring/score.ts` sums `SEVERITY_PENALTY[f.severity]` over
+`securityFindings`, and `low` is 1.5, not 0. The findings are never moved
+out of `securityFindings`, so they still accumulate there.
+
+Measured on a synthetic repository whose only files were a
+`pnpm-lock.yaml` with 400 integrity digests, a one-line `src/index.ts`, a
+README and a LICENSE:
+
+```
+securityFindings: 389   (388 low from pnpm-lock.yaml, 1 medium from .gitignore)
+fixtureFindings:    0
+securityHygiene:    0
+overall:         44.9
+```
+
+388 × 1.5 = 582 points of penalty against a base of 100, clamped to 0. A
+repository whose only sin is having a lockfile scores zero on security
+hygiene, and the overall score lands at 44.9. (The delta against a
+lockfile-free run of the same tree was not measured — the other
+dimensions are not all 100, so 44.9 is the observed value, not the size
+of the loss.) This is the same class of defect as the 547-blocker
+`.env.example` run that motivated `TEMPLATE_ONLY_KINDS`, one layer
+further out: the gate was fixed, the score was not.
+
+Note what does *not* fix it. `fixtureSummary` groups `fixtureFindings`,
+which by construction excludes lockfiles and documents, so it does not
+touch this. Neither does lowering `SEVERITY_PENALTY.low`: the count is
+unbounded, so any non-zero weight still reaches 0 on a large enough
+lockfile.
+
+**Recommended fix (needs its own ADR and commit):** cap the contribution
+of any one `(file, ruleId)` pair, rather than removing lockfile findings
+from `securityFindings`. The 388th `sha512-` digest carries no
+information the first did not, and a cap is principled for every rule
+rather than a special case for lockfiles. Moving generated-file findings
+into `fixtureFindings` would also work, but it changes what
+`securityFindings` means and raises the score for every affected
+repository — a bigger semantic change than the cap.
+
+**Detection:** the probe above. There is deliberately no regression test
+pinning the current numbers: a test asserting `securityHygiene === 0` for
+a lockfile-only repository would freeze the bug in place. The test
+belongs with the fix.
+

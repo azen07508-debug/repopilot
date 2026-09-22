@@ -6,6 +6,7 @@
  */
 import type { Finding, Report } from '../schemas/report.js';
 import { ReportSchema } from '../schemas/report.js';
+import { summarizeFixtures } from '../report/fixtures.js';
 
 export function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -54,6 +55,7 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     securityFindings: [],
     qualityFindings: [],
     fixtureFindings: [],
+    fixtureSummary: [],
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],
@@ -66,7 +68,15 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     analyzerProvenance: {},
   };
 
-  return ReportSchema.parse({ ...base, ...overrides });
+  // Derived rather than defaulted, so a test cannot build a report whose
+  // summary silently disagrees with its list by setting only one of the
+  // two. An explicit `fixtureSummary` override still wins, for the test
+  // that needs them to disagree.
+  return ReportSchema.parse({
+    ...base,
+    fixtureSummary: summarizeFixtures(overrides.fixtureFindings ?? base.fixtureFindings),
+    ...overrides,
+  });
 }
 
 /** A report carrying the given findings as documentation gaps. */

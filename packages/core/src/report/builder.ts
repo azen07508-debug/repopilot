@@ -15,6 +15,7 @@ import { analyzeAiPatterns } from '../analyzers/ai-patterns.js';
 import { analyzeHygiene } from '../analyzers/hygiene.js';
 import { enrichFindings } from '../findings/enrich.js';
 import { isFixturePath } from '../security/severity.js';
+import { summarizeFixtures } from './fixtures.js';
 import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
 import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
 import { scoreAll, type ScoringInput } from '../scoring/score.js';
@@ -82,10 +83,16 @@ export class ReportBuilder {
     // verification and fingerprint.
     //
     // Every set is then split by where the finding lives. A finding in a
-    // test file, a lockfile or a document is still real — it just does not
-    // get a vote on the release by default. Dropping them would hide a
-    // genuine credential committed into a test file; leaving them in
-    // drowns the report, which a real run demonstrated with 542 of them.
+    // test file or a fixture is still real — it just does not get a vote
+    // on the release by default. Dropping it would hide a genuine
+    // credential committed into a test suite; leaving it in drowns the
+    // report, which a real run demonstrated with 542 of them.
+    //
+    // Lockfiles and documents are handled one layer down, in
+    // `severityForPath`, which downgrades rather than moves them. A
+    // document is a poor fit for this split: a missing README is a real
+    // repository gap whose evidence file happens to be `README.md`, and
+    // filing that here would quietly drop it from the main report.
     const fixtureFindings: Finding[] = [];
     const split = (list: Finding[]): Finding[] =>
       list.filter((f) => {
@@ -128,6 +135,11 @@ export class ReportBuilder {
       // that cannot run, no test runner) are reproducibility concerns.
       ...split(enrichFindings(hygiene.findings.filter((f) => f.category !== 'security'))),
     ];
+
+    // Every split has run by now, so `fixtureFindings` is complete.
+    // Grouped here rather than at render time because the web bundle
+    // cannot call into core — see report/fixtures.ts.
+    const fixtureSummary = summarizeFixtures(fixtureFindings);
 
     const blockers = collectBlockers(
       docFindings,
@@ -208,6 +220,7 @@ export class ReportBuilder {
       securityFindings,
       qualityFindings,
       fixtureFindings,
+      fixtureSummary,
       historyScan: input.historyScan,
       deploymentPlan,
       recommendedTasks,

@@ -138,6 +138,58 @@ export function ReportView({ report }: { report: Report }) {
         </ul>
       )}
 
+      {/*
+        Fixture findings, collapsed and grouped.
+
+        Collapsed because they are real but do not gate a release, and
+        the report has to stay readable: one real scan produced 542 of
+        them. Grouped by file and rule because 542 rows is a wall, and a
+        wall is the same as nothing — the grouping is done in core and
+        arrives as `fixtureSummary`.
+
+        No empty state. The security section above already makes the
+        absence claim, and a section whose only content is "nothing here"
+        is noise.
+      */}
+      {report.fixtureFindings.length > 0 && (
+        <details className="fixture-section">
+          <summary>
+            {t.reportFixtures} ·{' '}
+            {t.reportFixturesSummary.replace('{n}', String(report.fixtureFindings.length))}
+          </summary>
+          <p className="meta" style={{ margin: '10px 0 0' }}>{t.reportFixturesHint}</p>
+          {report.fixtureSummary.length > 0 ? (
+            <ul className="findings">
+              {report.fixtureSummary.map((g) => (
+                <li key={`${g.file}-${g.ruleId}`} className={`finding ${g.severity}`}>
+                  <h4>
+                    {g.title} <span className="pill">{g.count}×</span>
+                  </h4>
+                  <div className="meta">
+                    <code>{g.file}</code>
+                    {g.lines.length > 0 && <span className="mono">:{g.lines.join(', ')}</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            // A report stored before the summary existed. Reading the
+            // raw list is worse than reading the groups, but hiding it
+            // would be worse than either: the whole point of this
+            // section is that these findings are deprioritised, not
+            // dropped.
+            <ul className="findings">
+              {report.fixtureFindings.map((f) => (
+                <li key={`${f.evidence[0]?.file}-${f.id}`} className={severityClass(f.severity)}>
+                  <h4>{f.title}</h4>
+                  <div className="meta"><EvidenceList evidence={f.evidence} /></div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
+      )}
+
       <h3 className="section-title">{t.reportChecklist}</h3>
       <ul className="findings">
         {report.launchChecklist.map((c) => (

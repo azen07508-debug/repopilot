@@ -395,6 +395,22 @@ function reportSummary(report: Report): unknown {
     blockerCount: report.blockers.length,
     documentationGapCount: report.documentationGaps.length,
     securityFindingCount: report.securityFindings.length,
+    /**
+     * Findings held out of the release gate because of where they live —
+     * test files, fixtures, sample apps.
+     *
+     * Headline numbers, not a list. A real scan produced 542 of them, and
+     * an agent that wants the detail gets `fixtureSummary` in the report
+     * below. These two lines are what stop an agent reading
+     * `securityFindingCount: 3` as "three findings total" when there are
+     * five hundred more it is choosing not to block on.
+     *
+     * Both counts come from `fixtureFindings`, the authoritative list,
+     * so a report stored before the summary existed still counts
+     * correctly.
+     */
+    fixtureFindingCount: report.fixtureFindings.length,
+    fixtureFileCount: new Set(report.fixtureFindings.map((f) => f.evidence[0]?.file ?? '')).size,
     launchChecklist: report.launchChecklist,
     // The full report is included as well, validated by Zod to make sure
     // every required field is present.

@@ -570,10 +570,19 @@ of leaving yesterday's verdict frozen on the job row.
 "did the blockers go away?" — the same fingerprints `GET
 /api/v1/audits/:jobId/diff` reports on.
 
-Findings under fixture paths (test files, fixtures, sample apps,
-documents) do **not** count by default, because a scanner's own test
-suite has to hold fake keys in order to prove it detects them. A real
-credential in source still blocks.
+Findings under fixture paths (test files, fixtures, sample apps) do
+**not** count by default, because a scanner's own test suite has to hold
+fake keys in order to prove it detects them. Credentials in lockfiles and
+documents reach the same result by a different route: they are
+downgraded, not excluded, so they fail the `critical`/`high` bar the
+check applies. A real credential in source still blocks.
+
+Those findings are still reported, under `fixtureFindings`, together with
+`fixtureSummary` — the same findings grouped by file and rule, because a
+real scan produced 542 of them and a list that long is not readable.
+`fixtureSummary` is a reading aid: `fixtureFindings` is the authoritative
+list, and a report stored before the summary existed carries an empty
+one.
 
 **Errors** — `404 JOB_NOT_FOUND` for an unknown job, `409
 REPORT_NOT_READY` when the audit has not completed.

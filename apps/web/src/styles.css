@@ -311,6 +311,33 @@ button:disabled {
   margin-right: 4px;
 }
 
+/*
+ * Fixture findings, collapsed.
+ *
+ * Muted rather than hidden. They are real findings, so the summary has
+ * to read as a section a reader can open, not as a footnote that has
+ * been swept away — but they do not gate the release, so they must not
+ * carry the same weight as the section above them.
+ */
+.fixture-section {
+  margin: 24px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.fixture-section > summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+.fixture-section > summary::marker { color: var(--muted); }
+.fixture-section[open] > summary { color: var(--fg); }
+.fixture-section .findings { margin-top: 12px; }
+.fixture-section .finding h4 .pill { margin-left: 4px; font-variant-numeric: tabular-nums; }
+.fixture-section .finding .meta .mono { color: var(--muted); }
+
 /* Checklist state marker (replaces emoji glyphs). */
 .checkmark {
   display: inline-block;

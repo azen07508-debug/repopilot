@@ -150,6 +150,42 @@ export const FindingDispositionSchema = z.enum(['active', 'fixture']);
 export type FindingDisposition = z.infer<typeof FindingDispositionSchema>;
 
 /**
+ * One file-and-rule cluster of fixture findings.
+ *
+ * A reading aid, not a finding: it carries no fingerprint and nothing
+ * keys on it. `fixtureFindings` remains the authoritative list — this is
+ * the same findings folded down to something a person can scan, which a
+ * real report needed when 542 of them arrived at once.
+ *
+ * Deliberately carries no sample finding and no description. Those are
+ * the fields that made the unfolded list unreadable, and a group whose
+ * members are interchangeable does not need one of them repeated.
+ */
+export const FixtureGroupSchema = z.object({
+  /** Evidence file shared by the group, as written in the report. */
+  file: z.string(),
+  /** Rule shared by the group. `''` when enrichment never ran. */
+  ruleId: z.string(),
+  /** Title of the first finding in the group — what the group *is*. */
+  title: z.string(),
+  /** Total findings in the group, not the number of lines listed. */
+  count: z.number().int().positive(),
+  /** Worst severity among the members. */
+  severity: SeveritySchema,
+  /**
+   * Distinct lines, ascending.
+   *
+   * The summarizer caps this list and `count` above keeps the true
+   * total, so a short list next to a large count means "many hits, few
+   * places" rather than "the list is complete". The cap is a reading
+   * policy, not a validity rule, which is why the schema does not
+   * enforce it.
+   */
+  lines: z.array(z.number().int().positive()).default([]),
+});
+export type FixtureGroup = z.infer<typeof FixtureGroupSchema>;
+
+/**
  * How much of the commit history the secret scan actually read.
  *
  * This exists because "no secrets in history" is a claim with a scope. A
@@ -276,7 +312,7 @@ export const ReportSchema = z.object({
   qualityFindings: z.array(FindingSchema).default([]),
   /**
    * Findings under fixture paths — test files, fixtures, sample apps,
-   * generated files, documents.
+   * example directories.
    *
    * Kept separate rather than dropped. A real credential committed into a
    * test file is still a real credential and still belongs in the report;
@@ -284,12 +320,30 @@ export const ReportSchema = z.object({
    * `security.scanFixtures` turns that around for a project that wants
    * the strict reading.
    *
+   * Lockfiles and documents are NOT in here. They are downgraded by
+   * `severityForPath` instead, for the reason given in
+   * `security/severity.ts`: a document is often a finding's evidence file
+   * rather than the problem, and moving those here would drop a missing
+   * README out of the main report.
+   *
    * Separate from `qualityFindings` because the two answer different
    * questions: that one is "code hygiene, not launch readiness", this one
    * is "the finding is real but lives somewhere its blast radius is
    * smaller".
    */
   fixtureFindings: z.array(FindingSchema).default([]),
+  /**
+   * The same findings, grouped by (file, rule) for reading.
+   *
+   * A derived view of `fixtureFindings`, stored rather than computed on
+   * read because the web bundle cannot import core at runtime — see
+   * report/fixtures.ts, which builds it and explains the whole decision.
+   *
+   * Defaults to empty, so a report written before this field existed
+   * still parses. An empty array on an old report means "not summarised",
+   * not "no fixtures": read `fixtureFindings` when the two disagree.
+   */
+  fixtureSummary: z.array(FixtureGroupSchema).default([]),
   /**
    * Scope of the commit-history secret scan.
    *

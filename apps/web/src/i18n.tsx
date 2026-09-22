@@ -64,6 +64,10 @@ const en = {
   reportDocGapsEmpty: 'All baseline documentation is present.',
   reportSecurity: 'Security findings',
   reportSecurityEmpty: 'No secrets or prompt-injection patterns detected.',
+  reportFixtures: 'Test and fixture findings',
+  reportFixturesSummary: '{n} finding(s) kept out of the release gate',
+  reportFixturesHint:
+    'Real findings that sit in test files, fixtures and sample apps. A scanner has to hold fake keys in its own test suite to prove it detects them, so by default these do not block a release. Grouped by file and rule.',
   reportChecklist: 'Launch checklist',
   reportLaunchCopy: 'Launch copy',
   copyOneSentence: 'One-sentence pitch',
@@ -185,6 +189,10 @@ const zhCN: Dict = {
   reportDocGapsEmpty: '基础文档齐全。',
   reportSecurity: '安全发现',
   reportSecurityEmpty: '未发现密钥或提示词注入模式。',
+  reportFixtures: '测试与夹具中的发现',
+  reportFixturesSummary: '{n} 条未计入发布门槛',
+  reportFixturesHint:
+    '位于测试文件、夹具和示例目录中的真实发现。扫描器必须在自己的测试套件里存放假密钥才能证明检测器有效，所以默认不阻塞发布。按文件与规则归并显示。',
   reportChecklist: '发布清单',
   reportLaunchCopy: '发布文案',
   copyOneSentence: '一句话简介',

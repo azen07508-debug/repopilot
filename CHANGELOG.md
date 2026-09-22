@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Report.fixtureSummary` — fixture findings grouped for reading.**
+  - `packages/core/src/report/fixtures.ts`: `summarizeFixtures()`
+    groups findings by `(file, ruleId)` and returns
+    `{ file, ruleId, title, count, severity, lines }`, worst severity
+    first. `lines` is capped at `MAX_GROUP_LINES` (10) while `count`
+    keeps the true total, so a five-hundred-hit lockfile group is one
+    row rather than five hundred.
+  - `ReportSchema.fixtureSummary` is additive with a `.default([])`, so
+    a report written before it existed still parses. `fixtureFindings`
+    is unchanged and remains the authoritative list — the quality
+    contract and the diff read it, not the summary.
+  - The summary is stored rather than derived on read because
+    `apps/web` imports core type-only (core pulls `@octokit/rest`, which
+    must not reach the browser), so data is the only channel that
+    reaches both a browser and an MCP client without a second copy of
+    the rule.
+  - `apps/web/src/components/ReportView.tsx`: a collapsed `<details>`
+    section after the security findings, muted so it does not compete
+    with the gating sections. Falls back to the raw `fixtureFindings`
+    list when a stored report has no summary, rather than hiding them.
+  - MCP `reportSummary()` gained `fixtureFindingCount` and
+    `fixtureFileCount`, so an agent cannot read
+    `securityFindingCount: 3` as "three findings total".
+  - **Test baseline: core +17** (`report/fixtures.test.ts` 14,
+    `fixture-split.test.ts` +3 including the thirty-hit collapse).
 - **Repository Intelligence — Phase 0 audit + V0.2-b schemas.**
   - `docs/REPOSITORY_INTELLIGENCE_PLAN.md`: a full code audit plus the
     phased plan to evolve RepoPilot into a *Repository Intelligence

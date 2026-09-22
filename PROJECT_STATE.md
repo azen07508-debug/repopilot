@@ -229,6 +229,23 @@ not wired yet.
 
 ## Recent shipped changes (0.1.0-rc.2)
 
+- Fixture findings are readable again: `Report.fixtureSummary` groups
+  `fixtureFindings` by `(file, ruleId)` with a capped line list, and the
+  web report renders them in a collapsed section instead of a wall.
+  MCP `reportSummary()` reports `fixtureFindingCount` /
+  `fixtureFileCount` so an agent is not told "3 findings" when there are
+  542. `fixtureFindings` stays lossless — the quality contract and the
+  diff still read it individually.
+- Report versioning is honest: `REPORT_VERSION` is `1.1` with
+  `SUPPORTED_REPORT_VERSIONS = ['1.0', '1.1']`. `FreeCheckReportSchema`
+  deliberately stays at `1.0` — it is a different document and sharing
+  the constant would make it accept versions it never emits.
+- `computeMoved` pairs moved findings by nearest neighbour inside a
+  `(rule, file)` group with `MAX_MOVE_DISTANCE = 50`, instead of a map
+  lookup that collapsed three shifted secrets into one arbitrary pair.
+- `GET /api/v1/audits/:jobId/quality` serves the quality contract on
+  read, from the same function the MCP `quality_status` tool uses.
+- CI pins `ubuntu-24.04` instead of tracking `ubuntu-latest`.
 - Production guards: `production + PAYMENT_MODE=mock` and
   `production + AUDIT_QUEUE_DRIVER=inline` now both fail app start
   with a clear, secret-free error (schema-level + env-check).
