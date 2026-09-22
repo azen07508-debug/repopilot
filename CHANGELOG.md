@@ -275,6 +275,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `JobService.setCommitSha()` takes `string | null` to make that
   explicit at the call site.
 
+- **One generated file could zero a score dimension (R-22, ADR D-022).**
+  `severityPenalty()` summed `SEVERITY_PENALTY` over every finding with no
+  bound on how many one file could contribute. A lockfile is mostly
+  `sha512-` integrity digests, which are high-entropy by construction and
+  so match the generic secret heuristic; `severityForPath` downgrades them
+  to `low` rather than dropping them, so hundreds stayed in
+  `securityFindings` at 1.5 points each. Measured on a repository whose
+  only files were a lockfile, a README, a LICENSE and a one-line source
+  file: `securityHygiene: 0`, `overall: 53.7` — 25 points below the same
+  tree without the lockfile. The quality contract was already immune (it
+  counts only `critical` and `high`); the score was not.
+  - The penalty now caps each `(file, ruleId)` pair at
+    `MAX_PER_GROUP` (3) findings, worst severity first. Breadth is
+    untouched: a hundred secrets in a hundred files still costs a hundred
+    penalties, and only repetition *inside* one file is bounded.
+  - The group key is the **resolved** rule id, never the finding `id` —
+    a secret finding's id embeds its line number, so keying on it would
+    give every hit its own group and the cap would never apply.
+  - The reason text now says "at most 3 counted per file and rule" when
+    the cap bites, so a penalty smaller than the finding count is
+    explained rather than mysterious.
+  - `packages/core/src/scoring/penalty-cap.test.ts` pins both
+    directions: the cap holds, and breadth still scores. Reverting the
+    cap fails 7 of its 8 tests.
+
 ## [0.1.0-rc.3] - 2026-07-19
 
 ### Added

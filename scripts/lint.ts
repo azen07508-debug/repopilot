@@ -146,7 +146,10 @@ function checkFile(p: string): void {
     // the most common bug ("I forgot to await this").
     //
     // Legitimate top-level patterns (entry point `main().catch(...)`, React
-    // `useEffect` chains, multi-line builder calls) are exempted.
+    // `useEffect` chains, multi-line builder calls) are exempted. When the
+    // call is spread over several lines, `await` / `return` / the assignment
+    // appear on the head of the statement rather than on the `.catch(` line,
+    // so the exemption is decided from the head — see the walk-back below.
     if (/\.then\s*\(|\.catch\s*\(/.test(stripped)) {
       // Honour `// eslint-disable-next-line` style comments for our own
       // rules (the rule name prefix is `repopilot/...`).
@@ -168,10 +171,20 @@ function checkFile(p: string): void {
           let j = i - 1;
           while (j >= 0 && /^\s*(allowedHosts|,|\.|\w+:)/.test(lines[j] ?? '')) j--;
           const start = (lines[j] ?? '').trim();
-          const isMultiLineCall =
+          // The walk-back stops at the head of the statement this call
+          // belongs to, so `start` is that head. Three things make the call
+          // part of a value rather than a fire-and-forget, and when the call
+          // is spread over several lines they show up on the head, not on
+          // the `.catch(` line: `(await api.get().catch(() => null))`,
+          // `return p.catch(h)`, and `const x = p.catch(h)`. Checking only
+          // for a call-shaped head flagged all three — the false positive
+          // this branch exists to prevent.
+          const headIsValued =
+            /\bawait\b|\breturn\b/.test(start) || /[^=!<>]=[^=>]/.test(` ${start} `);
+          const looksLikeMultiLineCall =
             /^[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(start) ||
             /^[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test((lines[j + 1] ?? '').trim());
-          if (isMultiLineCall) {
+          if (headIsValued || looksLikeMultiLineCall) {
             // exempt
           } else {
             flagFloatingPromise(rel, i, t);
