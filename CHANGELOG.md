@@ -282,6 +282,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two credentials on one line satisfied a contract that allows one
+  (R-23, ADR D-023).** `collectFindings()` deduplicated on
+  `findingKey()` alone. A fingerprint is resolved rule id plus evidence
+  locations — deliberately coarse so a finding that merely moved does
+  not read as one fix plus one new problem — so two *different* hits of
+  one rule at one `file:line` are one fingerprint. `scanTextForSecrets`
+  emits one hit per matching pattern with no per-line dedupe and every
+  `secret-` slug resolves to `SEC-SECRET-001`, so an AWS key and a
+  Stripe key on one line are two findings with two ids and one
+  fingerprint. `securitySection` compares the collected count against
+  `security.maxSecrets`, so with `maxSecrets: 1` the pair was counted as
+  one and the check passed. The key is now the pair `(findingKey, id)`,
+  which is strictly finer than either half: it cannot merge anything the
+  old key kept. The default contract (`maxSecrets: 0`) could not flip,
+  which is why this never blocked a real run — the false pass needed a
+  non-default `maxSecrets` or `maxCritical`. `collectFixableFindings`
+  already deduped on `id`, so the fix plan and the gate now agree on how
+  many findings a report carries. Reverting the key fails exactly 2 of
+  `contract.test.ts`'s 48 tests.
 - **`disableRequestLogging` removed — it emitted FSTDEP023 on every
   boot.** `apps/api/src/server.ts` set `disableRequestLogging: false`,
   which is Fastify's default; the line existed only to say so out loud.

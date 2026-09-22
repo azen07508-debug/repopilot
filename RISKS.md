@@ -309,3 +309,58 @@ every hit its own group and the cap would never apply. Measured after the
 fix, same synthetic repository: `securityHygiene: 95.5`, and the overall
 score moves 1.1 points instead of 25.
 
+## R-23 — Two hits of one rule on one line share a fingerprint
+
+**Severity:** Medium
+**Likelihood:** Low — needs two credential patterns to match one line, and
+a contract that tolerates at least one credential
+**Status:** Mitigated in 0.1.0-rc.3 for the quality gate by ADR D-023. The
+diff still collapses them, deliberately and by schema.
+
+A fingerprint is resolved rule id plus evidence locations, and it is
+meant to be coarse so that a finding which only moved does not read as
+one fix plus one new problem. The consequence is that two *different*
+hits of one rule at one `file:line` are one fingerprint.
+
+That is reachable from the scanner as written. `scanTextForSecrets()`
+emits one hit per matching `PATTERNS` entry with no per-line dedupe (the
+entropy heuristic is the only one that checks the line, at
+`secret-scanner.ts:289`), and `toSecretFindings()` dedupes on
+`file::kind::line`, so two *different* kinds survive. Every `secret-`
+slug resolves through the registry's `secret-` prefix to the single rule
+id `SEC-SECRET-001`. One line carrying an AWS key and a Stripe key is
+therefore two findings with two ids and **one** fingerprint:
+
+```
+id=secret-aws_access_key-1-src-config-ts   fingerprint=6537623962375d80
+id=secret-stripe_live_key-1-src-config-ts  fingerprint=6537623962375d80
+```
+
+`collectFindings()` deduplicated on that fingerprint, and
+`securitySection` compares the resulting count against
+`security.maxSecrets`. With `maxSecrets: 1` the two credentials were
+counted as one, `1 <= 1` held, and the check reported `1 credential
+found` with status `pass`. The default contract sets `maxSecrets: 0`, so
+one surviving credential still fails it — the false pass needed a
+non-default `maxSecrets` or `maxCritical`, which is what keeps this at
+Medium rather than High.
+
+**Detection:** the two ids above, built through the real scanner and the
+real `enrichFinding`, are pinned in `quality/contract.test.ts` under
+`finding collection`. Both tests fail if the key reverts to the
+fingerprint alone — the count test reports length 1 instead of 2, and the
+contract test reports `pass` where `fail` is required.
+
+**Fixed:** ADR D-023 keys `collectFindings` on `(findingKey, id)`, which
+is strictly finer than the fingerprint alone. The gate now counts what
+the report lists.
+
+**Still open, by design:** `diffReports` keys on the fingerprint, so two
+hits removed from one line read as `resolved: 1`, and a report that added
+a second credential to a line already carrying one reads as `persistent`
+with no change. This is not an oversight to be fixed the same way:
+`AuditDiff.resolved` and `.new` are documented as arrays of fingerprints,
+so a finer key is a schema change, and "is this problem still at this
+place?" is genuinely answered by the coarse key. A caller that needs the
+count should read `Report.securityFindings`, not the diff.
+

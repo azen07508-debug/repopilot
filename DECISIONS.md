@@ -378,3 +378,53 @@ Architecture Decision Records (ADR-style, lightweight).
   both directions. A repository that previously scored 0 on a dimension
   because of one generated file now scores higher, and the reported
   breakdown says why.
+
+## D-023 — `collectFindings` dedupes on the comparison key *and* the finding id
+
+- **Date:** 2026-09-23
+- **Status:** Accepted (0.1.0-rc.3)
+- **Context:** `collectFindings()` deduplicated on `findingKey()` alone.
+  A fingerprint is the **cross-report** comparison identity, and it is
+  deliberately coarse — resolved rule id plus evidence locations — so two
+  different hits of one rule at one place share it. That is exactly right
+  for the diff, which asks "is this problem still at this location?", and
+  wrong for a function whose callers ask "how many findings does this
+  report carry?". `securitySection` compares that count against
+  `security.maxSecrets`, so the collision was a **false pass**: a line
+  carrying two credential formats — `scanTextForSecrets` emits one hit
+  per matching pattern with no per-line dedupe, and every `secret-` slug
+  resolves through the registry to one rule id — collapsed to a single
+  finding and satisfied a contract that tolerates one. Measured: with
+  `maxSecrets: 1` and an AWS key and a Stripe key on one line, the check
+  reported `1 credential found` and **passed**; the same input has two.
+  The default contract (`maxSecrets: 0`) could not flip, because one
+  surviving credential still fails it, so the blast radius was a
+  non-default `maxSecrets` or `maxCritical`.
+- **Decision:** Key on the pair `(findingKey(f), f.id)`. The id is the
+  report-local name the analyzer gave the finding; the fingerprint is the
+  cross-report identity. Keying on the pair is strictly finer than either
+  alone, so it cannot merge anything the old key kept — it only stops
+  merging two hits that are genuinely two findings. `collectFixableFindings`
+  already dedupes on `id`, so the fix plan and the gate now agree on the
+  count as well.
+- **Alternatives rejected:** Keying on `id` alone reverses a stated
+  invariant — `contract.test.ts` asserts that two findings sharing an id
+  but not a fingerprint are two findings, which is the shape an analyzer
+  bug would take, and merging them there would hide the bug. Making the
+  fingerprint finer by folding in a discriminator was rejected outright:
+  any change to the formula invalidates every stored report's
+  fingerprint, so the next comparison reads the entire finding set as
+  "all resolved, all new". The one stable discriminator available is the
+  `title`, which is copy — a reworded title would do the same thing.
+  Fixing the diff's own collapse was rejected too: `AuditDiff.resolved`
+  and `.new` are documented as arrays of fingerprints, so a finer key
+  there is a schema change, and the collapse is *correct* at the
+  granularity the diff operates on.
+- **Consequences:** The gate counts findings the way the report lists
+  them. `blockingFingerprints` still collapses deliberately — it is a
+  list of fingerprints for re-audit, and one fingerprint covering two
+  hits still answers "is the blocker gone?" correctly. The diff still
+  reports `resolved: 1` for two removed hits on one line: that is the
+  documented trade-off, not an oversight, and it is recorded in R-23.
+  `contract.test.ts` pins both the count and the false pass, and reverting
+  the key fails exactly those two tests out of 48.

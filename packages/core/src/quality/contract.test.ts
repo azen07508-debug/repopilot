@@ -325,6 +325,66 @@ describe('finding collection', () => {
     expect(checkStatus(result, 'security.no-secrets')).toBe('fail');
     expect(result.blockingFingerprints).toEqual(['fp-a', 'fp-b']);
   });
+
+  /**
+   * Two credential formats on one line, as the scanner actually emits
+   * them: one hit per matching pattern, each enriched through the
+   * registry's `secret-` prefix into SEC-SECRET-001.
+   */
+  function twoSecretsOnOneLine(): [Finding, Finding] {
+    const evidence = [{ file: 'src/config.ts', line: 1, reason: 'a credential on this line' }];
+    return [
+      enrichFinding(
+        makeFinding({
+          id: 'secret-aws_access_key-1-src-config-ts',
+          category: 'security',
+          severity: 'critical',
+          title: 'AWS credential',
+          evidence,
+        })
+      ),
+      enrichFinding(
+        makeFinding({
+          id: 'secret-stripe_live_key-1-src-config-ts',
+          category: 'security',
+          severity: 'critical',
+          title: 'Stripe secret key',
+          evidence,
+        })
+      ),
+    ];
+  }
+
+  it('counts two credentials on one line as two findings, not one', () => {
+    const [aws, stripe] = twoSecretsOnOneLine();
+
+    // The premise, so this test fails loudly if the fingerprint ever
+    // stops being coarse: rule plus evidence locations are identical
+    // here, so the two hits share a comparison identity. They are still
+    // two findings, and the analyzer gave them two names.
+    expect(findingKey(aws)).toBe(findingKey(stripe));
+    expect(aws.id).not.toBe(stripe.id);
+
+    expect(collectFindings(clean({ securityFindings: [aws, stripe] }))).toHaveLength(2);
+  });
+
+  it('does not let the second credential on a line slip past a tolerance of one', () => {
+    // A contract that tolerates one credential. Counting the two hits as
+    // one used to satisfy it, which is a false pass on the one thing the
+    // gate exists to stop: a live credential reaching a release.
+    const [aws, stripe] = twoSecretsOnOneLine();
+    const report = clean({ securityFindings: [aws, stripe] });
+    const contract = QualityContractSchema.parse({
+      schemaVersion: '1.0',
+      security: { maxSecrets: 1 },
+    });
+
+    const result = evaluateQualityContract(report, contract);
+    expect(checkStatus(result, 'security.no-secrets')).toBe('fail');
+    expect(
+      section(result, 'security')?.checks.find((c) => c.id === 'security.no-secrets')?.observed
+    ).toBe('2 credentials found');
+  });
 });
 
 describe('a report written before ruleId existed', () => {

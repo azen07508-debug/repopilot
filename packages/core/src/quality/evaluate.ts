@@ -30,10 +30,28 @@ import { isFixturePath } from '../security/severity.js';
 /**
  * Every finding in the report, deduplicated.
  *
- * The three arrays overlap — `blockers` is largely a subset of the
- * others — so counting them raw would double-count and inflate every
- * number a caller sees. Fingerprint is the identity we compare on, with
- * a fallback for reports written before it existed.
+ * The arrays overlap — `blockers` is largely a subset of the others — so
+ * counting them raw would double-count and inflate every number a caller
+ * sees.
+ *
+ * The key is the PAIR (comparison identity, report-local id), not the
+ * fingerprint alone, and the difference is the whole point of this
+ * function. A fingerprint is the CROSS-report identity, and it is
+ * deliberately coarse: rule plus evidence locations. One line can carry
+ * two credential formats, and both hits are SEC-SECRET-001 at the same
+ * `file:line`, so they share a fingerprint. That is right for asking "is
+ * this problem still at this place?" — which is what the diff asks — and
+ * wrong for asking "how many findings does this report carry?". The
+ * security section compares that count against `security.maxSecrets`, so
+ * collapsing two credentials into one is a false pass on a contract that
+ * tolerates any at all.
+ *
+ * The id alone would not do either: it is the analyzer's name for the
+ * finding, so two findings can carry one id only through an analyzer
+ * bug, and merging them there would hide the bug. Keying on the pair is
+ * strictly finer than the fingerprint alone, so it cannot merge anything
+ * the old key kept — it only stops merging two hits that are genuinely
+ * two findings.
  */
 export function collectFindings(report: Report): Finding[] {
   const seen = new Set<string>();
@@ -47,7 +65,7 @@ export function collectFindings(report: Report): Finding[] {
     // them into the gate. The default policy filters them back out.
     ...report.fixtureFindings,
   ]) {
-    const key = findingKey(f);
+    const key = `${findingKey(f)}\u0000${f.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(f);
