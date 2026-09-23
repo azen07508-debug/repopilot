@@ -49,6 +49,14 @@ export interface ReportBuilderInput {
   historyFindings?: Finding[];
   /** Scope of the history scan that produced those findings. */
   historyScan?: HistoryScan;
+  /**
+   * True when the content was read a file at a time because the tarball
+   * could not be read (ADR D-017). The report is the same either way, so
+   * this is stated in `limitations` rather than changing any finding: the
+   * thing that degraded is how much of GitHub's request budget the audit
+   * cost, not what it saw.
+   */
+  degraded?: boolean;
   llm?: LLMProvider;
 }
 
@@ -226,7 +234,13 @@ export class ReportBuilder {
       recommendedTasks,
       launchChecklist,
       launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
-      limitations: buildLimitations(input.truncated, input.auditMode, web3, input.historyScan),
+      limitations: buildLimitations(
+        input.truncated,
+        input.auditMode,
+        web3,
+        input.historyScan,
+        input.degraded ?? false
+      ),
       generatedAt: new Date().toISOString(),
       auditMode: input.auditMode,
       target: input.target,
@@ -481,7 +495,8 @@ function buildLimitations(
   truncated: boolean,
   mode: 'quick' | 'full',
   web3: Web3Analysis,
-  historyScan?: HistoryScan
+  historyScan?: HistoryScan,
+  degraded?: boolean
 ): string[] {
   const out: string[] = [
     'Static analysis only — repository code is NEVER executed by RepoPilot.',
@@ -504,6 +519,12 @@ function buildLimitations(
   }
   if (truncated) {
     out.push('The repository tree is large; the listing was truncated. Some files were not analyzed.');
+  }
+  if (degraded) {
+    out.push(
+      'The repository archive could not be read, so files were fetched one at a time. ' +
+        'The analysis is the same; the audit used far more of the GitHub request budget.'
+    );
   }
   if (mode === 'quick') {
     out.push('Quick scan skips some of the deeper reproducibility heuristics.');

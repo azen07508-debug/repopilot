@@ -233,7 +233,10 @@ Architecture Decision Records (ADR-style, lightweight).
 ## D-017 — Repository I/O 切换到 tarball 批量拉取
 
 - **Date:** 2026-09-19
-- **Status:** Accepted (V0.2)
+- **Status:** Accepted (V0.2). Implemented 2026-09-23. One detail of the
+  mechanism changed in the implementation and is recorded separately as
+  D-024: the archive is decompressed in memory, not into a
+  `mkdtemp('/tmp/repopilot-')` directory.
 - **Context:** `GitHubFetcher.fetchContents()` calls
   `repos.getContent` once per file. With `DEFAULT_LIMITS.maxFiles =
   2000` a single full audit can issue 2000 API requests. Repository
@@ -428,3 +431,37 @@ Architecture Decision Records (ADR-style, lightweight).
   documented trade-off, not an oversight, and it is recorded in R-23.
   `contract.test.ts` pins both the count and the false pass, and reverting
   the key fails exactly those two tests out of 48.
+## D-024 — The tarball is decompressed in memory, not onto disk
+
+- **Date:** 2026-09-23
+- **Status:** Accepted. Supersedes the `mkdtemp` detail of D-017.
+- **Context:** D-017 specified downloading the archive into
+  `mkdtemp('/tmp/repopilot-')` and reading from disk afterwards, and
+  R-17's mitigation is written around that: the directory is removed in a
+  `finally` block, and the operator signal is `/tmp` usage on the API
+  host. The reader that shipped with it (`git/tar.ts`) takes a `Buffer`
+  and indexes into it by offset — it cannot read from a file descriptor
+  in chunks without being rewritten.
+- **Decision:** Gunzip with `node:zlib` into a `Buffer`, walk that, and
+  never touch the filesystem. No `spawn` (D-007: decompression is not
+  execution) and no temp directory.
+- **Alternatives rejected:** Writing to disk exactly as D-017 describes
+  does not buy what it was meant to buy. Because the reader needs a
+  contiguous buffer anyway, the peak memory is the archive either way;
+  writing it out first only adds a copy, a `mkdtemp`, a `rm -rf` in a
+  `finally`, and the disk-exhaustion failure mode R-17 exists to prevent.
+  Rewriting the reader to stream from a file descriptor would bound
+  memory properly, and is a much larger change than the request-count
+  problem D-017 is actually about — worth doing only if archive size ever
+  becomes the binding constraint, which for a static-analysis service
+  reading at most 50 MiB of text it is not.
+- **Consequences:** R-17's disk risk is gone, and two caps stand in for
+  it: `MAX_ARCHIVE_BYTES` (64 MiB, compressed) and `MAX_EXTRACTED_BYTES`
+  (256 MiB, enforced by zlib's `maxOutputLength`, which is what stops a
+  small archive from expanding into a gigabyte). Decompression runs off
+  the event loop rather than blocking it, so one large audit does not
+  stall concurrent ones — `node:zlib/promises` has no typings in the
+  `@types/node` this package pins, hence the small explicit wrapper.
+  `/tmp` usage is no longer the operator signal; logged
+  `extractedBytes` / `fileCount` are.
+

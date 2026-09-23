@@ -167,17 +167,30 @@ Operators should alert if it reports `inline` instead.
 **Severity:** Medium
 **Likelihood:** Medium (introduced by D-017 in V0.2)
 
-**Mitigation:** The archive is downloaded to `mkdtemp('/tmp/repopilot-')`
-and removed in a `finally` block. The existing `maxTotalBytes`
-(50 MiB) cap applies to the extracted content; extraction aborts once
-the cap is reached. `filterFiles` runs before any file is read, so
-noise directories are never materialised. No `spawn` is performed on
-extracted content (D-007). If extraction fails at any point we fall
-back to the per-file `getContent` path and mark output `degraded`.
+**Mitigation:** The disk half of this risk does not exist as built —
+ADR D-024 superseded the `mkdtemp` detail and the archive is
+decompressed in memory, so there is no directory to exhaust and nothing
+to clean up in a `finally`. What replaces it is a pair of caps in
+`git/fetcher.ts`: `MAX_ARCHIVE_BYTES` (64 MiB compressed, checked
+before decompression) and `MAX_EXTRACTED_BYTES` (256 MiB, enforced by
+zlib's `maxOutputLength`, which is what stops a small archive from
+expanding into a gigabyte). The existing `maxTotalBytes` (50 MiB) still
+caps the *decoded text*; extraction aborts once it is reached and
+reports `truncated` rather than falling back, because what has been
+read is still what was asked for. `filterFiles` runs before any file is
+read, so noise directories are never materialised, and a file not on
+the wanted list is never decoded at all. No `spawn` is performed on
+extracted content (D-007). If extraction fails at any point — including
+an archive that parses cleanly but holds none of the listed files,
+which is how a moved ref would present — we fall back to the per-file
+`getContent` path and mark the result `degraded`.
 
-**Detection:** The fetcher logs `extractedBytes` and `fileCount`;
-`RepositoryMapSchema.limitations` records any cap-induced truncation.
-A sharp rise in `/tmp` usage on the API host is the operator signal.
+**Detection:** The fetcher logs `fileCount`, `extractedBytes`,
+`archiveRoot`, `missing` and `truncated` on every tarball read, and
+`degraded` plus the reason whenever it falls back. A tarball read that
+yields few files but a non-zero `missing` is the signal that the
+archive and the tree disagreed. `/tmp` usage is no longer an operator
+signal for this risk; memory on the API host is.
 
 ## R-18 — AST parsing OOM on a pathological file
 

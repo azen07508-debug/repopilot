@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Repository content is read in one request instead of one per file
+  (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
+  issued a `repos.getContent` request per file, and
+  `DEFAULT_LIMITS.maxFiles` is 2000, so a full audit could spend the
+  whole 60 requests/hour anonymous budget (R-03) on downloading before
+  it analysed anything. Repository Map and Symbol Map need to read a
+  large number of source files, which is exactly the shape that broke.
+  - `git/tar.ts` — a read-only ustar reader. Hand-written rather than a
+    dependency because `@repopilot/core` ships octokit, pino and zod
+    and nothing else. The format is narrow but not trivial: measured
+    against a real 12,577-entry archive (`nodejs/node` v0.12.0), 192
+    entries have a path split across `prefix` + `name` and one carries a
+    130-character pax `path=`, so a reader that ignored both would
+    mis-address 193 of the 12,577. Takes the archive *after* gunzipping,
+    so it is pure and testable against a hand-built buffer.
+  - `git/tarball.ts` — `extractTarball()` reads the wanted paths out of
+    an archive. The archive's wrapper directory is derived from the
+    archive and then **checked against the tree the caller already
+    listed**, because the shape alone cannot settle it: `src/` +
+    `src/a.ts` is a flat archive and `repo/src/a.ts` is a wrapped one,
+    and in both cases every entry sits under one directory. Only the
+    wanted set can tell them apart, and getting it wrong yields files
+    that do not exist in the repository. Files that were not asked for
+    are never decoded.
+  - `GitHubFetcher.fetchRepositoryContents()` is the one entry point:
+    tarball first, then the existing per-file path on failure, with
+    `source` and `degraded` on the result. It also refuses an archive
+    that parses cleanly but contains none of the listed files — how a
+    moved ref would present — rather than returning an empty
+    repository. `filterFiles` and `classifyFile` are reused unchanged,
+    so the text/binary/ignore policy is identical on both paths.
+  - ADR D-024 records one deliberate departure from D-017: the archive
+    is decompressed in memory, not into a `mkdtemp` directory. The
+    reader needs a contiguous buffer anyway, so writing to disk first
+    would add a copy and a cleanup path without lowering peak memory —
+    and R-17's disk risk disappears with it. Two caps stand in for it:
+    64 MiB compressed, 256 MiB decompressed. Decompression runs off the
+    event loop.
+  - `degraded` reaches the report as a `limitations` line, because what
+    degraded is the request budget, not what the audit saw.
 - **Integration tests for the three derived endpoints.**
   - `apps/api/src/tests/api.integration.test.ts` covered `/quality` and
     nothing else under `derived routes`. Twenty tests now pin

@@ -48,6 +48,13 @@ export interface PipelineInput {
 export interface PipelineResult {
   report: Report;
   truncated: boolean;
+  /**
+   * True when the content was read a file at a time because the tarball
+   * could not be read (ADR D-017). The report is still valid; the cost of
+   * producing it was not — the request budget, not the bytes, is what
+   * degraded.
+   */
+  degraded: boolean;
 }
 
 export class AuditPipeline {
@@ -85,11 +92,21 @@ export class AuditPipeline {
       maxFileBytes: this.opts.maxFileBytes,
     });
 
-    const contents = await fetcher.fetchContents(parsed.owner, parsed.repo, metadata.defaultBranch, included, {
-      maxFileBytes: this.opts.maxFileBytes,
-      maxTotalBytes: this.opts.maxTotalBytes,
-      log: (msg, meta) => this.opts.log?.debug({ msg, ...meta }, 'fetcher'),
-    });
+    // One request for the whole tree instead of one per file (ADR D-017).
+    // `degraded` says the archive could not be read and the request-per-file
+    // path ran instead — the state where the anonymous hourly budget still
+    // applies, and therefore the one a caller needs to know about.
+    const { contents, degraded } = await fetcher.fetchRepositoryContents(
+      parsed.owner,
+      parsed.repo,
+      metadata.defaultBranch,
+      included,
+      {
+        maxFileBytes: this.opts.maxFileBytes,
+        maxTotalBytes: this.opts.maxTotalBytes,
+        log: (msg, meta) => this.opts.log?.debug({ msg, ...meta }, 'fetcher'),
+      }
+    );
 
     const history = await this.scanHistory(fetcher, parsed.owner, parsed.repo, input.mode);
 
@@ -105,9 +122,10 @@ export class AuditPipeline {
       includeLaunchCopy: input.includeLaunchCopy,
       historyFindings: history.findings,
       historyScan: history.scan,
+      degraded,
     });
 
-    return { report, truncated: reportTruncated };
+    return { report, truncated: reportTruncated, degraded };
   }
 
   /**

@@ -144,8 +144,14 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   landed in `packages/core/src/schemas/intelligence/` with unit tests
   (V0.2-b). Nothing in the existing API / MCP / report / DB surface
   changed.
-- Next: V0.2-c — replace the per-file `getContent` I/O with the
-  tarball source (D-017), then V0.2-d Repository Map builder.
+- **Done 2026-09-23:** V0.2-c — the per-file `getContent` I/O is
+  replaced by the tarball source (D-017). `git/tar.ts` reads the
+  archive, `git/tarball.ts` extracts the wanted paths, and
+  `GitHubFetcher.fetchRepositoryContents` is the one entry point:
+  tarball first, per-file on failure, `degraded` on the result.
+  Request count for content drops from O(files) to O(1). Repository
+  Map is no longer blocked.
+- Next: V0.2-d Repository Map builder.
 
 ## Launch Readiness layer — P0 core (done 2026-09-20)
 
