@@ -229,15 +229,23 @@ reports a partial diff as complete.
 
 **Mitigation:** Per D-021, intelligence artifacts are **not** embedded
 in `Report` by default; they live in the `intelligence_cache` table
-and are served from dedicated endpoints / MCP query tools. When a
-caller explicitly requests embedding, the MCP tool applies token
-trimming before returning. `repositoryMap` and `architectureGraph`
-are size-capped (top-N modules, top-N edges) with the cap declared in
-`limitations`.
+and are served from dedicated endpoints / MCP query tools. V0.2-d went
+further and did not wire the Repository Map into the pipeline at all,
+so today nothing embeds it and there is nothing to inflate. The builder
+is capped regardless, so an embedding caller cannot blow up
+`report_json` by accident: `MAX_MODULES` 200, `MAX_ENTRYPOINTS` 50,
+`MAX_LISTED_FILES` 300, `MAX_DEPENDENCIES` 500, `MAX_IMPORTANT_FILES`
+60. Every cap that actually bites adds a `limitations` line naming what
+was cut and the true total, so a truncated map cannot be mistaken for a
+small one. When a caller explicitly requests embedding, the MCP tool
+applies token trimming before returning.
 
 **Detection:** Track `jobs.report_json` row size; alert on outliers.
-Integration test asserts a full audit on the `complete-project`
-fixture keeps `report_json` under a fixed byte budget.
+The byte-budget integration test this entry used to describe does not
+exist and was removed rather than left standing — it belongs to V0.2-g,
+when something actually embeds the map. What exists today is
+`fixture.test.ts`, which runs the builder over all six real fixtures
+and asserts the caps hold and the truncation notes are emitted.
 
 ## R-21 — New dependency breaks the zod / MCP SDK pins
 

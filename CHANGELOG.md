@@ -9,6 +9,128 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Repository Map builder (V0.2-d).** The first Repository Intelligence
+  artifact: a deterministic description of what a repository is made of
+  — modules, how important each is, how they depend on each other, and
+  which files are worth reading first — built from the file list and
+  file contents a snapshot already carries. No new network calls, no new
+  dependencies, and deliberately **not wired into the pipeline**: R-20
+  notes that the map is a large JSON artifact while `report_json` is a
+  database column, so V0.2-g gives it its own surface instead.
+  - `intelligence/repository-map/importance.ts` — the scoring
+    primitives. Every score is a saturating curve `x / (x + half)`, so
+    `0.6` means the same thing in a five-module repository and in a
+    five-hundred-module one. A per-repository maximum ("the module with
+    the most fan-in is 1.0, scale everything else to it") was rejected
+    for exactly that reason: it reads well inside one repository and
+    means nothing across two, which is the whole point of a map that
+    gets stored and compared. Module importance is `0.5 * fan-in +
+    0.3 * size + 0.2 * entrypoint`; a file's importance is the
+    **maximum** of its reasons, never their sum — a root `package.json`
+    is config and often also sits beside the entrypoint, so summing
+    would let two weak reasons outrank one strong one and could leave
+    the schema's `0..1` range.
+  - `intelligence/repository-map/entrypoints.ts` — seven kinds of
+    entrypoint (`cli`, `server`, `library`, `app`, `worker`, `test`,
+    `contract`) detected from paths, file contents and `package.json`
+    fields. `resolveTarget()` is the only place a path that did not come
+    from the tree can enter the result, so it is where "never report a
+    path the repository does not have" is enforced: every branch ends in
+    a `known.has` check. Manifests routinely declare targets that are
+    not there — `bin` → `dist/cli.js`, `exports` → compiled output,
+    `main` → a file that was renamed — and a builder that trusted them
+    would invent paths. `PATH_RULES` anchors on `(^|/)` rather than `^`,
+    so every workspace package's own `src/index.ts` counts and not only
+    the root one.
+  - `intelligence/repository-map/manifests.ts` — dependency manifests
+    for npm, pnpm, Python (`requirements.txt`, `pyproject.toml`,
+    PEP 508), Cargo and Go, all hand-parsed to keep R-21 (zero new
+    dependencies). Anything outside the supported subset is **reported**
+    through `notes` → `limitations` rather than silently dropped: an
+    unsupported `requirements.txt` operator, a `-r` / `-e` include line,
+    an unparsed `Gemfile` or `pom.xml`. `MAX_NOTES_PER_MANIFEST` caps
+    the notes at five plus a "…and N more note(s)" line, so a manifest
+    that is entirely outside the subset cannot flood the report.
+  - `intelligence/repository-map/modules.ts` — module detection from
+    five sources, in order: workspace globs intersected with directories
+    that really exist, `contracts/`, any other directory holding a
+    manifest, top-level directories with at least three text files, and
+    — for a flat repository — a single root module. Every candidate is
+    derived from a path the tree actually contains, so a workspace glob
+    matching no directory yields no module rather than a phantom one.
+    `MANIFEST_NAME_PRIORITY` decides which manifest names a directory;
+    without it the answer depended on `Map` insertion order, so two
+    identical repositories could name the same module differently.
+  - `intelligence/repository-map/build.ts` — the orchestrator: language
+    mix, package managers, module edges, the dependency list and the
+    ranked important-file list, assembled under explicit caps and
+    validated with `RepositoryMapSchema.parse()` at the boundary, so the
+    declared return type cannot be a lie and schema defaults are
+    materialised. `degraded` is not a boolean flag but an explanation: a
+    truncated tree or a failed archive sets `degraded: true` **and**
+    adds a `limitations` line naming which one happened and why.
+  - Exported as the `@repopilot/core/intelligence` subpath, and
+    re-exported from the package root. Intelligence lives inside
+    `packages/core` rather than in its own package because a separate
+    package would buy a build-order problem and a circular dependency
+    for no gain (§0.3).
+  - ADR **D-025** records the decisions above, five rejected
+    alternatives, and one consequence worth calling out: a `known.has`
+    guard inside the recorder turned out to be **unreachable** —
+    `resolveTarget` already guarantees it — so it was deleted and the
+    invariant documented as living in exactly one place.
+  - **Test baseline: core +118 across five new files** (545 total, was
+    427). `fixture.test.ts` runs the builder over all six real fixtures
+    and asserts, for each, that the map validates, is reproducible,
+    names no path the tree does not contain, and gives every module at
+    least one file — that last assertion is what caught `testFiles`
+    coming back empty because test files were only recognised by
+    directory and not by filename. `build.test.ts` pins the four
+    `package.json` dependency kinds, the caps, and honest degradation.
+  - Verified by mutation rather than by coverage: sixteen invariants were
+    reintroduced into copies of the source one at a time — the existence
+    check dropped, the root module mapped to `''` instead of `'.'`, the
+    config reason added to the entrypoint score instead of maxed, a
+    container directory treated as a module, an unmatched recursive
+    workspace glob dropped in silence, the dependency dedupe key losing
+    its `kind`, a truncated tree no longer counted as degraded, a capped
+    list sliced before it was sorted. **16 caught, 0 missed.** The
+    harness had to learn two traps. A mutation that does not compile
+    makes vitest print `Tests no tests`, which a failure-count grep reads
+    as a pass. And a mutation can be *semantically equivalent* — the
+    first version of the "reasons are maxed" check rewrote
+    `max(0, score)` as `min(1, 0 + score)`, the same function, so its
+    survival said nothing about the tests; re-pointing it at the branch
+    where a score is already on the board is what made it mean something.
+    Two mutations found real bugs: the manifest ordering bug above, and
+    the cap reporting fixed below.
+- **`limitations` no longer claims a cap that did not bite (V0.2-d
+  review).** Found by re-reading the builder rather than by a failing
+  test, and fixed together with the tests that would have caught it.
+  - The entrypoint cap was decided from
+    `entrypoints.length >= MAX_ENTRYPOINTS` while the producer truncates
+    on `>`, so a repository with exactly fifty entrypoints was told
+    "Entrypoints are capped at 50; there may be more" about a list that
+    was complete. The length cannot settle it — fifty entries is either
+    fifty or the first fifty of more — so `detectEntrypointSet()` returns
+    `{ entrypoints, total, truncated }` next to the unchanged
+    array-returning `detectEntrypoints()`, and the limitation follows
+    `truncated`.
+  - The dependency cap compared the **pre-dedupe** declaration count
+    against the cap while slicing the **deduplicated** list. A manifest
+    set declaring 600 entries that deduplicate to 450 was told "Only the
+    first 500 of 600 dependencies are listed" — a truncation that never
+    happened, with both numbers wrong. `collectDependencies()` now
+    returns `{ dependencies, total, truncated }` like `listFiles()` does,
+    and `countDependencies()` is deleted.
+  - A capped module list produced two `limitations` lines for one fact:
+    one from `detectModules()`, which knows the true total, and one from
+    `buildLimitations()`, which did not. The second is gone.
+  - This matters more than a stray line usually would, because
+    `limitations` is the artifact's honesty channel: a reader who catches
+    one untrue line stops believing the rest.
+  - **Test baseline: core +5** (545 → 550), four of them stating that a
+    cap is reported only when it actually cut something.
 - **Repository content is read in one request instead of one per file
   (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
   issued a `repos.getContent` request per file, and

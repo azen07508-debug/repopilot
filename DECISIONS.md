@@ -465,3 +465,107 @@ Architecture Decision Records (ADR-style, lightweight).
   `/tmp` usage is no longer the operator signal; logged
   `extractedBytes` / `fileCount` are.
 
+## D-025 — Repository Map importance is absolute, and only the tree is a source of paths
+
+- **Date:** 2026-09-24
+- **Status:** Accepted. Implements the Repository Map half of V0.2-d
+  (`docs/REPOSITORY_INTELLIGENCE_PLAN.md` §9.2, §10.3).
+- **Context:** `schemas/intelligence/repository-map.ts` landed in V0.2-b
+  with three fields whose meaning is not implied by their names:
+  `Module.importance`, `ImportantFile.importance` and
+  `RepositoryMap.repository.primaryLanguage`. The plan requires
+  importance to come from "fan-in, file count and entrypoint proximity —
+  never from an LLM" but does not say what shape that derivation takes,
+  and the obvious reading of "0..1" is a ratio against the repository
+  being scored. Four smaller questions came with it: whether an
+  entrypoint may name a file the tree does not contain, where
+  module-level dependencies come from before V0.2-f resolves imports, how
+  several reasons for one file combine, and what the root of a flat
+  repository is.
+- **Decision:**
+  1. **Saturating and absolute, not relative.** Each term is
+     `x / (x + half)` — 0.5 at three modules of fan-in, 0.5 at twenty
+     files — weighted 0.5 / 0.3 / 0.2, with a flat 0.2 for containing an
+     entrypoint. A module scores the same in a five-module repository as
+     in a five-hundred-module one.
+  2. **`primaryLanguage` skips data and documentation formats.**
+     `languages` reports every recognised format by bytes, JSON and
+     Markdown included; `primaryLanguage` is the largest language left
+     after removing them, falling back to `languages[0]` and then to
+     GitHub's own value.
+  3. **No path outside the tree is ever reported.** Enforced in
+     `resolveTarget`, the one place a manifest-declared target becomes a
+     path. An entrypoint an agent cannot open is worse than a missing
+     entrypoint.
+  4. **Module `dependsOn` is read from manifests only**, by matching a
+     declared dependency name against another module's name.
+     Source-level import resolution is V0.2-f, and the map says so in
+     `limitations`.
+  5. **Several reasons for one file combine with `max`, not with a
+     sum**, and the three constants are ordered so the ranking is
+     unambiguous: 0.55–0.9 for an entrypoint by its confidence, 0.8 for
+     root configuration, 0.6 for a nested manifest.
+  6. **A directory with a manifest is a module, including the root**
+     (`path: '.'`) — except that a lone root `pnpm-workspace.yaml` is
+     not, because it declares the workspace rather than a package. When
+     one directory holds several manifests, a fixed priority
+     (`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`,
+     `requirements*.txt`, `pnpm-workspace.yaml`) names it, so the answer
+     does not depend on the order the tree was listed in.
+  7. **Truncation is reported by the code that truncated, never inferred
+     by the code that writes the sentence.** `detectEntrypointSet` and
+     `collectDependencies` return `total` and `truncated` alongside the
+     list, as `listFiles` already did, and `buildLimitations` reads those
+     instead of comparing a length against a cap.
+- **Alternatives rejected:**
+  - *Normalise against the repository's own maximum* — "the module with
+    the most fan-in is 1.0". It reads well inside one repository and
+    means nothing across two: a 12-file module in a small repo would
+    outrank a 400-file module in a large one, because each would be the
+    maximum of its own tree. It also makes a map's scores change when an
+    unrelated module is added.
+  - *Rank `primaryLanguage` purely by bytes.* A fixture-heavy repository
+    would report `JSON` — true, and useless. Dropping those formats from
+    `languages` altogether was rejected too: "this repository is 40%
+    JSON" is occasionally exactly the fact you wanted.
+  - *Emit a declared-but-absent target at reduced confidence.* That puts
+    a path in the map which `GET /contents` cannot serve, and confidence
+    is for uncertainty about a fact, not for a guess at a filename. The
+    same reasoning rejected deriving the tarball root from the archive's
+    shape (D-017).
+  - *Sum the important-file reasons.* The signals overlap — a package's
+    root `package.json` is configuration and often sits beside the
+    entrypoint — so a sum lets two weak reasons outrank one strong one
+    and can exceed the schema's `max(1)`.
+  - *Guard the invariant where signals are recorded.* The first version
+    had `if (!known.has(path)) return` inside the recorder. It was
+    deleted: `resolveTarget` already guarantees the invariant, so the
+    guard was unreachable, and unreachable code is untested code. The
+    mutation check is what surfaced this — removing the guard changed
+    nothing, because no rule can reach it with a path from outside the
+    tree.
+  - *Let `buildLimitations` decide the caps from the list lengths.* It
+    cannot, and decision 7 exists because it tried: a list of exactly
+    `MAX_ENTRYPOINTS` entries is either a repository with that many or
+    the first slice of more, so `length >= MAX_ENTRYPOINTS` reports the
+    second case for the first. The same shape of error compared the
+    pre-dedupe declaration count against `MAX_DEPENDENCIES` while
+    slicing the deduplicated list, announcing a truncation that had not
+    happened and a total that was never true. A module cap produced two
+    lines for one fact, from two places, one of which did not know the
+    real number. `limitations` is the artifact's honesty channel, so a
+    line that states something untrue costs more than a line that is
+    missing.
+- **Consequences:** Two maps can be compared without knowing what else
+  was in either tree, and `importance` is stable to four decimals, so it
+  can be snapshotted and cached (D-021). 123 tests cover the builder;
+  sixteen mutations, one per invariant above, were each confirmed to turn
+  the suite red. The limits of the artifact are stated in `limitations`
+  rather than left to be discovered: source-level imports are unresolved
+  until V0.2-f, a manifest format outside the five the parser reads is
+  named, and every cap (`MAX_MODULES`, `MAX_DEPENDENCIES`,
+  `MAX_LISTED_FILES`, `MAX_ENTRYPOINTS`, `MAX_IMPORTANT_FILES`)
+  announces itself when it bites — and only then. Nothing is wired into
+  the audit path: per R-20 the map is not a `Report` field, and V0.2-g
+  exposes it.
+

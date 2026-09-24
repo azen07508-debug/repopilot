@@ -151,7 +151,24 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   tarball first, per-file on failure, `degraded` on the result.
   Request count for content drops from O(files) to O(1). Repository
   Map is no longer blocked.
-- Next: V0.2-d Repository Map builder.
+- **Done 2026-09-24:** V0.2-d — the Repository Map builder.
+  `packages/core/src/intelligence/repository-map/` (importance →
+  entrypoints / manifests → modules → build) turns a snapshot into a
+  deterministic map: language mix, package managers, modules with an
+  absolute importance score, module edges, dependencies, and the ranked
+  important-file list. Exported as the `@repopilot/core/intelligence`
+  subpath. **Not wired into the pipeline** — R-20: the map is a large
+  JSON artifact and `report_json` is a DB column, so V0.2-g gives it its
+  own surface. Zero new dependencies (R-21): the TOML / requirements /
+  Cargo / go.mod readers are hand-written, and anything outside the
+  supported subset is reported via `notes` → `limitations` rather than
+  dropped. ADR D-025. Core tests 427 → 550 (+123 across five files),
+  including a test that runs the builder over all six real fixtures.
+  Sixteen mutations, sixteen caught — one of which found a real
+  order-dependent module-naming bug, and a re-read of the cap reporting
+  found a limitation line that claimed a truncation which had not
+  happened (D-025 decision 7).
+- Next: V0.2-e Symbol Map (needs the AST parser from D-018).
 
 ## Launch Readiness layer — P0 core (done 2026-09-20)
 

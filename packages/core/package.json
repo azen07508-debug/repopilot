@@ -37,6 +37,10 @@
     "./llm": {
       "types": "./dist/llm/index.d.ts",
       "import": "./dist/llm/index.js"
+    },
+    "./intelligence": {
+      "types": "./dist/intelligence/index.d.ts",
+      "import": "./dist/intelligence/index.js"
     }
   },
   "scripts": {

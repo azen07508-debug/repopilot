@@ -556,7 +556,7 @@ V0.2-c  git/fetcher.ts 改造：TarballSource（保留原接口签名，内部�
 V0.2-d  intelligence/repository-map/*：entrypoints / modules / importance
 V0.2-e  intelligence/symbols/*：typescript（compiler API）+ python/solidity 正则降级
 V0.2-f  intelligence/graph/dependency-graph.ts + resolve.ts
-V0.2-g  5 个 fixture 的 repository-map 快照测试 + MCP 首批 4 个 tool
+V0.2-g  6 个 fixture 的 repository-map 快照测试 + MCP 首批 4 个 tool
 V0.2-h  文档 + CHANGELOG + 状态表
 ```
 
@@ -626,6 +626,15 @@ V0.2-h  文档 + CHANGELOG + 状态表
 - [x] R-17 ~ R-21 写入 `RISKS.md` ← 完成 2026-09-19
 - [x] 未写任何实现代码（Phase 0 只审计）
 - [x] V0.2-b：intelligence Zod schema 定稿 + 单测（完成 2026-09-19）
+- [x] V0.2-c：tarball I/O 取代逐文件 `getContent`（完成 2026-09-23，ADR D-024）
+- [x] V0.2-d：Repository Map builder（完成 2026-09-24，ADR D-025）
+  - `importance.ts` 绝对饱和打分；`entrypoints.ts` 7 类入口 + 路径存在性唯一把关点；
+    `manifests.ts` 手写 TOML / requirements / Cargo / go.mod 解析（零新依赖，R-21）；
+    `modules.ts` 五路模块推导 + `MANIFEST_NAME_PRIORITY`；`build.ts` 组装 + 边界校验
+  - 5 个新测试文件 / 123 个用例；core 总计 427 → 550
+  - 变异测试 16 条不变量全部捕获（0 漏报），其中一条查出真实的模块命名顺序依赖 bug，
+    复查又修掉一处「截断没发生却声称发生了」的假 limitation（见 D-025 决策 7）
+  - **未接入 pipeline**（R-20）：map 是大 JSON 产物，`report_json` 是 DB 列，留给 V0.2-g 单独出接口
 
 ---
 
@@ -634,7 +643,7 @@ V0.2-h  文档 + CHANGELOG + 状态表
 | Phase | 内容 | 状态 |
 |---|---|---|
 | Phase 0 | 代码审计 + 本计划 | ✅ 完成（2026-09-19） |
-| Phase 1 | Repository Map | 🟡 schema 定稿（V0.2-b）；builder 未开始 |
+| Phase 1 | Repository Map | ✅ builder 完成（V0.2-d，2026-09-24）；快照测试 + MCP tool 待 V0.2-g |
 | Phase 2 | Symbol Map | ⬜ 未开始 |
 | Phase 3 | Dependency Graph | ⬜ 未开始 |
 | Phase 4 | Architecture Graph | ⬜ 未开始 |
