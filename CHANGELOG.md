@@ -200,6 +200,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the two are identical. Forty mutations, **39 caught, 1 equivalent, 0
     invalid**; the equivalent one is recorded in D-026 rather than pinned
     by a test.
+- **Dependency Graph (V0.2-f, ADR D-027).** The third Repository
+  Intelligence artifact: for every file that declares imports, which
+  files, packages or modules it reaches — with the importing line as
+  evidence on every edge. Same shape of contract as the two maps:
+  deterministic, schema-validated at the boundary, not wired into the
+  audit path (V0.2-g exposes it).
+  - **The unit of an edge is the unit the language imports.** TypeScript
+    imports a *file*, so the target is a `file` node. Go imports a
+    *package*, which is a directory, so the target is a `module` node —
+    and a Go import produces no file candidates at all. A bare specifier
+    that names nothing in this repository is an `external-dependency`.
+  - **A node exists because an edge touches it.** A file with no imports
+    and nothing importing it is not a node: the Repository Map already
+    lists files, and absence from the graph *is* the answer to "what does
+    this import?".
+  - **An unresolved import is not an edge.** A relative specifier that
+    names no file goes to `limitations` with the file and line that wrote
+    it. An edge to the nearest-looking path would send an agent to read a
+    plausible wrong file, which is worse than being told to go read.
+  - **`.js` names `.ts` (D-001).** `import './index.js'` in a NodeNext
+    project names `index.ts` on disk; without the rewrite every internal
+    import in such a repository is reported unresolved. A real `.js` file
+    on disk still wins over its `.ts` original.
+  - **An uncertain record may only reach something in the tree.** Python
+    `from a.b import c` also tries `a.b.c` because `c` may be a
+    submodule — `from . import models` depends on it — but when that
+    guess misses the honest reading is "a name inside the module already
+    recorded", not "a third-party package". `from fastapi import
+    FastAPI` yields one edge to `external:fastapi`, not a second to
+    `external:fastapi.FastAPI`.
+  - **Module conventions are per language.** Rust: `src/a.rs` owns
+    `src/a/`, `lib.rs` / `main.rs` / `mod.rs` are crate roots that own
+    the directory they sit in, `crate::` is rooted at `src/`. Python: one
+    leading dot is the file's own package, and a relative import that
+    would leave the root is refused rather than clamped. Java and Kotlin
+    are dotted paths tried against the repository root and against
+    `src/main/java`-style source roots.
+  - `limitations` moves onto `DependencyGraphSchema` (it was declared
+    only on the architecture graph in V0.2-b, so a dependency graph could
+    be silently incomplete). `DEFAULT_MAX_FILE_BYTES` is extracted to
+    `intelligence/limits.ts` so the two artifacts share one R-18 bound.
+  - Two defects were found by the mutation check rather than by a failing
+    test, and both are fixed: an uncertain Python submodule guess that
+    missed became an `external-dependency` edge, and a relative Python
+    import that walked past the root was clamped to the root instead of
+    refused. Two pieces of dead code were deleted — a `specifier ===
+    clean` clause in `stripRootPrefix` that the following `startsWith`
+    already refused, and a `./` / `../` branch in `pythonCandidates` that
+    was equivalent to the leading-dot reading for every input.
+  - **Test baseline: core +112** (628 → 740), including a schema-valid
+    graph over each of the six real fixtures, built twice and asserted
+    identical, with every edge checked to point at a node that exists.
+    Seventy-four mutations, **74 caught, 0 missed, 0 invalid**.
 - **Repository content is read in one request instead of one per file
   (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
   issued a `repos.getContent` request per file, and

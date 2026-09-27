@@ -10,7 +10,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_MAX_FILE_BYTES, buildSymbolMap, type SymbolMapInput } from './index.js';
+import { buildSymbolMap, type SymbolMapInput } from './index.js';
+import { DEFAULT_MAX_FILE_BYTES } from '../limits.js';
 import { SymbolMapSchema } from '../../schemas/intelligence/symbol-map.js';
 import type { FileEntry } from '../../git/files.js';
 

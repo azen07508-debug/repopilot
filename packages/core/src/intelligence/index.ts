@@ -12,6 +12,8 @@
  * circular dependency, not a boundary (docs/REPOSITORY_INTELLIGENCE_PLAN.md §0.3).
  */
 export * from './languages.js';
+export * from './limits.js';
 export * from './order.js';
+export * from './graph/index.js';
 export * from './repository-map/index.js';
 export * from './symbols/index.js';

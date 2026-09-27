@@ -48,9 +48,20 @@ export const DependencyGraphSchema = z.object({
   schemaVersion: z.literal(GRAPH_SCHEMA_VERSION),
   nodes: z.array(GraphNodeSchema).default([]),
   edges: z.array(GraphEdgeSchema).default([]),
+  /**
+   * What the graph does not contain, and why.
+   *
+   * The same channel the maps use (D-025 decision 7): a graph that dropped
+   * edges at a cap, or that has no extractor for a language it read, has to
+   * say so in the document rather than leave it to be discovered. Added in
+   * V0.2-f — the V0.2-b draft had it only on the architecture graph, which
+   * meant the dependency graph could be silently incomplete.
+   */
+  limitations: z.array(z.string()).default([]),
 });
 export type DependencyGraph = z.infer<typeof DependencyGraphSchema>;
 
+/** Inherits `limitations` from the dependency graph. */
 export const ArchitectureGraphSchema = DependencyGraphSchema.extend({
   entrypoints: z.array(z.string()).default([]),
   /** Each element is one cycle, as an ordered list of node ids. */
@@ -67,7 +78,6 @@ export const ArchitectureGraphSchema = DependencyGraphSchema.extend({
   isolatedModules: z.array(z.string()).default([]),
   /** Architecture detection never consults an LLM. */
   llmUsed: z.literal(false),
-  limitations: z.array(z.string()).default([]),
 });
 export type ArchitectureGraph = z.infer<typeof ArchitectureGraphSchema>;
 

@@ -4,7 +4,7 @@
 **Repository:** `/home/gem/workspace/agent/workspace/repopilot`
 **Current version:** 0.1.0-rc.2
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-09-27 14:05 UTC
+**Last updated:** 2026-09-28 07:55 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -85,26 +85,27 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-09-27 14:05 UTC)
+## Test baseline (2026-09-28 07:55 UTC)
 
-- @repopilot/core: 628/628
+- @repopilot/core: 740/740
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
 - @repopilot/mcp-server: 4/4
 - @repopilot/web: 0 (skipped intentionally)
-- **Total: 711/711 (713/713 with the Postgres tests when CI is green)**
+- **Total: 823/823 (825/825 with the Postgres tests when CI is green)**
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
-> 550 after the Repository Map (V0.2-d) and 628 after the Symbol Map
-> (V0.2-e). None of those artifacts is wired into the audit path yet —
-> they are additive, and every pre-existing test still passes unchanged.
+> 550 after the Repository Map (V0.2-d), 628 after the Symbol Map
+> (V0.2-e) and 740 after the Dependency Graph (V0.2-f). None of those
+> artifacts is wired into the audit path yet — they are additive, and
+> every pre-existing test still passes unchanged.
 
 ## Quality gates already passing
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (711/711; Postgres integration test runs in CI)
+- `pnpm -r test` (823/823; Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
@@ -200,8 +201,36 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   implementation's locals as contract state, a container reached with the
   symbol cap full being dropped silently with `truncated: false`, and a
   dead `default` clause in `isExported`.
-- Next: V0.2-f Dependency Graph (source-level import resolution; it is
-  also what fills `Symbol.references`, which is 0 everywhere until then).
+- **Done 2026-09-28:** V0.2-f — the Dependency Graph.
+  `packages/core/src/intelligence/graph/` (`resolve.ts` maps a specifier
+  to a path, `imports.ts` extracts what a file said it depends on,
+  `dependency-graph.ts` assembles the artifact) turns a snapshot into
+  the graph of what imports what. The unit of an edge is the unit the
+  language imports: TypeScript imports a file, Go imports a package
+  directory (a `module` node), and a bare specifier that names nothing
+  in-tree is an `external-dependency`. A node exists only because an
+  edge touches it — the Repository Map already lists files, and absence
+  *is* the answer to "what does this import?". An unresolved relative
+  import is **not** an edge: it goes to `limitations` with its file and
+  line, because an edge to the nearest-looking path would send an agent
+  to read a plausible wrong file. `.js` resolves to `.ts` (D-001's own
+  NodeNext convention), and a Python submodule guess that misses is not
+  evidence of a third-party package. `limitations` moves onto
+  `DependencyGraphSchema`, where V0.2-b had declared it only on the
+  architecture graph. Exported as the same `@repopilot/core/intelligence`
+  subpath. **Not wired into the pipeline**, same as the two maps: V0.2-g
+  exposes it, and it is also what fills `Symbol.references`, which is 0
+  everywhere until then. ADR D-027. Core tests 628 → 740 (+112),
+  including a schema-valid graph over each of the six real fixtures,
+  built twice, asserted identical. Seventy-four mutations: **74 caught,
+  0 missed, 0 invalid.** Two defects were found by the check and fixed —
+  an uncertain Python submodule guess that missed being turned into an
+  `external-dependency` edge, and a relative Python import that walked
+  past the root being clamped to the root instead of refused — and two
+  pieces of dead code were deleted.
+- Next: V0.2-g — snapshot tests over the six fixtures plus the first
+  four MCP tools, which is where the three artifacts finally get a
+  surface.
 
 ## Launch Readiness layer — P0 core (done 2026-09-20)
 

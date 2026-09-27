@@ -13,6 +13,7 @@
  */
 import { classifyFile, detectLanguage, type FileEntry } from '../../git/files.js';
 import { isProgrammingLanguage } from '../languages.js';
+import { DEFAULT_MAX_FILE_BYTES } from '../limits.js';
 import { compareStrings } from '../order.js';
 import {
   SYMBOL_MAP_SCHEMA_VERSION,
@@ -26,9 +27,6 @@ import { parsePython } from './python.js';
 import { parseSolidity } from './solidity.js';
 import { parseTypeScript } from './typescript.js';
 import { parseWithHeuristics, supportsHeuristics } from './regex-fallback.js';
-
-/** R-18: nothing larger than this is handed to a parser. */
-export const DEFAULT_MAX_FILE_BYTES = 1024 * 1024;
 
 /** The artifact is cached and shipped to agents, so it is capped like every other one. */
 export const MAX_SYMBOLS = 20000;

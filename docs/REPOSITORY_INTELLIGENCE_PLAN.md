@@ -653,6 +653,32 @@ V0.2-h  文档 + CHANGELOG + 状态表
     而 `truncated` 仍为 `false`、`isExported` 里一句永不起作用的 `default` 分支
   - `typescript` 从 `devDependencies` 提到 `dependencies`（运行时 import，D-018）
   - **未接入 pipeline**，同 V0.2-d，留给 V0.2-g
+- [x] V0.2-f：Dependency Graph（完成 2026-09-28，ADR D-027）
+  - `resolve.ts` 把 specifier 映射成路径（纯函数，不读文件、不读 lockfile、不跑包管理器）；
+    `imports.ts` 逐语言抽出「这个文件声明它依赖什么」；`dependency-graph.ts` 组装产物
+  - **边的单位 = 语言 import 的单位**：TS/JS 导入文件 → `file` 节点；Go 导入包（目录）
+    → `module` 节点，且 Go 不产生任何文件候选；树内不存在的裸 specifier → `external-dependency`
+  - **节点因边而存在**：没有 import 也没被 import 的文件不是节点。文件清单是 Repository Map
+    的职责，「这个文件 import 了什么」的答案就是「不在图里」
+  - **未解析的 import 不是边**：相对 specifier 落空时写进 `limitations`（带文件与行号）。
+    把它连到"看起来最像"的路径，是这份产物唯一不能有的失败模式
+  - `.js` 解析到 `.ts`（D-001 自己就是 NodeNext 约定）；磁盘上真实存在的 `.js` 仍优先于 `.ts`
+  - Python 的 `from a.b import c` 会额外试 `a.b.c`（`from . import models` 靠它），
+    但这个猜测落空**不等于**存在第三方包 `a.b.c`——`certain: false` 同时抑制
+    `limitations` 行与 `external-dependency` 边
+  - 模块约定逐语言定：Rust `src/a.rs` 拥有 `src/a/`，`lib.rs` / `main.rs` / `mod.rs`
+    是 crate root（拥有所在目录）；Python 一个前导点 = 文件自己的包，越过根目录的相对
+    import **拒绝**而非钳制；Java / Kotlin 点分路径同时试仓库根与 `src/main/java` 类源根
+  - `limitations` 从 ArchitectureGraphSchema 上移到 DependencyGraphSchema（V0.2-b 只声明在
+    前者，导致 dependency graph 可以静默不完整）；`DEFAULT_MAX_FILE_BYTES` 抽到
+    `intelligence/limits.ts`，两个产物共用同一条 R-18 上界
+  - 3 个新测试文件 / 112 个用例；core 总计 628 → 740
+  - 变异测试 74 条：**74 捕获、0 漏报、0 无效**。两条真缺陷由变异查出并修掉：
+    不确定的 Python 子模块猜测落空后被当成外部依赖边、越过根目录的相对 import 被钳制到根；
+    另删掉两处死代码（`stripRootPrefix` 里永不起作用的 `specifier === clean`、
+    `pythonCandidates` 里对所有输入都等价的 `./` / `../` 分支）
+  - **未接入 pipeline**，同 V0.2-d / V0.2-e，留给 V0.2-g；它也是填 `Symbol.references`
+    的那一步（该字段在此之前处处为 0）
 
 ---
 
@@ -663,7 +689,7 @@ V0.2-h  文档 + CHANGELOG + 状态表
 | Phase 0 | 代码审计 + 本计划 | ✅ 完成（2026-09-19） |
 | Phase 1 | Repository Map | ✅ builder 完成（V0.2-d，2026-09-24）；快照测试 + MCP tool 待 V0.2-g |
 | Phase 2 | Symbol Map | ✅ builder 完成（V0.2-e，2026-09-27）；快照测试 + MCP tool 待 V0.2-g |
-| Phase 3 | Dependency Graph | ⬜ 未开始 |
+| Phase 3 | Dependency Graph | ✅ builder 完成（V0.2-f，2026-09-28）；快照测试 + MCP tool 待 V0.2-g |
 | Phase 4 | Architecture Graph | ⬜ 未开始 |
 | Phase 5 | Evidence Graph + Confidence | ⬜ 未开始 |
 | Phase 6 | Change Impact | ⬜ 未开始 |

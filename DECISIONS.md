@@ -692,3 +692,129 @@ Architecture Decision Records (ADR-style, lightweight).
   schema says so: 0 does not imply dead code. Nothing is wired into the
   audit path; V0.2-g exposes it, as with the Repository Map.
 
+## D-027 — Dependency Graph: the unit of an edge is the unit the language imports
+
+- **Date:** 2026-09-28
+- **Status:** Accepted. Implements V0.2-f
+  (`docs/REPOSITORY_INTELLIGENCE_PLAN.md` §10.3).
+- **Context:** `schemas/intelligence/graph.ts` landed in V0.2-b with
+  `GraphNode` / `GraphEdge` / `DependencyGraph`, three node kinds
+  (`file` / `module` / `external-dependency`) and a `weight` on every
+  edge, but nothing said what a node *is* in a given language, when a
+  node exists at all, or what happens to an import that names nothing.
+  The three questions are entangled: answer "what is a node" wrong and
+  every Go repository grows a node per file; answer "what is an
+  unresolved import" wrong and the graph invents dependencies.
+- **Decision:**
+  1. **The unit of an edge is the unit the language imports.**
+     TypeScript, JavaScript, Python, Solidity, Rust and the rest import a
+     *file*, so the target is a `file` node. Go imports a *package*,
+     which is a directory, so the target is a `module` node — and a Go
+     import never produces file candidates at all. A bare specifier that
+     names nothing in this repository is an `external-dependency`.
+  2. **A node exists because an edge touches it.** A file with no
+     imports and nothing importing it is not a node. The Repository Map
+     already lists files; absence from the graph *is* the answer to
+     "what does this import?", and it is a cheaper answer than a node per
+     file in a two-thousand-file tree. Consequence: `isolatedModules` is
+     computable from the file list, not from the graph, which is where
+     V0.2-g will compute it.
+  3. **An unresolved import is not an edge.** A relative specifier that
+     names no file goes to `limitations` with the file and the line that
+     wrote it. Turning it into an edge to the nearest-looking path is the
+     one failure mode this artifact must not have: an agent reading a
+     plausible wrong file is worse off than an agent told to go read.
+  4. **`.js` names `.ts` (D-001).** TypeScript's ESM output requires the
+     *emitted* extension in the source, so `import './index.js'` in a
+     NodeNext project names `index.ts` on disk. Without the rewrite
+     every internal import in such a repository is reported unresolved —
+     which is every repository this tool is aimed at, because the
+     convention is what `"module": "NodeNext"` asks for. The rewrite is
+     limited to TypeScript, JavaScript, Vue and Svelte, and a real `.js`
+     file on disk still wins over its `.ts` original.
+  5. **An uncertain record may only reach something in the tree.** Python
+     `from a.b import c` also tries `a.b.c`, because `c` may be a
+     submodule; `from . import models` depends on that second try. When
+     it misses, the honest reading is "that is a name inside the module
+     already recorded" — not "that is a third-party package". So
+     `certain: false` suppresses **both** the `limitations` line and any
+     `external-dependency` edge. `from fastapi import FastAPI` yields one
+     edge to `external:fastapi`, not a second to
+     `external:fastapi.FastAPI`.
+  6. **Module conventions are per language, and each one is a decision.**
+     Rust: `src/a.rs` owns `src/a/`, while `lib.rs` / `main.rs` /
+     `mod.rs` are crate roots that own the directory they sit in, so
+     `mod a;` in `src/lib.rs` is `src/a.rs`. `crate::` is rooted at
+     `src/`; `self::` and `super::` walk the module directory.
+     Python: one leading dot is the file's **own package**, and a pop
+     from the root is **refused**, never clamped to the root — a
+     root-level `a.py` is not in a package, so `from .. import x` is an
+     error, and clamping would resolve it to a file it does not name.
+     Java and Kotlin are dotted paths written against a source root, so
+     both the repository-relative reading and `src/main/java`-style roots
+     are tried, repository-relative first. Go resolves through the
+     `go.mod` module path and only ever to a directory.
+  7. **Determinism is a property of the bytes, not of the iteration
+     order.** Nodes are sorted by id and edges by `(from, to)`. The sort
+     is not redundant with iterating a pre-sorted file list: `./b.js`
+     sorts before `react` as a *specifier*, but `external:react` sorts
+     before `src/b.ts` as a *target*. `localeCompare` is not used — the
+     artifacts are snapshotted and cached (D-021), so the ordering has to
+     be the same on every machine, and `a < b` on UTF-16 code units is.
+  8. **`limitations` is part of the dependency graph, not just the
+     architecture graph.** V0.2-b declared it only on
+     `ArchitectureGraphSchema`, which meant a `DependencyGraph` could be
+     silently incomplete — every cap, every language without an
+     extractor, every unresolved import had nowhere to go. It is now on
+     `DependencyGraphSchema`, and the architecture graph extends it.
+  9. **`DEFAULT_MAX_FILE_BYTES` lives in `intelligence/limits.ts`.**
+     Both the Symbol Map and the Dependency Graph read files under the
+     same R-18 bound; declared twice it would be two bounds that drift.
+- **Alternatives rejected:**
+  - *Emit an edge to the nearest-looking path when a relative import
+    misses.* This is the failure mode decision 3 exists to forbid. A
+    wrong edge is not a degraded answer, it is a wrong one.
+  - *A node per file, so the graph is a complete picture of the tree.*
+    The Repository Map is already that picture. A graph whose nodes are
+    mostly isolated files answers "what does this import?" with "nothing"
+    thousands of times.
+  - *A `Program` / type checker to resolve imports the way the compiler
+    does.* It would resolve tsconfig `paths`, `exports` maps and
+    conditional exports — at the cost of loading `lib.d.ts` and walking
+    `node_modules` on every audit, which is exactly what makes R-18's
+    memory bound untrue. The same reasoning as D-026 decision 2.
+  - *Read a lockfile or `package.json` to decide whether a bare
+    specifier is external.* It would turn "not in this repository" into
+    "in this repository's dependency list", which is a different claim,
+    and it would need a lockfile parser per package manager. Zero new
+    dependencies (R-21).
+  - *Treat a Python dotted miss as `external`.* It is repository-relative
+    by nature and the record already says the miss is expected
+    (decision 5).
+  - *Clamp a Python relative import that walks past the root.* It
+    resolves to a file the import does not name — the failure mode of
+    decision 3, one level down.
+  - *`localeCompare` for the ordering.* Machine-dependent collation in
+    an artifact that is snapshotted and compared across machines (D-021).
+- **Consequences:** 112 new tests across three files (core 628 → 740),
+  including a schema-valid graph over each of the six real fixtures,
+  built twice and asserted identical, with every edge checked to point at
+  a node that exists and to carry as many evidence lines as its weight.
+  Seventy-four mutations were run: **74 caught, 0 missed, 0 invalid.**
+  Two real defects were found by the check and fixed:
+  - an *uncertain* Python submodule guess that missed was turned into an
+    `external-dependency` edge, so `from pkg.util import Thing` produced
+    both `pkg/util.py` and `external:pkg.util.Thing` (decision 5);
+  - a relative Python import that walked past the root was clamped to the
+    root instead of refused, so `from .. import x` in a root-level module
+    resolved to a file it does not name (decision 6).
+  Two pieces of dead code were also found and deleted: a
+  `specifier === clean` clause in `stripRootPrefix` that the following
+  `startsWith` check already refused (the condition could never change
+  the answer), and a `./` / `../` branch in `pythonCandidates` that was
+  equivalent to the leading-dot reading for every input — once the
+  clamp in decision 6 was fixed, the branch had nothing left to do.
+  Nothing is wired into the audit path; V0.2-g exposes it, as with the
+  Repository Map and the Symbol Map. `Symbol.references` is still 0
+  everywhere: this graph is what will fill it, and that is V0.2-g's job.
+
