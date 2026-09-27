@@ -4,7 +4,7 @@
 **Repository:** `/home/gem/workspace/agent/workspace/repopilot`
 **Current version:** 0.1.0-rc.2
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-07-19 12:38 UTC
+**Last updated:** 2026-09-27 14:05 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -37,7 +37,7 @@ repopilot/
     core/        # analyzers + scoring + report + security + schemas + llm
     mcp-server/  # MCP server (stdio)
     okx-adapter/ # PaymentAdapter interface + mock + okx
-  fixtures/      # 5 sample repos
+  fixtures/      # 6 sample repos
   docs/          # Deployment / MCP / External actions
   .github/workflows/  # ci.yml + docker.yml (new in this RC pass)
 ```
@@ -85,20 +85,26 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-07-19 10:08 UTC)
+## Test baseline (2026-09-27 14:05 UTC)
 
-- @repopilot/core: 61/61
+- @repopilot/core: 628/628
 - @repopilot/okx-adapter: 16/16
-- @repopilot/api: 26/26 + 2 skipped (Postgres, run in CI)
-- @repopilot/mcp-server: 1/1
+- @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
+- @repopilot/mcp-server: 4/4
 - @repopilot/web: 0 (skipped intentionally)
-- **Total: 104/104 (106/106 with the Postgres tests when CI is green)**
+- **Total: 711/711 (713/713 with the Postgres tests when CI is green)**
+
+> The core count is dominated by the Repository Intelligence work: it was
+> 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
+> 550 after the Repository Map (V0.2-d) and 628 after the Symbol Map
+> (V0.2-e). None of those artifacts is wired into the audit path yet —
+> they are additive, and every pre-existing test still passes unchanged.
 
 ## Quality gates already passing
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (104/104; Postgres integration test runs in CI)
+- `pnpm -r test` (711/711; Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
@@ -168,7 +174,34 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   order-dependent module-naming bug, and a re-read of the cap reporting
   found a limitation line that claimed a truncation which had not
   happened (D-025 decision 7).
-- Next: V0.2-e Symbol Map (needs the AST parser from D-018).
+- **Done 2026-09-27:** V0.2-e — the Symbol Map.
+  `packages/core/src/intelligence/symbols/` (routing + degradation in
+  `index.ts`, shared line scanning in `lines.ts`, then `typescript.ts`,
+  `python.ts`, `solidity.ts`, `regex-fallback.ts`) turns a snapshot into
+  the repository's declaration surface: name, kind, 1-based line range,
+  parent, exported flag, and the parser that produced each one with its
+  confidence. Three tiers — the `typescript` compiler API (0.95),
+  hand-written regex scanners for Python and Solidity (0.75 / 0.7),
+  line-pattern heuristics for nine more languages (0.5). `createSourceFile`
+  and never a `Program`: a type checker would resolve imports and walk
+  `node_modules`, which is both pointless for a declaration surface and
+  exactly what would make R-18's memory bound untrue. A language with no
+  extractor is **named in `failures` with its file count** rather than
+  guessed at — a wrong line is worse than a named gap. A parser failure
+  degrades to the line scanner and never propagates (D-018's hard rule).
+  Exported as the same `@repopilot/core/intelligence` subpath.
+  **Not wired into the pipeline**, same as the Repository Map: V0.2-g
+  exposes it. `typescript` moves `devDependencies` → `dependencies`,
+  since it is imported at runtime. ADR D-026. Core tests 550 → 628
+  (+78), including a schema-valid map over each of the six real fixtures,
+  built twice, asserted identical. Forty mutations: 39 caught, 1
+  equivalent (recorded in D-026 rather than pinned), 0 invalid. Three
+  defects were found by the check and fixed — Solidity reporting an
+  implementation's locals as contract state, a container reached with the
+  symbol cap full being dropped silently with `truncated: false`, and a
+  dead `default` clause in `isExported`.
+- Next: V0.2-f Dependency Graph (source-level import resolution; it is
+  also what fills `Symbol.references`, which is 0 everywhere until then).
 
 ## Launch Readiness layer — P0 core (done 2026-09-20)
 

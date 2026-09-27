@@ -35,6 +35,7 @@
  * because the filename alone does not make it one.
  */
 import type { Entrypoint } from '../../schemas/intelligence/repository-map.js';
+import { compareStrings } from '../order.js';
 import { toEvidenceV2 } from '../../schemas/intelligence/evidence-v2.js';
 import type { FileEntry } from '../../git/files.js';
 
@@ -392,6 +393,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}

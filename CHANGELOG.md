@@ -131,6 +131,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     one untrue line stops believing the rest.
   - **Test baseline: core +5** (545 → 550), four of them stating that a
     cap is reported only when it actually cut something.
+- **Symbol Map (V0.2-e, ADR D-026).** The second Repository Intelligence
+  artifact: the declaration surface of a repository — functions, classes,
+  interfaces, types, methods, constants, contracts, structs, enums — with
+  a 1-based line range, a parent, an exported flag and the provenance of
+  the parser that produced it. Same shape of contract as the Repository
+  Map: deterministic, schema-validated at the boundary, not wired into
+  the audit path (V0.2-g exposes it).
+  - Three tiers, and the tier travels with every symbol rather than
+    being a property of the map. TypeScript and JavaScript use the
+    `typescript` compiler API at 0.95; Python and Solidity use
+    hand-written regex scanners at 0.75 / 0.7; Go, Rust, Java, Kotlin,
+    Swift, Ruby, Shell, Protobuf and GraphQL use line-pattern heuristics
+    at 0.5. A consumer can weight a compiler-parsed declaration against a
+    line-matched one instead of trusting both equally.
+  - `createSourceFile`, never a `Program`. A `Program` type-checks:
+    resolving imports, loading `lib.d.ts`, walking `node_modules`. A
+    declaration surface needs a parse, not a check, and a type checker is
+    exactly what would make R-18's memory bound untrue. The price is that
+    parents are unset, so `getCombinedModifierFlags` (which walks
+    `node.parent`) is unusable and `isExported` reads `ts.getModifiers`
+    directly.
+  - **A language with no extractor is named, not guessed.** It produces
+    no symbols and a `failures` entry carrying the language and its file
+    count. A guessed symbol sends an agent to the wrong line; a missing
+    one sends it to read the file. Same for a file over the R-18 byte
+    limit, and for the symbol cap.
+  - **A parser failure degrades, never propagates.** Each file is parsed
+    inside its own `try`, a failure falls back to the line scanner, and a
+    failure of *that* becomes a `failures` entry — the loop continues.
+    Only the compiler API gets a fallback tier; it is the one parser here
+    whose failure mode is not merely "a regex did not match".
+  - **Span semantics are per language, and each is a decision.** Python
+    ends a block at its last statement, not at trailing blank or comment
+    lines, and starts a decorated function at its `@decorator`. Solidity
+    strips comments and string literals before counting braces — a
+    `revert("unbalanced {")` would otherwise make one symbol swallow the
+    rest of the file. Ruby and Shell end a block by indentation **plus**
+    the closing keyword at the same indent, because indentation alone
+    leaves the `end` / `}` outside the range. A bodiless declaration
+    spans one line, never to the end of the file.
+  - Three defects were found by the mutation check rather than by a
+    failing test, and all three are fixed:
+    - **Solidity reported an implementation's locals as contract state.**
+      `uint local = 1;` inside a function body matches the same pattern
+      as `uint256 count;` in a contract body, and the guard only asked
+      whether a contract was open — which it is, inside its own
+      functions. The comment beside that guard claimed the opposite of
+      what the code did. State variables are now recognised by brace
+      depth.
+    - **A container reached with the symbol cap already full was never
+      opened.** A `namespace` contributes no symbol of its own — the
+      schema has no `namespace` kind — so returning early at the cap
+      dropped its whole subtree while `truncated` stayed `false`: an
+      incomplete surface reported as a complete one. The cap is now
+      checked per declaration, and the walk descends regardless.
+    - **A dead clause in `isExported`.** `default` was read alongside
+      `export`, but TypeScript only allows `default` on a declaration
+      that already carries `export`, so it could never be the deciding
+      modifier. Deleted — a mutation that swapped it for an unrelated
+      keyword survived the entire suite, which is what dead code looks
+      like from the outside.
+  - `typescript` moves from `devDependencies` to `dependencies`: it is
+    imported at runtime, so the published package would otherwise be
+    broken for every consumer (D-018).
+  - **Test baseline: core +78** (550 → 628), including one that builds a
+    schema-valid map over each of the six real fixtures twice and asserts
+    the two are identical. Forty mutations, **39 caught, 1 equivalent, 0
+    invalid**; the equivalent one is recorded in D-026 rather than pinned
+    by a test.
 - **Repository content is read in one request instead of one per file
   (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
   issued a `repos.getContent` request per file, and

@@ -26,6 +26,8 @@ import {
   type LanguageUsage,
   type RepositoryMap,
 } from '../../schemas/intelligence/repository-map.js';
+import { isProgrammingLanguage } from '../languages.js';
+import { compareStrings } from '../order.js';
 import { scoreImportantFile } from './importance.js';
 import { MAX_ENTRYPOINTS, detectEntrypointSet, isTestPath } from './entrypoints.js';
 import type { EntrypointSet } from './entrypoints.js';
@@ -115,7 +117,7 @@ export function buildRepositoryMap(input: RepositoryMapInput): RepositoryMap {
     lists: [configFiles, testFiles, documentationFiles],
     dependencyList,
     frameworks,
-    hasProgrammingLanguage: languages.some((l) => !NON_PROGRAMMING_LANGUAGES.has(l.language)),
+    hasProgrammingLanguage: languages.some((l) => isProgrammingLanguage(l.language)),
   });
 
   // Validated at the boundary rather than trusted. The schema is the
@@ -163,10 +165,9 @@ export function buildRepositoryMap(input: RepositoryMapInput): RepositoryMap {
  * `languages` reports all of them, because "this repo is 40% JSON" is a
  * true and occasionally useful fact. `primaryLanguage` is the answer to a
  * different question, and a fixture-heavy repository answering "JSON"
- * would be technically defensible and practically useless.
+ * would be technically defensible and practically useless. The set lives in
+ * `intelligence/languages.ts` because the Symbol Map asks the same question.
  */
-const NON_PROGRAMMING_LANGUAGES = new Set(['JSON', 'YAML', 'TOML', 'Markdown']);
-
 function collectLanguages(text: FileEntry[]): LanguageUsage[] {
   const byLanguage = new Map<string, { fileCount: number; bytes: number }>();
   for (const entry of text) {
@@ -187,7 +188,7 @@ function collectLanguages(text: FileEntry[]): LanguageUsage[] {
 }
 
 function pickPrimaryLanguage(languages: LanguageUsage[], fallback: string | null): string | null {
-  const programming = languages.find((l) => !NON_PROGRAMMING_LANGUAGES.has(l.language));
+  const programming = languages.find((l) => isProgrammingLanguage(l.language));
   return programming?.language ?? languages[0]?.language ?? fallback;
 }
 
@@ -508,6 +509,3 @@ function summarise(names: string[]): string {
   return names.length > 5 ? `${shown} and ${names.length - 5} more` : shown;
 }
 
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}

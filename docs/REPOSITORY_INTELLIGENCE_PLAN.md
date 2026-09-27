@@ -635,6 +635,24 @@ V0.2-h  文档 + CHANGELOG + 状态表
   - 变异测试 16 条不变量全部捕获（0 漏报），其中一条查出真实的模块命名顺序依赖 bug，
     复查又修掉一处「截断没发生却声称发生了」的假 limitation（见 D-025 决策 7）
   - **未接入 pipeline**（R-20）：map 是大 JSON 产物，`report_json` 是 DB 列，留给 V0.2-g 单独出接口
+- [x] V0.2-e：Symbol Map（完成 2026-09-27，ADR D-026）
+  - 三档解析器，档位随每个 symbol 一起上报：TS/JS 走 `typescript` compiler API（0.95）、
+    Python / Solidity 手写正则（0.75 / 0.7）、Go / Rust / Java / Kotlin / Swift / Ruby /
+    Shell / Protobuf / GraphQL 行走行启发式（0.5）
+  - `createSourceFile` 而非 `Program`：类型检查会去解析 import、加载 `lib.d.ts`、遍历
+    `node_modules`——声明面不需要它，而它恰好会让 R-18 的内存上界不成立
+  - **没有提取器的语言报出来，不猜**：产出 0 个 symbol + 一条带文件数的 `failures`。
+    猜错的 symbol 会把 agent 送到错误的行，缺失的只会让它去读文件
+  - 单个文件解析失败逐级降级（compiler → 行扫描 → `failures`），循环继续（D-018 硬规则）
+  - 行区间语义按语言分别定：Python 缩进 + 块尾停在最后一条语句（不吃尾随空行/注释）、
+    装饰器算进区间；Solidity 先剥注释与字符串再数括号（`revert("unbalanced {")`
+    否则会吞掉整个文件剩余部分）；Ruby / Shell 缩进**加上**同缩进的收尾关键字
+  - 5 个新测试文件 / 78 个用例；core 总计 550 → 628
+  - 变异测试 40 条：**39 捕获、1 等价（已在 D-026 记录）、0 无效**。三条真缺陷由变异查出并修掉：
+    Solidity 把函数体里的局部变量当合约状态上报、容器在 symbol 上限已满时被静默丢弃
+    而 `truncated` 仍为 `false`、`isExported` 里一句永不起作用的 `default` 分支
+  - `typescript` 从 `devDependencies` 提到 `dependencies`（运行时 import，D-018）
+  - **未接入 pipeline**，同 V0.2-d，留给 V0.2-g
 
 ---
 
@@ -644,7 +662,7 @@ V0.2-h  文档 + CHANGELOG + 状态表
 |---|---|---|
 | Phase 0 | 代码审计 + 本计划 | ✅ 完成（2026-09-19） |
 | Phase 1 | Repository Map | ✅ builder 完成（V0.2-d，2026-09-24）；快照测试 + MCP tool 待 V0.2-g |
-| Phase 2 | Symbol Map | ⬜ 未开始 |
+| Phase 2 | Symbol Map | ✅ builder 完成（V0.2-e，2026-09-27）；快照测试 + MCP tool 待 V0.2-g |
 | Phase 3 | Dependency Graph | ⬜ 未开始 |
 | Phase 4 | Architecture Graph | ⬜ 未开始 |
 | Phase 5 | Evidence Graph + Confidence | ⬜ 未开始 |

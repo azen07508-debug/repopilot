@@ -11,4 +11,7 @@
  * and splitting them out now would buy a build-order problem and a
  * circular dependency, not a boundary (docs/REPOSITORY_INTELLIGENCE_PLAN.md §0.3).
  */
+export * from './languages.js';
+export * from './order.js';
 export * from './repository-map/index.js';
+export * from './symbols/index.js';

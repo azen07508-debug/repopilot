@@ -569,3 +569,126 @@ Architecture Decision Records (ADR-style, lightweight).
   the audit path: per R-20 the map is not a `Report` field, and V0.2-g
   exposes it.
 
+## D-026 — Symbol Map: syntactic extraction, and a missing extractor is reported rather than guessed
+
+- **Date:** 2026-09-27
+- **Status:** Accepted. Implements V0.2-e
+  (`docs/REPOSITORY_INTELLIGENCE_PLAN.md` §10.3) on the parser D-018
+  proposed.
+- **Context:** `schemas/intelligence/symbol-map.ts` landed in V0.2-b with
+  a `parser` enum (`typescript-compiler` / `regex` / `heuristic`),
+  a per-symbol `parserConfidence`, and one hard rule stated in its
+  header: a parser failure in one language must never fail the whole
+  audit. What it does not say is which languages get which tier, what
+  `startLine` / `endLine` mean when a language has no braces, what to do
+  about a language with no extractor at all, and how much of a
+  declaration surface a parse can honestly claim without a type checker.
+- **Decision:**
+  1. **Three tiers, and the tier travels with every symbol.**
+     TypeScript and JavaScript use the `typescript` compiler API
+     (`typescript-compiler`, 0.95); Python and Solidity use hand-written
+     regex scanners (`regex`, 0.75 / 0.7); Go, Rust, Java, Kotlin, Swift,
+     Ruby, Shell, Protobuf and GraphQL use line-pattern heuristics
+     (`heuristic`, 0.5). The confidence is per symbol, not per map, so a
+     consumer can weight a compiler-parsed declaration against a
+     line-matched one instead of trusting both equally.
+  2. **`createSourceFile`, never a `Program`.** A `Program` type-checks,
+     which means resolving imports, loading `lib.d.ts` and walking
+     `node_modules` — an audit has no business doing any of that, and it
+     is exactly what would make R-18's memory bound untrue. A
+     declaration surface needs a parse, not a check. Consequence:
+     parents are not set, so `getCombinedModifierFlags` is unusable
+     (it walks `node.parent`) and `isExported` reads `ts.getModifiers`
+     directly.
+  3. **A language with no extractor is named, not guessed.** It produces
+     no symbols and a `failures` entry carrying the language and its
+     file count, so a partial map announces itself. A guessed symbol
+     sends an agent to the wrong line; a missing one sends it to read
+     the file.
+  4. **A parser failure degrades, never propagates.** Each file is parsed
+     inside its own `try`; a failure falls back to the line scanner, and
+     a failure of *that* becomes a `failures` entry, and the loop
+     continues. Only the compiler API gets a fallback tier — it is the
+     one parser here whose failure mode is not just "a regex did not
+     match" but a stack overflow on deeply nested input.
+  5. **Span semantics are per language, and each one is a decision.**
+     Python blocks end by indentation, at the **last statement** rather
+     than at trailing blank or comment lines, and a decorated function
+     starts at its first `@decorator`. Solidity blocks end by brace
+     matching, after comments and string literals are stripped — a
+     `revert("unbalanced {")` would otherwise unbalance the count and
+     make one symbol swallow the rest of the file. Ruby and Shell end a
+     block by indentation **plus** the closing keyword at the same
+     indent, because indentation alone leaves the `end` / `}` outside
+     the range. A bodiless declaration — an interface method, a field —
+     spans one line, never to the end of the file.
+  6. **Solidity state variables are recognised by brace depth, not by
+     "a contract is open".** `uint local = 1;` inside a function body
+     matches the same pattern as `uint256 count;` in a contract body;
+     depth is the only thing that tells them apart. The first version
+     checked only whether a contract was open — which it is, inside its
+     own functions — so an implementation's locals were reported as
+     state of the deployed contract, while the comment beside the guard
+     claimed the opposite.
+  7. **A namespace is a container only.** The schema has no `namespace`
+     kind, so a namespace's members report it as their `parent` and the
+     namespace itself is not a symbol.
+  8. **Truncation is set by the declaration that was refused, and the
+     walk descends even when the cap is full** — D-025 decision 7, one
+     level down. The first version returned early at the cap, so a
+     container reached with the cap already full was never opened: a
+     `namespace` contributes no symbol of its own, so its members
+     vanished with `truncated: false` and the map read as complete.
+  9. **A contract is exported by definition**, and the two kinds the
+     schema lacks are documented rather than silently forced: a
+     `modifier` is reported as `function` (it is called like one), an
+     `event` or `error` as `type` (it is declared, not called).
+- **Alternatives rejected:**
+  - *A `Program`, or a type checker, for reachability.* It would let the
+    map say "this declaration is actually used", which is V0.2-f's job,
+    at the cost of resolving imports and loading `lib.d.ts` on every
+    audit. Syntactic extraction is the honest ceiling here, which is
+    what 0.95 rather than 1 records.
+  - *A grammar per language (tree-sitter and friends).* R-21 is zero new
+    dependencies; tree-sitter grammars are per-language artifacts, not
+    one library.
+  - *Emit a low-confidence guess for a language with no extractor.* The
+    map is consumed by agents that act on line numbers. A wrong line is
+    worse than a named gap.
+  - *Read `default` as well as `export` in `isExported`.* Deleted.
+    TypeScript only allows `default` on a declaration that already
+    carries `export`, so the clause could never be the one that decided
+    the answer — and a mutation that swapped it for an unrelated keyword
+    survived the whole suite, which is what a dead clause looks like
+    from the outside. The comment justifying it ("`export default
+    function f()` is reachable from outside") was true of `export`, not
+    of `default`.
+  - *Cap the per-file symbol list by comparing `drafts.length` against
+    the cap.* The length cannot distinguish "exactly the cap" from "more
+    than the cap" (D-025 decision 7), and the `EndOfFileToken` makes it
+    worse: `ts.forEachChild` visits it, so a file with exactly the cap
+    has one child left over, and counting that as a dropped declaration
+    is how the first version reported `truncated: true` for a complete
+    list.
+  - *Guard the cap by returning before descending.* That is the bug in
+    decision 8, and it is why the guard is now inside the draft loop
+    rather than around the recursion.
+- **Consequences:** 78 new tests (core 550 → 628), including one that
+  builds a schema-valid map over each of the six real fixtures twice and
+  asserts the two are identical. Forty mutations were run; **39 caught,
+  1 equivalent, 0 invalid.** The equivalent one is `TAB_WIDTH = 4` →
+  `1`: for a file whose indentation is consistent, scaling every indent
+  by the same factor preserves every comparison the scanner makes, so it
+  differs only for input that mixes tabs and spaces — which Python
+  rejects outright and which Ruby and Shell, the two other
+  indent-scanned languages, do not require. It is recorded here rather
+  than pinned by a test that would encode an arbitrary answer for input
+  no language accepts. Three real defects were found by the check and
+  fixed: the container cap (decision 8), the dead `default` clause, and
+  the Solidity local-as-state (decision 6). `typescript` moves from
+  `devDependencies` to `dependencies` — it is imported at runtime, so
+  the published package would otherwise be broken for every consumer.
+  `references` is 0 everywhere until V0.2-f resolves imports, and the
+  schema says so: 0 does not imply dead code. Nothing is wired into the
+  audit path; V0.2-g exposes it, as with the Repository Map.
+

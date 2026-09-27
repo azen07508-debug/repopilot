@@ -25,6 +25,7 @@
 import { classifyFile, detectLanguage, type FileEntry } from '../../git/files.js';
 import type { Entrypoint, Module } from '../../schemas/intelligence/repository-map.js';
 import { moduleImportance } from './importance.js';
+import { compareStrings } from '../order.js';
 import type { ManifestParseResult } from './manifests.js';
 
 /** A top-level directory needs at least this many files to count as a subsystem. */
@@ -314,6 +315,3 @@ function basenameOf(dir: string): string {
   return cut === -1 ? dir : dir.slice(cut + 1);
 }
 
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
