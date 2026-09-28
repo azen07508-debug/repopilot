@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { createAudit, getAudit, getCapabilities, getHealth, type AuditResponse, type Capabilities, type CreateAuditInput, type Health, type Report } from './lib/api.js';
+import { createAudit, getAudit, getCapabilities, getHealth, settleAudit, type Capabilities, type CreateAuditInput, type Health, type Report } from './lib/api.js';
 import { Header } from './components/Header.js';
 import { AuditForm } from './components/AuditForm.js';
 import { ReportView } from './components/ReportView.js';
@@ -66,26 +66,29 @@ function Shell() {
       // First call (no payment) — server returns a 402 with a challenge.
       const first = await createAudit(input);
       if ('payment' in first && first.payment) {
+        const challenge = first.payment;
         setJobId(first.jobId);
-        setPaymentId(first.payment.paymentId);
-        // In mock mode, auto-replay with X-PAYMENT to get a synchronous report.
-        if (first.payment.mode === 'mock') {
-          const paid = await createAudit(input, `mock:${first.payment.paymentId}`);
-          if ('report' in paid && paid.report) {
-            setReport(paid.report);
-            setJobId(paid.jobId);
-            setPaymentId(null);
-          } else if ('error' in paid) {
-            setError(paid.error ?? 'Audit failed');
-          }
-        } else {
-          // OKX mode: caller must sign and replay. We expose a "Pay & re-run" button.
+        setPaymentId(challenge.paymentId);
+        if (challenge.mode === 'mock') {
+          // Settle the challenge, then read the report. The replay is still
+          // asynchronous — it answers 202 with a statusUrl — so the report
+          // has to be polled for. Assuming it came back synchronously is what
+          // made this button a silent no-op: neither the report branch nor
+          // the error branch matched, and nothing was rendered or said.
+          //
+          // The replay reuses the challenge's jobId (the route finds the job
+          // by paymentId), so `first.jobId` stays authoritative.
+          const paid = await createAudit(input, `mock:${challenge.paymentId}`);
+          setReport(await settleAudit(paid));
+          setPaymentId(null);
         }
-      } else if ('report' in first && first.report) {
-        setReport(first.report);
-        setJobId(first.jobId);
+        // OKX mode: the caller must sign and replay. The payment card below
+        // exposes a "Refresh status" button for that.
+      } else if ('error' in first) {
+        throw new Error(first.error.message);
       } else {
-        setError('Unexpected response from server');
+        setJobId(first.jobId);
+        setReport(await settleAudit(first));
       }
     } catch (e) {
       setError((e as Error).message);
@@ -96,13 +99,17 @@ function Shell() {
 
   const onRefresh = useCallback(async () => {
     if (!jobId) return;
+    setError(null);
+    setLoading(true);
     try {
-      const r: AuditResponse = await getAudit(jobId);
-      if ('report' in r && r.report) {
-        setReport(r.report);
-      }
+      // Poll rather than read once: the user may click Refresh the moment the
+      // payment lands, while the worker is still running.
+      setReport(await settleAudit(await getAudit(jobId)));
+      setPaymentId(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, [jobId]);
 

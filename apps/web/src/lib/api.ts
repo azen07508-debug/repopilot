@@ -45,11 +45,42 @@ export interface Health {
   database: 'ok' | 'degraded';
 }
 
+/**
+ * The error envelope the API sends on 4xx and on `status: 'failed'`.
+ *
+ * It is an object, not a string: `{ code, message }` (`routes/audits.ts`).
+ * This type said `string`, so the UI would have put an object into React
+ * state and thrown when it tried to render it.
+ */
+export interface ApiErrorEnvelope {
+  code: string;
+  message: string;
+  payment?: unknown;
+}
+
+/**
+ * Every shape `POST /api/v1/audits` and `GET /api/v1/audits/:jobId` can
+ * return, as discriminated unions on `status`.
+ *
+ * The previous version of this type claimed a queued response might carry a
+ * `report` and omitted `statusUrl` / `pollAfterMs`, which are required by the
+ * OpenAPI schema. That is what let `onSubmit` treat a queued response as
+ * neither a report nor an error and drop it.
+ */
 export type AuditResponse =
-  | { jobId: string; status: 'completed'; report: Report }
+  /**
+   * Settled with a report. `report` is `null` only if a completed row lost
+   * its payload — the route parses `job.report ? ... : null`.
+   */
+  | { jobId: string; status: 'completed'; report: Report | null; createdAt?: string; completedAt?: string | null }
+  /** Accepted, not finished. Poll `statusUrl` after `pollAfterMs`. */
   | {
       jobId: string;
-      status: 'queued' | 'processing' | 'failed';
+      status: 'queued' | 'processing';
+      statusUrl: string;
+      pollAfterMs: number;
+      createdAt?: string;
+      /** Present on the 402 challenge: how to settle it. */
       payment?: {
         paymentId: string;
         mode: 'mock' | 'okx';
@@ -58,9 +89,12 @@ export type AuditResponse =
         challenge: unknown;
         expiresAt: string;
       };
-      report?: Report;
-      error?: string;
-    };
+      nextAction?: string;
+    }
+  /** Settled without a report. */
+  | { jobId: string; status: 'failed'; error: ApiErrorEnvelope; createdAt?: string; failedAt?: string | null }
+  /** Payment not settled (402), or a bare error envelope. */
+  | { error: ApiErrorEnvelope; paymentId?: string; jobId?: string; status?: 'queued' };
 
 const base = '';
 
@@ -99,6 +133,70 @@ export async function getAudit(jobId: string): Promise<AuditResponse> {
   const r = await fetch(`${base}/api/v1/audits/${encodeURIComponent(jobId)}`);
   if (!r.ok) throw new Error(`audit ${r.status}`);
   return r.json();
+}
+
+/**
+ * Poll a job until it settles, and return its report.
+ *
+ * This exists because `POST /api/v1/audits` is asynchronous *by design*:
+ * `InlineAuditQueue.enqueue()` "schedules the job on a small, bounded worker
+ * pool and returns immediately. The HTTP request never waits for the
+ * analysis." A settled POST therefore answers 202 with `statusUrl` and
+ * `pollAfterMs` — never a report.
+ *
+ * The UI used to assume the mock replay came back synchronously. It never
+ * did, so neither the `report` branch nor the `error` branch matched and
+ * the submit click became a silent no-op: no report, no message, nothing
+ * to click. Polling is the missing half of that contract, not a workaround.
+ */
+export interface WaitForReportOptions {
+  /** Server-supplied `pollAfterMs`. Defaults to 1000. */
+  intervalMs?: number;
+  /** Give up after this long. Defaults to 120s. */
+  timeoutMs?: number;
+  /** Called after each poll that has not settled yet. */
+  onPoll?: (elapsedMs: number, status: AuditResponse['status']) => void;
+}
+
+export async function waitForReport(jobId: string, opts: WaitForReportOptions = {}): Promise<Report> {
+  const intervalMs = Math.max(0, opts.intervalMs ?? 1000);
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const r = await getAudit(jobId);
+    if ('error' in r) throw new Error(r.error.message);
+    if (r.status === 'completed') {
+      if (!r.report) throw new Error('Audit completed but the report payload is missing');
+      return r.report;
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= timeoutMs) {
+      throw new Error(`Audit did not finish within ${Math.round(timeoutMs / 1000)}s`);
+    }
+    opts.onPoll?.(elapsed, r.status);
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/**
+ * Turn any audit response into a report, polling if the job is still running.
+ *
+ * This is the single entry point the UI should use. `POST /api/v1/audits` is
+ * asynchronous by design — `InlineAuditQueue.enqueue()` "schedules the job on
+ * a small, bounded worker pool and returns immediately. The HTTP request never
+ * waits for the analysis" — so a settled POST answers 202, never a report.
+ * Reading the report is a separate GET, and that step was missing.
+ */
+export async function settleAudit(r: AuditResponse, opts: WaitForReportOptions = {}): Promise<Report> {
+  // The `failed` variant and the bare error envelope both carry `error`.
+  if ('error' in r) throw new Error(r.error.message);
+  if (r.status === 'completed') {
+    if (!r.report) throw new Error('Audit completed but the report payload is missing');
+    return r.report;
+  }
+  return waitForReport(r.jobId, { intervalMs: r.pollAfterMs, ...opts });
 }
 
 /* ---------- Derived views ----------
