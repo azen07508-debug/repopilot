@@ -4,7 +4,7 @@
 **Repository:** `/home/gem/workspace/agent/workspace/repopilot`
 **Current version:** 0.1.0-rc.2
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-09-28 07:55 UTC
+**Last updated:** 2026-09-28 13:20 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -85,27 +85,29 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-09-28 07:55 UTC)
+## Test baseline (2026-09-28 13:20 UTC)
 
-- @repopilot/core: 740/740
+- @repopilot/core: 759/759
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
-- @repopilot/mcp-server: 4/4
+- @repopilot/mcp-server: 37/37
 - @repopilot/web: 0 (skipped intentionally)
-- **Total: 823/823 (825/825 with the Postgres tests when CI is green)**
+- **Total: 875/875 (877/877 with the Postgres tests when CI is green)**
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
 > 550 after the Repository Map (V0.2-d), 628 after the Symbol Map
-> (V0.2-e) and 740 after the Dependency Graph (V0.2-f). None of those
-> artifacts is wired into the audit path yet — they are additive, and
-> every pre-existing test still passes unchanged.
+> (V0.2-e), 740 after the Dependency Graph (V0.2-f) and 759 after the
+> fixture snapshots (V0.2-g). The MCP server went 4 → 37 in V0.2-g,
+> where the three artifacts finally got a surface. None of them is wired
+> into the audit path — they are additive, and every pre-existing test
+> still passes unchanged.
 
 ## Quality gates already passing
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (823/823; Postgres integration test runs in CI)
+- `pnpm -r test` (875/875; Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
@@ -228,9 +230,55 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   `external-dependency` edge, and a relative Python import that walked
   past the root being clamped to the root instead of refused — and two
   pieces of dead code were deleted.
-- Next: V0.2-g — snapshot tests over the six fixtures plus the first
-  four MCP tools, which is where the three artifacts finally get a
-  surface.
+- Next: V0.2-h — the docs pass: a per-tool narrative for the four new
+  tools and the `docs/INDEX.md` navigation. The CHANGELOG, the state
+  table, `docs/MCP_CLIENT_SETUP.md` and `docs/ARCHITECTURE.md` were
+  updated *with* V0.2-g, because a tool list missing four tools is wrong
+  rather than merely thin.
+- After that: Phase 4 — the Architecture Graph, which is what finally
+  fills `Symbol.references` (0 everywhere today).
+- **Done 2026-09-28:** V0.2-g — the artifacts get a surface, and the
+  fixtures get snapshots. Two halves.
+  - **Snapshots over the six real fixtures**
+    (`packages/core/src/intelligence/snapshot.test.ts`, 19 tests,
+    1012 lines). It snapshots the *fixture list* first, so a new fixture
+    cannot be accepted silently, then the Repository Map, Symbol Map and
+    Dependency Graph for each fixture. A snapshot asserts what a
+    field-level unit test cannot: changing the evidence `reason` in the
+    Dependency Graph from `imports` to `depends on` left all 35
+    dependency-graph unit tests **green** and turned the snapshot **red**
+    with the exact diff — which is the reason the snapshot exists.
+    `test-utils/fixtures.ts` collapses three byte-identical private
+    copies of the fixture walk into one, counts the `..` once, and sorts
+    `FIXTURE_NAMES` so the snapshot does not depend on readdir order.
+  - **Four free MCP tools** — `get_repository_context`,
+    `get_repository_map`, `get_symbol_map`, `get_dependency_graph`. The
+    header rule "free tools never scan a repository" was the obstacle,
+    and it was the wrong rule: **free means no analysis pipeline**, not
+    "no network". The four fetch a tree and a tarball (three requests,
+    D-017) and derive; nothing scores, judges or scans history.
+    `RepositorySnapshots` caches in process, an LRU bounded by count
+    *and* bytes (8 snapshots, 64 MiB) and stops at one entry so a
+    repository over the bound does not evict itself on every call. The
+    ref a caller names back is served from the snapshot already held,
+    because `get_repository_context` answers with `repository.ref` and
+    the natural next call passes it straight back. A fetch failure is
+    `{ error: 'repository_unavailable', message }` with the HTTP status
+    kept — 404 / 403 / 502 are three different next moves — because a
+    tool that throws gives an agent nothing to retry with. Every capped
+    list carries `{ returned, total, omitted, note }` and the note is
+    merged into `limitations` too. The context tool reports what the
+    manifests *declare* (with version and kind); the graph reports what
+    the code *imports*; they are different sets and the descriptions say
+    so. `McpServerOptions.snapshotLoader` is the seam a test drives
+    instead of the network. ADR D-028. MCP suite 4 → 37. Thirty
+    mutations over `intelligence.ts` and the new
+    `withSnapshot` / `describeError`: **30 caught, 0 missed, 0 invalid.**
+    Two defects were found by the check and fixed, both reached from one
+    surviving mutation: `path_prefix` was matched as a *string* prefix,
+    so `src/deep` also returned `src/deep-notes.ts` and
+    `src/deeper/d.ts`; and `path_prefix: '.'` matched nothing, though
+    `"."` is exactly how the Repository Map spells the root module.
 
 ## Launch Readiness layer — P0 core (done 2026-09-20)
 
@@ -311,7 +359,7 @@ not wired yet.
   payment, idempotency and enqueueing cannot drift between them. The
   full cycle — audit → fix plan → fix → re-audit → compare — is now
   reachable end to end.
-- **MCP surface done 2026-09-20 (Step 7):** seven tools now. The four
+- **MCP surface done 2026-09-20 (Step 7):** seven tools at that point. The four
   new ones are `get_fix_plan`, `compare_audits` and `list_audit_history`
   (free — pure derivations of stored reports) plus the paid
   `reaudit_repository`. `get_repopilot_capabilities` returns a `billing`

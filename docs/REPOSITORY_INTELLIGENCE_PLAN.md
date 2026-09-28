@@ -560,6 +560,12 @@ V0.2-g  6 个 fixture 的 repository-map 快照测试 + MCP 首批 4 个 tool
 V0.2-h  文档 + CHANGELOG + 状态表
 ```
 
+> 状态：V0.2-a ~ V0.2-g 已完成（V0.2-g 完成 2026-09-28，ADR D-028）。
+> V0.2-h 剩余的是**面向用户的文档深化**——每个新 tool 的输入/输出/边界
+> 说明、示例调用、以及 `docs/INDEX.md` 的导航——CHANGELOG 与状态表已随
+> V0.2-g 一并更新（`docs/MCP_CLIENT_SETUP.md` 与 `docs/ARCHITECTURE.md`
+> 的工具清单也已同步，否则文档会指向一个只有 9 个 tool 的服务器）。
+
 ---
 
 ## 11. Backward compatibility strategy
@@ -679,6 +685,39 @@ V0.2-h  文档 + CHANGELOG + 状态表
     `pythonCandidates` 里对所有输入都等价的 `./` / `../` 分支）
   - **未接入 pipeline**，同 V0.2-d / V0.2-e，留给 V0.2-g；它也是填 `Symbol.references`
     的那一步（该字段在此之前处处为 0）
+- [x] V0.2-g：fixture 快照测试 + MCP 首批 4 个 tool（完成 2026-09-28，ADR D-028）
+  - **快照测试**：`intelligence/snapshot.test.ts`，19 个用例 / 1012 行，先快照 **fixture 清单本身**
+    （新 fixture 不会被静默接受），再对 6 个 fixture 各快照 Repository Map / Symbol Map /
+    Dependency Graph。**先验证它真的有牙齿**：把 Dependency Graph 的 evidence `reason`
+    从 `imports` 改成 `depends on`，35 个 dependency-graph 单测**全绿**而快照**变红**并给出精确
+    diff——这正是字段级单测做不到的部分。`test-utils/fixtures.ts` 把三份逐字节相同的 fixture
+    遍历合成一份，`..` 的层数只数一次，`FIXTURE_NAMES` 排序以免快照依赖 readdir 顺序
+  - **MCP 首批 4 个 tool**：`get_repository_context` / `get_repository_map` /
+    `get_symbol_map` / `get_dependency_graph`。拦路的是 MCP 服务器自己头部的规矩
+    「免费 tool 从不扫描仓库」——**这条规矩本身是错的**：`免费 = 不跑分析流水线`，
+    不是「不联网」。四个 tool 取一棵树 + 一个 tarball（3 个请求，D-017）后纯推导，
+    不打分、不判定、不扫历史
+  - `RepositorySnapshots` 进程内缓存，LRU 同时受**条数**与**字节数**约束（8 个快照 / 64 MiB），
+    且只剩一个条目时不再淘汰——否则超过上界的仓库每次调用都会把自己淘汰掉、重新取一遍
+  - 调用方把 `repository.ref` 传回来时复用已持有的快照：`get_repository_context` 会回
+    `repository.ref`，而下一个自然调用就是带着它再问一次；按 `url@ref` 做键这是两个键，
+    同一个仓库会被取两遍，而「只取一遍」正是这个缓存存在的理由
+  - 取仓库失败返回 `{ error: 'repository_unavailable', message }` 而不是抛异常，message 保留
+    HTTP 状态码（404 / 403 / 502 是三种不同的下一步）。会抛异常的 tool 给不了 agent 任何可重试的东西
+  - 每条被裁剪的列表都自带 `{ returned, total, omitted, note }`，note 同时并入 `limitations`：
+    只看列表分不出「一共 500 条」和「9000 条里的前 500 条」
+  - context tool 报的是**清单声明**的依赖（带 version 与 kind），graph 报的是**代码实际 import**
+    的依赖——两个集合双向不等（dev 工具声明了不 import；幽灵依赖 import 了没声明），
+    所以字段名叫 `declaredDependencies`，描述里指向 `get_dependency_graph`
+  - `path_prefix` 是**目录**、按路径分段匹配，`.` 表示根。变异检查查出的两条真缺陷：
+    原来按**字符串前缀**匹配，于是 `src/deep` 连 `src/deep-notes.ts` 与 `src/deeper/d.ts`
+    一起返回；以及 `path_prefix: '.'` 匹配不到任何东西，而 `'.'` 正是 Repository Map
+    给根模块的 `path`
+  - `McpServerOptions.snapshotLoader`——测试用来替代网络的接缝。`RepositorySnapshots`
+    一直支持注入 `load`，但没有任何地方把它转发出来，导致这 4 个 tool 只能对着 GitHub 测
+  - mcp-server 测试 4 → 37；core 740 → 759；workspace 823 → 875
+  - 变异测试 30 条（`intelligence.ts` + `index.ts` 的 `withSnapshot` / `describeError`）：
+    **30 捕获、0 漏报、0 无效**
 
 ---
 
@@ -687,15 +726,15 @@ V0.2-h  文档 + CHANGELOG + 状态表
 | Phase | 内容 | 状态 |
 |---|---|---|
 | Phase 0 | 代码审计 + 本计划 | ✅ 完成（2026-09-19） |
-| Phase 1 | Repository Map | ✅ builder 完成（V0.2-d，2026-09-24）；快照测试 + MCP tool 待 V0.2-g |
-| Phase 2 | Symbol Map | ✅ builder 完成（V0.2-e，2026-09-27）；快照测试 + MCP tool 待 V0.2-g |
-| Phase 3 | Dependency Graph | ✅ builder 完成（V0.2-f，2026-09-28）；快照测试 + MCP tool 待 V0.2-g |
+| Phase 1 | Repository Map | ✅ 完成（V0.2-d builder，V0.2-g 快照测试 + `get_repository_map`） |
+| Phase 2 | Symbol Map | ✅ 完成（V0.2-e builder，V0.2-g 快照测试 + `get_symbol_map`） |
+| Phase 3 | Dependency Graph | ✅ 完成（V0.2-f builder，V0.2-g 快照测试 + `get_dependency_graph`） |
 | Phase 4 | Architecture Graph | ⬜ 未开始 |
 | Phase 5 | Evidence Graph + Confidence | ⬜ 未开始 |
 | Phase 6 | Change Impact | ⬜ 未开始 |
 | Phase 7 | Task Context | ⬜ 未开始 |
 | Phase 8 | Agent Context Pack | ⬜ 未开始 |
-| Phase 9 | MCP 扩展（15 tools） | ⬜ 未开始 |
+| Phase 9 | MCP 扩展（15 tools） | 🟡 13/15 已注册（V0.2-g 加了 4 个免费 tool）；Architecture Graph 与 Reference Graph 的 tool 待 Phase 4 |
 | Phase 10 | Fix Plan | ⬜ 未开始 |
 | Phase 11 | GitHub Action | ⬜ 未开始 |
 | Phase 12 | GitHub App | ⬜ 未开始 |

@@ -818,3 +818,144 @@ Architecture Decision Records (ADR-style, lightweight).
   Repository Map and the Symbol Map. `Symbol.references` is still 0
   everywhere: this graph is what will fill it, and that is V0.2-g's job.
 
+## D-028 — The intelligence artifacts get their own tools, and "free" means no pipeline
+
+- **Date:** 2026-09-28
+- **Status:** Accepted. Implements V0.2-g
+  (`docs/REPOSITORY_INTELLIGENCE_PLAN.md` §10.3).
+- **Context:** Three artifacts were built — the Repository Map (V0.2-d),
+  the Symbol Map (V0.2-e) and the Dependency Graph (V0.2-f) — and none of
+  them had a consumer. They were deliberately kept out of the audit
+  pipeline (R-20: an artifact is a large JSON document and `report_json`
+  is a database column), so exposing them meant a new surface, and the
+  MCP server's own header said free tools *never scan a repository*. That
+  rule and the artifacts are incompatible: all three need a file list and
+  file contents, and `JobStore` holds reports, not trees. D-019 is why
+  they have to be free — an agent asks these questions five to ten times
+  per repository, and a paid call at that frequency is a paid call nobody
+  makes.
+- **Decision:**
+  1. **"Free" means no analysis pipeline, not "no network".** The four
+     intelligence tools fetch a tree and a tarball (three requests,
+     D-017) and derive. Nothing they do scores, judges or scans history.
+     The old rule conflated "costs the seller nothing" with "does not
+     touch the network", and the conflation is what made this stage look
+     blocked.
+  2. **MCP-only, until D-021's `intelligence_cache` lands in V0.4.** The
+     HTTP API is the paid surface, and an artifact endpoint on it would
+     be a request per artifact per audit with nothing in front of it. The
+     MCP server is one process per session and caches in-process.
+  3. **The server reads the snapshot itself and caches it in process.**
+     `RepositorySnapshots` is an LRU bounded by count **and** bytes —
+     `MAX_SNAPSHOTS = 8`, `MAX_CACHED_BYTES = 64 MiB`. A count bound
+     alone allows eight copies of a 50 MiB repository; a byte bound alone
+     lets one enormous repository fill the map. Both, or the bound is not
+     a bound. The key is `owner/repo@ref`.
+  4. **A snapshot larger than the whole byte bound is still kept.** The
+     eviction loop stops at one entry. Without that guard the bound makes
+     the cache a no-op for exactly the repositories that cost the most to
+     read: each one evicts itself and is re-fetched on every call.
+  5. **The ref a caller names back is served from the snapshot already
+     held.** `get_repository_context` answers with `repository.ref`, and
+     the natural next call — `get_symbol_map` on the same repository —
+     passes it straight back. Keyed `url@ref`, `url@` and `url@main` are
+     two keys and the repository is fetched twice, which is the one thing
+     the cache exists to prevent.
+  6. **A failure is a machine-readable error, not an exception.** A tool
+     that throws gives an agent nothing to retry with, so every fetch
+     failure comes back as `{ error: 'repository_unavailable', message }`.
+     The message keeps the HTTP status: 404 / 403 / 502 are three
+     different next moves — check the URL, wait, or come back later — and
+     a bare sentence leaves the agent guessing which.
+  7. **The code that cut the list is the code that says it did** (D-025
+     decision 7, met again one level up). Every capped list carries
+     `{ returned, total, omitted, note }`, and the note is also merged
+     into `limitations` — a caller cannot tell "there were 500" from "the
+     first 500 of 9000" by looking at the list.
+  8. **The context tool reports what the manifests declare; the graph
+     reports what the code imports.** They are different sets in both
+     directions — a dev tool is declared and never imported, a phantom
+     dependency is imported and never declared — so the context tool
+     carries the manifest's `version` and `kind`, names the field
+     `declaredDependencies` rather than `externalDependencies`, and says
+     in its own description that the imported set lives in
+     `get_dependency_graph`.
+  9. **`path_prefix` is a directory, matched on segment boundaries, and
+     `.` is the root.** `src/deep` must not return `src/deeper/d.ts` or
+     `src/deep-notes.ts`: the caller asked about one directory, and
+     handing it its neighbours is the same class of error as an edge to
+     the nearest-looking path (D-027 decision 3). And the Repository Map
+     spells the root module `"."`, so an agent that reads
+     `modules[0].path` and passes it back must get the repository rather
+     than an empty list with no explanation.
+ 10. **Externals are pulled out of the node list, and never filtered by
+     prefix.** They are the one part of the graph a caller usually wants
+     whole, and leaving them mixed into `nodes` is how a node cap ends up
+     spending itself on `react` instead of on the repository. A prefix
+     cannot filter them usefully either: their ids are
+     `external:<package>`, so a directory prefix matches none of them and
+     filtering would empty the list. "What does this repository depend
+     on" is not a question about a subtree.
+ 11. **The snapshot test asserts the fixture list, not only the
+     artifacts.** A new fixture added to `fixtures/` without being looked
+     at is exactly the kind of change that should be visible in a diff,
+     and the fixture list is the one thing a snapshot of the artifacts
+     cannot show.
+- **Alternatives rejected:**
+  - *Put the artifacts behind the paid API.* D-019. The whole value is
+    the fifth call, not the first.
+  - *Have the client send the snapshot in the tool arguments.* It makes
+    the caller responsible for a fetch contract it cannot see, doubles
+    the payload of every call, and an agent that already has the files is
+    not the agent that needs these tools. The user chose server-side.
+  - *A count bound alone, or a byte bound alone.* Decision 3.
+  - *Return the artifacts whole.* R-20 — an artifact over a
+    two-thousand-file repository is megabytes of JSON, which does not
+    inform the agent, it fills the context window.
+  - *Keep the field named `externalDependencies` and let the description
+    explain which set it is.* A name that needs a sentence of
+    qualification is the wrong name; the description is not read on every
+    call.
+  - *Match `path_prefix` as a string prefix.* This is the defect the
+    mutation check found — see the consequences.
+  - *Read `path_prefix: '.'` as a literal directory name.* Also found by
+    the check; it is how the Repository Map spells the root.
+  - *Fold the symbol map's `failures` into `limitations`.* D-026: a
+    failure names the *language* it could not read, and a generic list
+    loses that. The view carries `failures` through unchanged and the
+    context tool re-spells each one as `${language}: ${reason}`.
+  - *Give the four tools a shared `snapshot` argument so they can be
+    composed by hand.* It would make the cache the caller's problem and
+    make every call carry a tree.
+- **Consequences:** the `packages/mcp-server` suite exists (37 tests: 19
+  in `intelligence.test.ts`, 18 in `index.test.ts`); core is 759/759
+  (740 + 19 snapshot tests) and the workspace is 875/875. Thirty
+  mutations were run over `intelligence.ts` and the new
+  `withSnapshot` / `describeError` in `index.ts`: **30 caught, 0 missed,
+  0 invalid.**
+  Two real defects were found by the check and fixed, and both came from
+  the same surviving mutation (`normalisePrefix`'s trailing-slash strip):
+  - `path_prefix` was matched as a **string** prefix, so
+    `path_prefix: 'src/deep'` also returned `src/deep-notes.ts` and
+    `src/deeper/d.ts` — files the caller did not ask about, in an answer
+    that looks complete;
+  - `path_prefix: '.'` matched nothing, and `"."` is exactly how the
+    Repository Map spells the root module.
+  Following one surviving mutation to a pair of defects is the pattern
+  the mutation-check skill records as 坑 5: a mutation that survives
+  because two implementations answer the same question is a signal that
+  one of them is wrong, not that the tests are weak.
+  The snapshot half of this stage was verified to have teeth before it
+  was trusted: changing the evidence `reason` in the Dependency Graph
+  from `imports` to `depends on` left all 35 dependency-graph unit tests
+  **green** and turned the snapshot **red** with the exact diff. That is
+  the whole argument for snapshotting real fixtures on top of unit tests
+  that assert fields — a field-level test asserts what someone thought to
+  assert, and a snapshot asserts the rest.
+  Still outstanding, unchanged by this stage: `security.scanFixtures`
+  defaults to `false`; two `ruleId ?? ''` sites remain; and the four
+  intelligence tools inherit R-03's anonymous rate limit (60 req/h),
+  which is worth watching now that they are free and repeatable.
+  `Symbol.references` is still 0 everywhere — the graph is what fills it,
+  and that is a later stage.
+

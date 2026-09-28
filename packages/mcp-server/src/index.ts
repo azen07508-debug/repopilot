@@ -1,13 +1,13 @@
 /**
  * MCP server for RepoPilot.
  *
- * Exposes seven tools, split by cost:
+ * Exposes thirteen tools, split by cost:
  *
  *   Paid (they run the pipeline):
  *   - audit_github_repository: run a Quick Scan or Full Launch Audit
  *   - reaudit_repository: run a fresh audit of a repo you already audited
  *
- *   Free (pure derivations of a report that already exists):
+ *   Free (no analysis pipeline, no LLM, no scan for findings):
  *   - quality_status: may this ship? pass / pass_with_warnings / blocked
  *   - release_check: which findings block a release, by fingerprint
  *   - get_fix_plan: actionable plans with evidence and agent instructions
@@ -16,8 +16,20 @@
  *   - get_audit_status: poll a previously created job
  *   - get_repopilot_capabilities: inputs, outputs, limits, pricing, billing
  *
- * The free tools never scan a repository: they call the same pure
- * functions (`buildFixPlanSet`, `diffReports`) the HTTP API uses.
+ *   Free, and they do read a repository (V0.2-g, ADR D-028):
+ *   - get_repository_context: what is this repo, and where do I start?
+ *   - get_repository_map: modules, entrypoints, dependencies, important files
+ *   - get_symbol_map: the declaration surface, with line ranges
+ *   - get_dependency_graph: what imports what, with the importing line
+ *
+ * The report tools never scan a repository: they call the same pure functions
+ * (`buildFixPlanSet`, `diffReports`) the HTTP API uses. The intelligence tools
+ * do read one — and that is the distinction this header used to blur. **Free
+ * means no analysis pipeline**, not "no network": the four intelligence tools
+ * fetch a tree and a tarball (three requests, D-017) and derive, and nothing
+ * they do scores, judges or scans history. D-019 is the reason they are free —
+ * an agent asks them five to ten times per repository, and a paid call at that
+ * frequency is a paid call nobody makes.
  *
  * Communication is stdio JSON-RPC (the official MCP transport). No
  * credentials are stored here; payment is handled by the OKX adapter
@@ -45,11 +57,31 @@ import {
 import { buildPaymentAdapter, type PaymentConfig, priceFor } from '@repopilot/okx-adapter';
 import { createLogger } from './logger.js';
 import { JobStore, type AuditJob } from './job-store.js';
+import {
+  RepositorySnapshots,
+  buildRepositoryContext,
+  dependencyGraphOf,
+  dependencyGraphView,
+  repositoryMapOf,
+  symbolMapOf,
+  symbolMapView,
+  type RepositorySnapshot,
+  type SnapshotLoader,
+} from './intelligence.js';
 
 export interface McpServerOptions {
   payment: PaymentConfig;
   githubToken?: string;
   allowedHosts: string[];
+  /**
+   * The seam a test drives instead of the network.
+   *
+   * `RepositorySnapshots` has taken a `load` override since it was written,
+   * but nothing forwarded one, so the four intelligence tools could only be
+   * exercised against GitHub. Passing it here is what lets a test assert what
+   * a tool *returns* — including what it returns when the fetch fails.
+   */
+  snapshotLoader?: SnapshotLoader;
 }
 
 /** Which tools cost money. Surfaced by `get_repopilot_capabilities`. */
@@ -63,6 +95,22 @@ const BILLING = {
   list_audit_history: { paid: false, reason: 'Reads recorded job metadata.' },
   get_audit_status: { paid: false, reason: 'Reads recorded job metadata.' },
   get_repopilot_capabilities: { paid: false, reason: 'Static metadata.' },
+  get_repository_context: {
+    paid: false,
+    reason: 'Reads the repository tree and derives; never runs the pipeline.',
+  },
+  get_repository_map: {
+    paid: false,
+    reason: 'Reads the repository tree and derives; never runs the pipeline.',
+  },
+  get_symbol_map: {
+    paid: false,
+    reason: 'Reads the repository tree and derives; never runs the pipeline.',
+  },
+  get_dependency_graph: {
+    paid: false,
+    reason: 'Reads the repository tree and derives; never runs the pipeline.',
+  },
 } as const;
 
 export function buildMcpServer(opts: McpServerOptions): { server: McpServer; jobStore: JobStore } {
@@ -73,6 +121,11 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
     githubToken: opts.githubToken,
     allowedHosts: opts.allowedHosts,
     log,
+  });
+  const snapshots = new RepositorySnapshots({
+    githubToken: opts.githubToken,
+    allowedHosts: opts.allowedHosts,
+    ...(opts.snapshotLoader === undefined ? {} : { load: opts.snapshotLoader }),
   });
 
   const server = new McpServer(
@@ -340,6 +393,106 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
     }
   );
 
+  /**
+   * Read a repository once and hand the snapshot to a derivation.
+   *
+   * Every failure mode here is the caller's to act on — a host outside the
+   * allowlist, a repository that does not exist, a rate limit — so they come
+   * back as a machine-readable error rather than an exception the agent cannot
+   * see. A tool that throws gives an agent nothing to retry with.
+   */
+  async function withSnapshot<T>(
+    repoUrl: string,
+    ref: string | undefined,
+    derive: (snapshot: RepositorySnapshot) => T
+  ): Promise<T | { error: string; message: string }> {
+    try {
+      return derive(await snapshots.get(repoUrl, ref));
+    } catch (error) {
+      return { error: 'repository_unavailable', message: describeError(error) };
+    }
+  }
+
+  server.tool(
+    'get_repository_context',
+    'What is this repository, and where should I start reading? One call, answered from the repository itself: languages, frameworks, package managers, entrypoints, the modules ranked by importance, the files worth reading first, the heaviest imports, and the dependencies the manifests declare — with their versions. Free — it reads the tree and derives, and never runs the audit pipeline. Start here, then narrow with get_repository_map, get_symbol_map or get_dependency_graph. The declared list is not the imported list: a dev tool is declared and never imported, a phantom dependency is imported and never declared. For what the code actually pulls in, use get_dependency_graph.',
+    {
+      repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
+      ref: z
+        .string()
+        .optional()
+        .describe('Branch, tag or commit SHA. Defaults to the repository default branch.'),
+    },
+    async (args) => textResult(await withSnapshot(args.repo_url, args.ref, buildRepositoryContext))
+  );
+
+  server.tool(
+    'get_repository_map',
+    'The repository structure: modules with an importance score, entrypoints, the ranked important files, config / test / documentation files, and the declared external dependencies with their versions. Free. Scores are absolute — 0.6 means the same thing in a five-module repository as in a five-hundred-module one — so two maps can be compared.',
+    {
+      repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
+      ref: z
+        .string()
+        .optional()
+        .describe('Branch, tag or commit SHA. Defaults to the repository default branch.'),
+    },
+    async (args) => textResult(await withSnapshot(args.repo_url, args.ref, repositoryMapOf))
+  );
+
+  server.tool(
+    'get_symbol_map',
+    'The declaration surface: functions, classes, interfaces, types, methods, constants, contracts, structs and enums, each with a 1-based line range, its enclosing declaration, and which parser produced it. Free. The parser confidence is per symbol, so a compiler-parsed declaration (0.95) can be weighted against a line-matched one (0.5). A language with no extractor is named rather than guessed at.',
+    {
+      repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
+      ref: z.string().optional().describe('Branch, tag or commit SHA. Defaults to the default branch.'),
+      path_prefix: z
+        .string()
+        .optional()
+        .describe('Only symbols under this directory, e.g. "src/core". Use "." for the whole repository. Narrow here rather than raising max_symbols.'),
+      max_symbols: z
+        .number()
+        .int()
+        .min(1)
+        .max(5000)
+        .optional()
+        .describe('Cap on returned symbols (default 500). The response always says how many were withheld.'),
+    },
+    async (args) =>
+      textResult(
+        await withSnapshot(args.repo_url, args.ref, (snapshot) =>
+          symbolMapView(symbolMapOf(snapshot), {
+            ...(args.max_symbols === undefined ? {} : { maxSymbols: args.max_symbols }),
+            ...(args.path_prefix === undefined ? {} : { pathPrefix: args.path_prefix }),
+          })
+        )
+      )
+  );
+
+  server.tool(
+    'get_dependency_graph',
+    'What imports what, at file level, with the importing line as evidence on every edge. Free. External packages are listed separately from internal nodes, and an import that matches no file in the repository is reported in limitations rather than turned into an edge to the nearest-looking path — a wrong edge sends you to the wrong file.',
+    {
+      repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
+      ref: z.string().optional().describe('Branch, tag or commit SHA. Defaults to the default branch.'),
+      path_prefix: z
+        .string()
+        .optional()
+        .describe('Only nodes and edges under this path, e.g. "src/core". Use "." for the whole repository.'),
+      max_nodes: z.number().int().min(1).max(10000).optional().describe('Cap on returned nodes (default 1000).'),
+      max_edges: z.number().int().min(1).max(20000).optional().describe('Cap on returned edges (default 500).'),
+    },
+    async (args) =>
+      textResult(
+        await withSnapshot(args.repo_url, args.ref, (snapshot) =>
+          dependencyGraphView(dependencyGraphOf(snapshot), {
+            ...(args.max_nodes === undefined ? {} : { maxNodes: args.max_nodes }),
+            ...(args.max_edges === undefined ? {} : { maxEdges: args.max_edges }),
+            ...(args.path_prefix === undefined ? {} : { pathPrefix: args.path_prefix }),
+          })
+        )
+      )
+  );
+
   server.tool(
     'get_repopilot_capabilities',
     'Return RepoPilot capabilities: name, version, supported inputs/outputs, limits, pricing, and which tools are free or paid.',
@@ -427,6 +580,24 @@ function textResult(payload: unknown) {
       },
     ],
   };
+}
+
+/**
+ * A one-line reason, short enough to act on.
+ *
+ * `RepoFetchError` carries the HTTP status and 404 / 403 / 502 are three
+ * different next moves — a repository that does not exist, a rate limit that
+ * clears on its own, a host that is down. Collapsing them into one sentence
+ * leaves the agent guessing which. The stack is deliberately dropped: it is
+ * not actionable, and a tool result is the wrong place to leak the path the
+ * server was started from.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const status: unknown = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? `[${status}] ${error.message}` : error.message;
+  }
+  return String(error);
 }
 
 export async function startStdioServer(opts: McpServerOptions): Promise<void> {

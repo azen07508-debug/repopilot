@@ -70,13 +70,16 @@ the `audit_github_repository` tool.
                    └──────────────────────────────────────────────┘
 
                    ┌──────────────────────────────────────────────┐
-                   │  packages/mcp-server (stdio), 7 tools        │
-                   │  paid:  audit_github_repository              │
-                   │         reaudit_repository                   │
-                   │  free:  get_fix_plan, compare_audits,        │
-                   │         list_audit_history,                  │
-                   │         get_audit_status,                    │
-                   │         get_repopilot_capabilities           │
+                   │  packages/mcp-server (stdio), 13 tools        │
+                   │  paid:  audit_github_repository               │
+                   │         reaudit_repository                    │
+                   │  free:  quality_status, release_check,        │
+                   │         get_fix_plan, compare_audits,         │
+                   │         list_audit_history, get_audit_status, │
+                   │         get_repopilot_capabilities            │
+                   │  reads: get_repository_context,               │
+                   │         get_repository_map, get_symbol_map,   │
+                   │         get_dependency_graph                  │
                    └──────────────────────────────────────────────┘
 ```
 

@@ -253,6 +253,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     graph over each of the six real fixtures, built twice and asserted
     identical, with every edge checked to point at a node that exists.
     Seventy-four mutations, **74 caught, 0 missed, 0 invalid**.
+- **Repository Intelligence reaches an agent — four free MCP tools, and a
+  snapshot test over the six real fixtures (V0.2-g, ADR D-028).** The
+  three artifacts had no consumer: they were kept out of the audit path
+  on purpose (R-20 — an artifact is a large JSON document and
+  `report_json` is a column), and the MCP server's own rule said free
+  tools never scan a repository. Those two facts were incompatible, and
+  the rule was the one that was wrong.
+  - **"Free" now means no analysis pipeline, not "no network".** The four
+    intelligence tools fetch a tree and a tarball (three requests, D-017)
+    and derive. Nothing they do scores, judges or scans history. The old
+    rule conflated "costs the seller nothing" with "does not touch the
+    network", and that conflation is what made this stage look blocked.
+  - **Four tools: `get_repository_context`, `get_repository_map`,
+    `get_symbol_map`, `get_dependency_graph`.** The first is the one-call
+    answer — languages, frameworks, entrypoints, ranked modules, the
+    files worth reading first, the heaviest imports, the declared
+    dependencies and the symbol counts — and it deliberately carries no
+    symbol list, because `get_symbol_map` is that and inlining a capped
+    copy would double the answer to buy a worse version of a tool that
+    already exists.
+  - **`RepositorySnapshots`: an in-process LRU bounded by count *and*
+    bytes** (8 snapshots, 64 MiB). A count bound alone allows eight
+    copies of a 50 MiB repository; a byte bound alone lets one enormous
+    repository fill the map. A snapshot larger than the whole bound is
+    still kept, or the bound turns the cache into a no-op for exactly the
+    repositories that cost the most to read.
+  - **The ref a caller names back is served from the snapshot already
+    held.** `get_repository_context` answers with `repository.ref` and
+    the natural next call passes it straight back; keyed `url@ref` those
+    are two keys, and the repository would be fetched twice — the one
+    thing the cache exists to prevent.
+  - **A failure is a machine-readable error, not an exception.**
+    `{ error: 'repository_unavailable', message }`, and the message keeps
+    the HTTP status, because 404 / 403 / 502 are three different next
+    moves. A tool that throws gives an agent nothing to retry with.
+  - **Every capped list says it was capped** — `{ returned, total,
+    omitted, note }`, with the note merged into `limitations` as well. A
+    caller cannot tell "there were 500" from "the first 500 of 9000" by
+    looking at the list.
+  - **The context tool reports what the manifests *declare*; the graph
+    reports what the code *imports*.** Different sets in both directions
+    — a dev tool is declared and never imported, a phantom dependency is
+    imported and never declared — so the field is named
+    `declaredDependencies` and carries the manifest's `version` and
+    `kind`, and the description points at `get_dependency_graph`.
+  - **`path_prefix` is a directory, matched on segment boundaries, and
+    `.` is the root.** Two defects the mutation check found: it was a
+    *string* prefix, so `src/deep` also returned `src/deep-notes.ts` and
+    `src/deeper/d.ts`; and `path_prefix: '.'` matched nothing, though
+    `"."` is exactly how the Repository Map spells the root module.
+  - **Snapshot tests over the six real fixtures**
+    (`intelligence/snapshot.test.ts`, 19 tests, 1012 lines). The fixture
+    list itself is snapshotted first, so a new fixture cannot be accepted
+    silently. Verified to have teeth before it was trusted: changing the
+    evidence `reason` in the Dependency Graph from `imports` to
+    `depends on` left all 35 dependency-graph unit tests **green** and
+    turned the snapshot **red** with the exact diff.
+  - `test-utils/fixtures.ts` — one fixture walk instead of three
+    byte-identical private copies, with the `..` count written down once
+    and `FIXTURE_NAMES` sorted so the snapshot does not depend on readdir
+    order.
+  - `McpServerOptions.snapshotLoader` — the seam a test drives instead of
+    the network. `RepositorySnapshots` had taken a `load` override since
+    it was written and nothing forwarded one, so the four tools could
+    only be exercised against GitHub.
+  - `packages/mcp-server` suite: 37 tests (19 + 18), where before there
+    were 4. Thirty mutations over `intelligence.ts` and the new
+    `withSnapshot` / `describeError`: **30 caught, 0 missed, 0 invalid.**
+    Test baseline: core 740 → 759, workspace 823 → 879.
 - **Repository content is read in one request instead of one per file
   (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
   issued a `repos.getContent` request per file, and

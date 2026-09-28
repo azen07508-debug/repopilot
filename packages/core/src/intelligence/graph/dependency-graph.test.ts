@@ -7,11 +7,9 @@
  * rather than quietly contributing nothing.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { buildDependencyGraph, type DependencyGraphInput } from './dependency-graph.js';
 import { DependencyGraphSchema } from '../../schemas/intelligence/graph.js';
+import { FIXTURE_NAMES, loadFixture } from '../../test-utils/fixtures.js';
 import type { FileEntry } from '../../git/files.js';
 
 function build(files: Record<string, string>, overrides: Partial<DependencyGraphInput> = {}) {
@@ -397,52 +395,12 @@ describe('buildDependencyGraph', () => {
   });
 });
 
-const FIXTURES_DIR = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  '..',
-  '..',
-  '..',
-  'fixtures'
-);
-
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist']);
-
-function loadFixture(name: string): { entries: FileEntry[]; contents: Map<string, string> } {
-  const root = join(FIXTURES_DIR, name);
-  const entries: FileEntry[] = [];
-  const contents = new Map<string, string>();
-
-  function walk(dir: string): void {
-    for (const child of readdirSync(dir)) {
-      if (child === '.DS_Store') continue;
-      const full = join(dir, child);
-      const stat = statSync(full);
-      if (stat.isDirectory()) {
-        if (!SKIP_DIRS.has(child)) walk(full);
-        continue;
-      }
-      const path = relative(root, full).replace(/\\/g, '/');
-      entries.push({ path, size: stat.size });
-      if (stat.size < 200_000) contents.set(path, readFileSync(full, 'utf8'));
-    }
-  }
-
-  walk(root);
-  return { entries, contents };
-}
-
 describe('buildDependencyGraph — the real fixtures', () => {
-  const fixtures = readdirSync(FIXTURES_DIR).filter((name) =>
-    statSync(join(FIXTURES_DIR, name)).isDirectory()
-  );
-
   it('has fixtures to run against', () => {
-    expect(fixtures.length).toBeGreaterThan(0);
+    expect(FIXTURE_NAMES.length).toBeGreaterThan(0);
   });
 
-  for (const name of fixtures) {
+  for (const name of FIXTURE_NAMES) {
     it(`builds a schema-valid graph for ${name}, twice, identically`, () => {
       const { entries, contents } = loadFixture(name);
       const first = buildDependencyGraph({ entries, contents });

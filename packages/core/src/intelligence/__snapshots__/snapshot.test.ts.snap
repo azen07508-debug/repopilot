@@ -1,0 +1,1012 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the intelligence artifacts, over the real fixtures > complete-project > Dependency Graph 1`] = `
+{
+  "edges": [
+    {
+      "evidence": [
+        {
+          "confidence": 0.95,
+          "endLine": 1,
+          "file": "src/index.test.ts",
+          "line": 1,
+          "module": null,
+          "path": "src/index.test.ts",
+          "reason": "TypeScript imports "vitest"",
+          "source": "dependency-analysis",
+          "startLine": 1,
+          "symbol": null,
+        },
+      ],
+      "from": "src/index.test.ts",
+      "kind": "imports",
+      "to": "external:vitest",
+      "weight": 1,
+    },
+    {
+      "evidence": [
+        {
+          "confidence": 1,
+          "endLine": 2,
+          "file": "src/index.test.ts",
+          "line": 2,
+          "module": null,
+          "path": "src/index.test.ts",
+          "reason": "TypeScript imports "./index.js"",
+          "source": "dependency-analysis",
+          "startLine": 2,
+          "symbol": null,
+        },
+      ],
+      "from": "src/index.test.ts",
+      "kind": "imports",
+      "to": "src/index.ts",
+      "weight": 1,
+    },
+  ],
+  "limitations": [],
+  "nodes": [
+    {
+      "id": "external:vitest",
+      "kind": "external-dependency",
+      "name": "vitest",
+      "path": null,
+    },
+    {
+      "id": "src/index.test.ts",
+      "kind": "file",
+      "name": "index.test.ts",
+      "path": "src/index.test.ts",
+    },
+    {
+      "id": "src/index.ts",
+      "kind": "file",
+      "name": "index.ts",
+      "path": "src/index.ts",
+    },
+  ],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > complete-project > Repository Map 1`] = `
+{
+  "configFiles": [
+    ".env.example",
+    ".github/workflows/ci.yml",
+    "Dockerfile",
+    "package.json",
+  ],
+  "degraded": false,
+  "documentationFiles": [
+    "LICENSE",
+    "README.md",
+  ],
+  "entrypoints": [
+    {
+      "confidence": 0.85,
+      "evidence": [
+        {
+          "confidence": 0.85,
+          "endLine": null,
+          "file": "src/index.ts",
+          "line": null,
+          "module": null,
+          "path": "src/index.ts",
+          "reason": "src/index is the conventional package entry",
+          "source": "static-analysis",
+          "startLine": null,
+          "symbol": null,
+        },
+      ],
+      "kind": "library",
+      "path": "src/index.ts",
+    },
+    {
+      "confidence": 0.6,
+      "evidence": [
+        {
+          "confidence": 0.6,
+          "endLine": 7,
+          "file": "Dockerfile",
+          "line": 7,
+          "module": null,
+          "path": "Dockerfile",
+          "reason": "Dockerfile declares CMD or ENTRYPOINT",
+          "source": "static-analysis",
+          "startLine": 7,
+          "symbol": null,
+        },
+      ],
+      "kind": "app",
+      "path": "Dockerfile",
+    },
+  ],
+  "externalDependencies": [
+    {
+      "kind": "runtime",
+      "manifest": "package.json",
+      "name": "fastify",
+      "version": "^5.0.0",
+    },
+  ],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [
+    {
+      "importance": 0.8475,
+      "path": "src/index.ts",
+      "reason": "Entrypoint (library) at confidence 0.85",
+    },
+    {
+      "importance": 0.8,
+      "path": ".env.example",
+      "reason": "Root-level configuration or manifest",
+    },
+    {
+      "importance": 0.8,
+      "path": "Dockerfile",
+      "reason": "Entrypoint (app) at confidence 0.6; Root-level configuration or manifest",
+    },
+    {
+      "importance": 0.8,
+      "path": "package.json",
+      "reason": "Root-level configuration or manifest",
+    },
+    {
+      "importance": 0.6,
+      "path": ".github/workflows/ci.yml",
+      "reason": "Configuration or manifest",
+    },
+  ],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "Module boundaries and module-level dependencies come from manifests and directory layout; source-level imports are not resolved (V0.2-f).",
+    "No framework from the stack detector’s fixed set was recognised; a framework outside that set does not appear in this map.",
+  ],
+  "modules": [
+    {
+      "dependsOn": [],
+      "fileCount": 8,
+      "importance": 0.2857,
+      "kind": "package",
+      "languages": [
+        "JSON",
+        "Markdown",
+        "TypeScript",
+        "YAML",
+      ],
+      "name": "complete-project",
+      "path": ".",
+    },
+  ],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [],
+    "languages": [
+      {
+        "bytes": 449,
+        "fileCount": 1,
+        "language": "Markdown",
+      },
+      {
+        "bytes": 283,
+        "fileCount": 1,
+        "language": "JSON",
+      },
+      {
+        "bytes": 275,
+        "fileCount": 1,
+        "language": "YAML",
+      },
+      {
+        "bytes": 259,
+        "fileCount": 2,
+        "language": "TypeScript",
+      },
+    ],
+    "name": "complete-project",
+    "owner": "repopilot",
+    "packageManagers": [],
+    "primaryLanguage": "TypeScript",
+    "url": "https://github.com/repopilot/complete-project",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [
+    "src/index.test.ts",
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > complete-project > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 2,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 1,
+      "exported": true,
+      "id": "src/index.ts#hello#1",
+      "name": "hello",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "src/index.ts",
+      "references": 0,
+      "startLine": 1,
+      "type": "function",
+    },
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > covers every fixture on disk 1`] = `
+[
+  "complete-project",
+  "minimal",
+  "no-readme",
+  "prompt-injection",
+  "secret-leak",
+  "web3-hackathon",
+]
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > minimal > Dependency Graph 1`] = `
+{
+  "edges": [],
+  "limitations": [],
+  "nodes": [],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > minimal > Repository Map 1`] = `
+{
+  "configFiles": [
+    "package.json",
+  ],
+  "degraded": false,
+  "documentationFiles": [],
+  "entrypoints": [
+    {
+      "confidence": 0.85,
+      "evidence": [
+        {
+          "confidence": 0.85,
+          "endLine": null,
+          "file": "src/index.ts",
+          "line": null,
+          "module": null,
+          "path": "src/index.ts",
+          "reason": "src/index is the conventional package entry",
+          "source": "static-analysis",
+          "startLine": null,
+          "symbol": null,
+        },
+      ],
+      "kind": "library",
+      "path": "src/index.ts",
+    },
+  ],
+  "externalDependencies": [],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [
+    {
+      "importance": 0.8475,
+      "path": "src/index.ts",
+      "reason": "Entrypoint (library) at confidence 0.85",
+    },
+    {
+      "importance": 0.8,
+      "path": "package.json",
+      "reason": "Root-level configuration or manifest",
+    },
+  ],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "Module boundaries and module-level dependencies come from manifests and directory layout; source-level imports are not resolved (V0.2-f).",
+    "No framework from the stack detector’s fixed set was recognised; a framework outside that set does not appear in this map.",
+  ],
+  "modules": [
+    {
+      "dependsOn": [],
+      "fileCount": 2,
+      "importance": 0.2273,
+      "kind": "package",
+      "languages": [
+        "JSON",
+        "TypeScript",
+      ],
+      "name": "minimal",
+      "path": ".",
+    },
+  ],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [],
+    "languages": [
+      {
+        "bytes": 46,
+        "fileCount": 1,
+        "language": "JSON",
+      },
+      {
+        "bytes": 20,
+        "fileCount": 1,
+        "language": "TypeScript",
+      },
+    ],
+    "name": "minimal",
+    "owner": "repopilot",
+    "packageManagers": [],
+    "primaryLanguage": "TypeScript",
+    "url": "https://github.com/repopilot/minimal",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > minimal > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 1,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 1,
+      "exported": true,
+      "id": "src/index.ts#x#1",
+      "name": "x",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "src/index.ts",
+      "references": 0,
+      "startLine": 1,
+      "type": "constant",
+    },
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > no-readme > Dependency Graph 1`] = `
+{
+  "edges": [],
+  "limitations": [],
+  "nodes": [],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > no-readme > Repository Map 1`] = `
+{
+  "configFiles": [
+    "package.json",
+  ],
+  "degraded": false,
+  "documentationFiles": [],
+  "entrypoints": [
+    {
+      "confidence": 0.85,
+      "evidence": [
+        {
+          "confidence": 0.85,
+          "endLine": null,
+          "file": "src/index.ts",
+          "line": null,
+          "module": null,
+          "path": "src/index.ts",
+          "reason": "src/index is the conventional package entry",
+          "source": "static-analysis",
+          "startLine": null,
+          "symbol": null,
+        },
+      ],
+      "kind": "library",
+      "path": "src/index.ts",
+    },
+  ],
+  "externalDependencies": [],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [
+    {
+      "importance": 0.8475,
+      "path": "src/index.ts",
+      "reason": "Entrypoint (library) at confidence 0.85",
+    },
+    {
+      "importance": 0.8,
+      "path": "package.json",
+      "reason": "Root-level configuration or manifest",
+    },
+  ],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "Module boundaries and module-level dependencies come from manifests and directory layout; source-level imports are not resolved (V0.2-f).",
+    "No framework from the stack detector’s fixed set was recognised; a framework outside that set does not appear in this map.",
+  ],
+  "modules": [
+    {
+      "dependsOn": [],
+      "fileCount": 2,
+      "importance": 0.2273,
+      "kind": "package",
+      "languages": [
+        "JSON",
+        "TypeScript",
+      ],
+      "name": "no-readme",
+      "path": ".",
+    },
+  ],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [],
+    "languages": [
+      {
+        "bytes": 26,
+        "fileCount": 1,
+        "language": "JSON",
+      },
+      {
+        "bytes": 20,
+        "fileCount": 1,
+        "language": "TypeScript",
+      },
+    ],
+    "name": "no-readme",
+    "owner": "repopilot",
+    "packageManagers": [],
+    "primaryLanguage": "TypeScript",
+    "url": "https://github.com/repopilot/no-readme",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > no-readme > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 1,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 1,
+      "exported": true,
+      "id": "src/index.ts#x#1",
+      "name": "x",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "src/index.ts",
+      "references": 0,
+      "startLine": 1,
+      "type": "constant",
+    },
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > prompt-injection > Dependency Graph 1`] = `
+{
+  "edges": [],
+  "limitations": [],
+  "nodes": [],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > prompt-injection > Repository Map 1`] = `
+{
+  "configFiles": [],
+  "degraded": false,
+  "documentationFiles": [
+    "README.md",
+  ],
+  "entrypoints": [
+    {
+      "confidence": 0.85,
+      "evidence": [
+        {
+          "confidence": 0.85,
+          "endLine": null,
+          "file": "src/index.ts",
+          "line": null,
+          "module": null,
+          "path": "src/index.ts",
+          "reason": "src/index is the conventional package entry",
+          "source": "static-analysis",
+          "startLine": null,
+          "symbol": null,
+        },
+      ],
+      "kind": "library",
+      "path": "src/index.ts",
+    },
+  ],
+  "externalDependencies": [],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [
+    {
+      "importance": 0.8475,
+      "path": "src/index.ts",
+      "reason": "Entrypoint (library) at confidence 0.85",
+    },
+  ],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "No dependency manifest was found, so external dependencies are unknown.",
+    "No framework from the stack detector’s fixed set was recognised; a framework outside that set does not appear in this map.",
+  ],
+  "modules": [],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [],
+    "languages": [
+      {
+        "bytes": 217,
+        "fileCount": 1,
+        "language": "Markdown",
+      },
+      {
+        "bytes": 173,
+        "fileCount": 1,
+        "language": "TypeScript",
+      },
+    ],
+    "name": "prompt-injection",
+    "owner": "repopilot",
+    "packageManagers": [],
+    "primaryLanguage": "TypeScript",
+    "url": "https://github.com/repopilot/prompt-injection",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > prompt-injection > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 1,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 3,
+      "exported": true,
+      "id": "src/index.ts#x#3",
+      "name": "x",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "src/index.ts",
+      "references": 0,
+      "startLine": 3,
+      "type": "constant",
+    },
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > secret-leak > Dependency Graph 1`] = `
+{
+  "edges": [],
+  "limitations": [],
+  "nodes": [],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > secret-leak > Repository Map 1`] = `
+{
+  "configFiles": [],
+  "degraded": false,
+  "documentationFiles": [
+    "README.md",
+  ],
+  "entrypoints": [],
+  "externalDependencies": [],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "No dependency manifest was found, so external dependencies are unknown.",
+    "No framework from the stack detector’s fixed set was recognised; a framework outside that set does not appear in this map.",
+  ],
+  "modules": [],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [],
+    "languages": [
+      {
+        "bytes": 391,
+        "fileCount": 1,
+        "language": "Markdown",
+      },
+      {
+        "bytes": 228,
+        "fileCount": 1,
+        "language": "TypeScript",
+      },
+    ],
+    "name": "secret-leak",
+    "owner": "repopilot",
+    "packageManagers": [],
+    "primaryLanguage": "TypeScript",
+    "url": "https://github.com/repopilot/secret-leak",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > secret-leak > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 1,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 6,
+      "exported": true,
+      "id": "src/config.ts#config#1",
+      "name": "config",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "src/config.ts",
+      "references": 0,
+      "startLine": 1,
+      "type": "constant",
+    },
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > web3-hackathon > Dependency Graph 1`] = `
+{
+  "edges": [
+    {
+      "evidence": [
+        {
+          "confidence": 0.95,
+          "endLine": 1,
+          "file": "scripts/deploy.ts",
+          "line": 1,
+          "module": null,
+          "path": "scripts/deploy.ts",
+          "reason": "TypeScript imports "hardhat"",
+          "source": "dependency-analysis",
+          "startLine": 1,
+          "symbol": null,
+        },
+      ],
+      "from": "scripts/deploy.ts",
+      "kind": "imports",
+      "to": "external:hardhat",
+      "weight": 1,
+    },
+    {
+      "evidence": [
+        {
+          "confidence": 1,
+          "endLine": 1,
+          "file": "test/Counter.t.sol",
+          "line": 1,
+          "module": null,
+          "path": "test/Counter.t.sol",
+          "reason": "Solidity imports "../contracts/Counter.sol"",
+          "source": "dependency-analysis",
+          "startLine": 1,
+          "symbol": null,
+        },
+      ],
+      "from": "test/Counter.t.sol",
+      "kind": "imports",
+      "to": "contracts/Counter.sol",
+      "weight": 1,
+    },
+  ],
+  "limitations": [],
+  "nodes": [
+    {
+      "id": "contracts/Counter.sol",
+      "kind": "file",
+      "name": "Counter.sol",
+      "path": "contracts/Counter.sol",
+    },
+    {
+      "id": "external:hardhat",
+      "kind": "external-dependency",
+      "name": "hardhat",
+      "path": null,
+    },
+    {
+      "id": "scripts/deploy.ts",
+      "kind": "file",
+      "name": "deploy.ts",
+      "path": "scripts/deploy.ts",
+    },
+    {
+      "id": "test/Counter.t.sol",
+      "kind": "file",
+      "name": "Counter.t.sol",
+      "path": "test/Counter.t.sol",
+    },
+  ],
+  "schemaVersion": "1.0",
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > web3-hackathon > Repository Map 1`] = `
+{
+  "configFiles": [
+    "foundry.toml",
+  ],
+  "degraded": false,
+  "documentationFiles": [
+    "LICENSE",
+    "README.md",
+  ],
+  "entrypoints": [
+    {
+      "confidence": 0.6,
+      "evidence": [
+        {
+          "confidence": 0.6,
+          "endLine": 4,
+          "file": "contracts/Counter.sol",
+          "line": 4,
+          "module": null,
+          "path": "contracts/Counter.sol",
+          "reason": "Solidity contract declaration",
+          "source": "static-analysis",
+          "startLine": 4,
+          "symbol": null,
+        },
+        {
+          "confidence": 0.55,
+          "endLine": null,
+          "file": "contracts/Counter.sol",
+          "line": null,
+          "module": null,
+          "path": "contracts/Counter.sol",
+          "reason": "A contract under contracts/",
+          "source": "static-analysis",
+          "startLine": null,
+          "symbol": null,
+        },
+      ],
+      "kind": "contract",
+      "path": "contracts/Counter.sol",
+    },
+  ],
+  "externalDependencies": [],
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "importantFiles": [
+    {
+      "importance": 0.8,
+      "path": "foundry.toml",
+      "reason": "Root-level configuration or manifest",
+    },
+    {
+      "importance": 0.76,
+      "path": "contracts/Counter.sol",
+      "reason": "Entrypoint (contract) at confidence 0.6",
+    },
+  ],
+  "limitations": [
+    "Static analysis only — repository code is NEVER executed by RepoPilot.",
+    "The map describes text files only; binaries and noise directories (node_modules, dist, .git, …) were not read.",
+    "Module boundaries and module-level dependencies come from manifests and directory layout; source-level imports are not resolved (V0.2-f).",
+    "No dependency manifest was found, so external dependencies are unknown.",
+  ],
+  "modules": [
+    {
+      "dependsOn": [],
+      "fileCount": 1,
+      "importance": 0.2143,
+      "kind": "contract-package",
+      "languages": [
+        "Solidity",
+      ],
+      "name": "contracts",
+      "path": "contracts",
+    },
+  ],
+  "repository": {
+    "commitSha": null,
+    "defaultBranch": "main",
+    "frameworks": [
+      "Foundry",
+    ],
+    "languages": [
+      {
+        "bytes": 480,
+        "fileCount": 1,
+        "language": "Markdown",
+      },
+      {
+        "bytes": 369,
+        "fileCount": 2,
+        "language": "Solidity",
+      },
+      {
+        "bytes": 313,
+        "fileCount": 1,
+        "language": "TypeScript",
+      },
+      {
+        "bytes": 77,
+        "fileCount": 1,
+        "language": "TOML",
+      },
+    ],
+    "name": "web3-hackathon",
+    "owner": "repopilot",
+    "packageManagers": [
+      "foundry",
+    ],
+    "primaryLanguage": "Solidity",
+    "url": "https://github.com/repopilot/web3-hackathon",
+  },
+  "schemaVersion": "1.0",
+  "testFiles": [
+    "test/Counter.t.sol",
+  ],
+}
+`;
+
+exports[`the intelligence artifacts, over the real fixtures > web3-hackathon > Symbol Map 1`] = `
+{
+  "degraded": false,
+  "failures": [],
+  "languageCoverage": [
+    {
+      "degraded": false,
+      "fileCount": 2,
+      "language": "Solidity",
+      "parser": "regex",
+    },
+    {
+      "degraded": false,
+      "fileCount": 1,
+      "language": "TypeScript",
+      "parser": "typescript-compiler",
+    },
+  ],
+  "schemaVersion": "1.0",
+  "symbols": [
+    {
+      "endLine": 7,
+      "exported": true,
+      "id": "contracts/Counter.sol#Counter#4",
+      "name": "Counter",
+      "parent": null,
+      "parser": "regex",
+      "parserConfidence": 0.7,
+      "path": "contracts/Counter.sol",
+      "references": 0,
+      "startLine": 4,
+      "type": "contract",
+    },
+    {
+      "endLine": 5,
+      "exported": true,
+      "id": "contracts/Counter.sol#count#5",
+      "name": "count",
+      "parent": "Counter",
+      "parser": "regex",
+      "parserConfidence": 0.7,
+      "path": "contracts/Counter.sol",
+      "references": 0,
+      "startLine": 5,
+      "type": "variable",
+    },
+    {
+      "endLine": 6,
+      "exported": true,
+      "id": "contracts/Counter.sol#increment#6",
+      "name": "increment",
+      "parent": "Counter",
+      "parser": "regex",
+      "parserConfidence": 0.7,
+      "path": "contracts/Counter.sol",
+      "references": 0,
+      "startLine": 6,
+      "type": "function",
+    },
+    {
+      "endLine": 8,
+      "exported": false,
+      "id": "scripts/deploy.ts#main#3",
+      "name": "main",
+      "parent": null,
+      "parser": "typescript-compiler",
+      "parserConfidence": 0.95,
+      "path": "scripts/deploy.ts",
+      "references": 0,
+      "startLine": 3,
+      "type": "function",
+    },
+    {
+      "endLine": 9,
+      "exported": true,
+      "id": "test/Counter.t.sol#CounterTest#3",
+      "name": "CounterTest",
+      "parent": null,
+      "parser": "regex",
+      "parserConfidence": 0.7,
+      "path": "test/Counter.t.sol",
+      "references": 0,
+      "startLine": 3,
+      "type": "contract",
+    },
+    {
+      "endLine": 8,
+      "exported": true,
+      "id": "test/Counter.t.sol#testIncrement#4",
+      "name": "testIncrement",
+      "parent": "CounterTest",
+      "parser": "regex",
+      "parserConfidence": 0.7,
+      "path": "test/Counter.t.sol",
+      "references": 0,
+      "startLine": 4,
+      "type": "function",
+    },
+  ],
+}
+`;

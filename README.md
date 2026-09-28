@@ -140,7 +140,7 @@ repopilot/
   packages/
     core/        analyzers + scoring + report + security + schemas + llm
                  + fixplan (report -> fix plan) + diff (report -> diff)
-    mcp-server/  MCP server (stdio), seven tools
+    mcp-server/  MCP server (stdio), thirteen tools
     okx-adapter/ PaymentAdapter interface, mock + OKX implementations
   fixtures/      6 sample repos for tests
   docs/          ARCHITECTURE / DEPLOYMENT / SECURITY / API / MCP / EXTERNAL

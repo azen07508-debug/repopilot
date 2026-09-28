@@ -9,7 +9,7 @@ Pick the one that matches your role and jump straight in.
   paid audit flow, tech stack overview.
 - [docs/MCP_CLIENT_SETUP.md](MCP_CLIENT_SETUP.md) — how to point an MCP
   client (Claude Code, Codex, OpenClaw, or any generic client) at the
-  MCP server, and what its seven tools do.
+  MCP server, and what its thirteen tools do.
 
 ## For operators / integrators
 

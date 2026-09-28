@@ -1,7 +1,7 @@
 # RepoPilot — MCP Client Setup
 
 RepoPilot ships an MCP (Model Context Protocol) server that exposes
-RepoPilot as seven tools to any MCP-compatible client.
+RepoPilot as thirteen tools to any MCP-compatible client.
 
 **Paid** — these run the analysis pipeline:
 
@@ -12,6 +12,8 @@ RepoPilot as seven tools to any MCP-compatible client.
 **Free** — pure derivations of a report that already exists, so an agent
 can call them as often as it likes:
 
+- `quality_status` — may this ship? pass / pass_with_warnings / blocked
+- `release_check` — which findings block a release, by fingerprint
 - `get_fix_plan` — an actionable plan per finding, with evidence and
   agent instructions
 - `compare_audits` — before/after with rule-level score attribution
@@ -20,9 +22,24 @@ can call them as often as it likes:
 - `get_repopilot_capabilities` — metadata, limits, pricing, and which
   tools are free or paid
 
-Together they close the loop an agent actually needs: audit → fix plan →
-fix → re-audit → compare. `get_repopilot_capabilities` returns a
-`billing` map so an agent can tell what costs money before calling it.
+**Free, and they do read a repository** — the Repository Intelligence
+artifacts. These need a file list and file contents, so they fetch a
+tree and a tarball (three requests) and derive. "Free" means **no
+analysis pipeline**: nothing here scores, judges or scans for findings.
+
+- `get_repository_context` — what is this repository, and where do I
+  start reading? The one call to make first
+- `get_repository_map` — modules with an importance score, entrypoints,
+  the ranked important files, declared dependencies with versions
+- `get_symbol_map` — the declaration surface, with line ranges
+- `get_dependency_graph` — what imports what, with the importing line as
+  evidence on every edge
+
+The first group closes the loop an agent actually needs: audit → fix
+plan → fix → re-audit → compare. The second answers "what am I looking
+at?" before spending money on an audit. `get_repopilot_capabilities`
+returns a `billing` map so an agent can tell what costs money before
+calling it.
 
 The current transport is **stdio** (the official MCP TS SDK
 `@modelcontextprotocol/sdk@1.22.0`). HTTP/SSE transport is on the
@@ -342,10 +359,163 @@ Returns the same payload as `GET /api/v1/capabilities`, plus a
     "compare_audits":             { "paid": false, "reason": "Derived from two existing reports." },
     "list_audit_history":         { "paid": false, "reason": "Reads recorded job metadata." },
     "get_audit_status":           { "paid": false, "reason": "Reads recorded job metadata." },
-    "get_repopilot_capabilities": { "paid": false, "reason": "Static metadata." }
+    "get_repopilot_capabilities": { "paid": false, "reason": "Static metadata." },
+    "quality_status":             { "paid": false, "reason": "Derived from an existing report." },
+    "release_check":              { "paid": false, "reason": "Derived from an existing report." },
+    "get_repository_context":     { "paid": false, "reason": "Reads the repository tree and derives; never runs the pipeline." },
+    "get_repository_map":         { "paid": false, "reason": "Reads the repository tree and derives; never runs the pipeline." },
+    "get_symbol_map":             { "paid": false, "reason": "Reads the repository tree and derives; never runs the pipeline." },
+    "get_dependency_graph":       { "paid": false, "reason": "Reads the repository tree and derives; never runs the pipeline." }
   }
 }
 ```
+
+## Repository intelligence tools
+
+Four tools that answer questions about a repository *before* an audit.
+All four take the same two arguments:
+
+**Input**
+
+```json
+{
+  "repo_url": "https://github.com/owner/repo",
+  "ref": "main"
+}
+```
+
+`ref` is optional and defaults to the repository's default branch. A
+branch is not a commit, so pass a commit SHA when you need a fixed view.
+
+The server reads a repository once per process and keeps the snapshot in
+memory, so calling all four costs one fetch, not four. The cache holds at
+most 8 repositories and 64 MiB of file content, and the least recently
+used is evicted first.
+
+### `get_repository_context`
+
+**Make this the first call.** One request that answers "what is this
+repository?" — languages, frameworks, package managers, entrypoints, the
+modules ranked by importance, the files worth reading first, the heaviest
+imports, the dependencies the manifests declare (with versions), and the
+counts by declaration kind.
+
+It deliberately does not include the symbol list: `get_symbol_map` is
+that, and a capped copy here would double the answer to buy a worse
+version of a tool that already exists. The counts tell you whether the
+full list is worth a second call.
+
+The declared dependencies are **not** the imported ones. A dev tool is
+declared and never imported; a phantom dependency is imported and never
+declared. For what the code actually pulls in, use
+`get_dependency_graph`.
+
+**Output** (abridged)
+
+```json
+{
+  "repository": { "name": "repo", "ref": "main", "languages": [ "..." ], "frameworks": [ "..." ] },
+  "entrypoints": [ { "path": "src/index.ts", "kind": "library" } ],
+  "modules": [ { "path": "src", "kind": "directory", "importance": 0.24 } ],
+  "modulesTrimmed": { "returned": 2, "total": 2, "omitted": 0, "note": null },
+  "importantFiles": [ { "path": "src/index.ts" } ],
+  "topEdges": [ { "from": "src/index.ts", "to": "src/util.ts", "weight": 1 } ],
+  "declaredDependencies": [ { "name": "express", "version": "^4.19.0", "kind": "runtime" } ],
+  "symbolCounts": [ { "type": "function", "count": 2 } ],
+  "symbolTotal": 3,
+  "fileCount": 5,
+  "limitations": [],
+  "degraded": false
+}
+```
+
+### `get_repository_map`
+
+The repository structure in full: modules with an importance score,
+entrypoints, the ranked important files, config / test / documentation
+files, and the declared external dependencies with their versions and
+manifests.
+
+Scores are **absolute** — `0.6` means the same thing in a five-module
+repository as in a five-hundred-module one — so two maps can be
+compared. A per-repository maximum would read well inside one repository
+and mean nothing across two.
+
+### `get_symbol_map`
+
+The declaration surface: functions, classes, interfaces, types, methods,
+constants, contracts, structs and enums, each with a 1-based line range,
+its enclosing declaration, and which parser produced it.
+
+**Input** adds two optional filters:
+
+```json
+{
+  "repo_url": "https://github.com/owner/repo",
+  "path_prefix": "src/core",
+  "max_symbols": 500
+}
+```
+
+`path_prefix` is a directory, matched on path boundaries — `src/deep`
+does not match `src/deeper/d.ts` or `src/deep-notes.ts` — and `.` means
+the whole repository. Narrow with it rather than raising `max_symbols`:
+the response always says how many symbols were withheld.
+
+Parser confidence is per symbol, so a compiler-parsed declaration (0.95)
+can be weighted against a line-matched one (0.5). A language with no
+extractor is named in `failures` rather than silently contributing
+nothing.
+
+### `get_dependency_graph`
+
+What imports what, at file level, with the importing line as evidence on
+every edge.
+
+External packages are listed separately from internal nodes, so the node
+cap is spent on the repository rather than on `react`. An import that
+matches no file in the repository is reported in `limitations` rather
+than turned into an edge to the nearest-looking path — a wrong edge sends
+you to the wrong file, which is worse than being told to go read.
+
+**Input** adds:
+
+```json
+{
+  "repo_url": "https://github.com/owner/repo",
+  "path_prefix": "src/core",
+  "max_nodes": 1000,
+  "max_edges": 500
+}
+```
+
+An edge is only returned when both of its ends are in the answer: a line
+number pointing at a node that was capped away is a dead end.
+
+### Errors
+
+Every failure is a payload, not an exception, so an agent can branch:
+
+```json
+{ "error": "repository_unavailable", "message": "[404] Not Found" }
+```
+
+The HTTP status is kept because `404` / `403` / `502` are three different
+next moves — check the URL, wait for the rate limit, or come back later.
+A tool that throws gives an agent nothing to retry with.
+
+### Trimmed lists
+
+Any capped list carries its own account of what it withheld:
+
+```json
+{ "returned": 40, "total": 45, "omitted": 5, "note": "Declared dependencies: the first 40 of 45 are listed; 5 more were withheld." }
+```
+
+The note is also merged into the response's `limitations`, so a caller
+that only reads the caveat list still learns the answer was cut. You
+cannot tell "there were 500" from "the first 500 of 9000" by looking at
+the list.
 
 ## Debugging
 
