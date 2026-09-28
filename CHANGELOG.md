@@ -611,6 +611,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The report view is now the page, instead of sitting underneath the
+  pitch for it.** Measured with `playwright-core` against system Chrome,
+  on a real 9219px report: the marketing hero (`h1`, 34px) and the input
+  form owned the first 741px, so the report began at 8% page depth and
+  the document's own title was an `h2` at 20px sitting 612px below a
+  sales headline. Ten section headings were all exactly 15px/650 against
+  13.5px body copy, and 17 of 18 surfaces shared one identical signature
+  (radius + border + background + shadow) because the default card
+  carried a shadow too. The fix plan ran 4384px — 47.6% of the page — as
+  twelve `article.card` elements whose only two distinct heights were
+  343px and 368px. Each change answers one of those measurements:
+  - the hero and the form collapse into a `<details>` once a report
+    exists, so the report starts at 220px. Every field and every string
+    is unchanged; the form is one click away.
+  - the repository is the `h1`, with a one-off label above it. **Every
+    view now carries its own `h1`** — collapsing the hero would otherwise
+    have left the history and diff views with no page heading at all.
+  - `--shadow-card` is removed so the single `.card.elevated` surface is
+    a visible step rather than one shadow among eighteen.
+  - section headings move to 17px, and the seven that sit directly on the
+    page get a hairline above them. Still deliberately not uppercase
+    eyebrows: ten of those would be a templated rhythm, not hierarchy.
+  - findings lose the card surface and become a rail-led list, which
+    gives the report two registers — cards summarise, lists enumerate.
+  - the fix plan becomes one `<ol>` with a priority rail. `P0`/`P1`/`P2`
+    already discriminated (5/4/3) but were buried in two identical pills;
+    the rail puts the gradient in the left margin.
+  Verified after: report starts at 220px, `h1` is the repository name,
+  score 52px against sub-scores' 12px, headings 17px, card count 18 → 6,
+  page 9219px → 8609px — with contrast violations, dead panels, wrapped
+  buttons and horizontal overflow all still at zero. **Not addressed:**
+  the fix plan is still ~48% of the page. Shorter, reordered or
+  collapsed-by-default is a decision about the primary deliverable, not a
+  styling one.
 - **CI actions moved to the first major that runs on Node 24.**
   `actions/checkout@v4 → v5`, `actions/setup-node@v4 → v5`,
   `actions/cache@v4 → v5`, `actions/upload-artifact@v4 → v6`. The `@v4`
@@ -653,6 +687,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The web UI never rendered a report, from the first commit onward.**
+  `POST /api/v1/audits` is asynchronous by design — `InlineAuditQueue`'s
+  own comment says `enqueue()` "schedules the job on a small, bounded
+  worker pool and returns immediately. The HTTP request never waits for
+  the analysis" — so settling the 402 challenge answers `202` with
+  `statusUrl` and `pollAfterMs`, both `required` in `openapi.ts`.
+  `onSubmit` handled a synchronous `report` and an `error` and nothing
+  else, so a queued response matched neither branch and was discarded.
+  Clicking **Run Quick Scan** therefore produced no report, no error and
+  no message: the button flickered and the page stayed on "No report
+  yet". Reading the report is a separate `GET`, and that step was missing.
+  `AuditResponse` was wrong in three ways, which is why the compiler did
+  not catch it: it omitted `statusUrl` / `pollAfterMs` (required by the
+  schema), typed `error` as `string` where the route sends
+  `{ code, message }`, and claimed a queued response might carry a
+  `report`. The type is now a discriminated union over `status` matching
+  the routes, and `settleAudit()` / `waitForReport()` own the polling so
+  the UI has a single entry point; `onRefresh` polls too, because the user
+  may click it the moment payment lands while the worker is still running.
+  Verified against the running API: `402` → replay `202 queued` → `GET`
+  `completed` with a real report. The consequence for earlier work is
+  worth recording: because the async contract and the UI's synchronous
+  assumption both date from the initial commit, **every previous audit of
+  the report view was taken on a view that never rendered**.
+- **The overall score rendered at 12px, the same size as the sub-scores
+  it summarises.** `ReportView` rendered
+  `<div className="score"><span className="pill">{n}</span></div>`.
+  `.score` declared `font-size: 44px` but had **no text node of its own**,
+  so the `.pill`'s 12px won and the 44px was dead CSS — measured as
+  `wrapper 44px / pill 12px / wrapper text nodes ""`. The number now
+  carries the type and the semantic colour at 52px, a 4.3x step against
+  the sub-scores' 12px.
 - **`.js` names `.tsx`, and `SOURCE_REWRITES` only knew about `.ts`
   (ADR D-029).** `Header.tsx` compiles to `Header.js`, so a React project
   on NodeNext writes `import { Header } from './components/Header.js'`
