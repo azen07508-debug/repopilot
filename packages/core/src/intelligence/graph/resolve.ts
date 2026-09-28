@@ -271,20 +271,33 @@ function withExtensions(base: string, language: string): string[] {
 const REWRITTEN_LANGUAGES = new Set(['TypeScript', 'JavaScript', 'Vue', 'Svelte']);
 
 /**
- * `./index.js` in a NodeNext project is `index.ts`.
+ * What an emitted extension can have been written as.
  *
  * TypeScript's ESM output requires the *emitted* extension in the source, so
- * an import that looks like it names a `.js` file names its `.ts` original.
- * Without this rewrite every internal import in such a repository is reported
- * as unresolved — which is every repository this tool is aimed at, since the
+ * an import that looks like it names a `.js` file names its original. Without
+ * this rewrite every internal import in such a repository is reported
+ * unresolved — which is every repository this tool is aimed at, since the
  * convention is what `"module": "NodeNext"` asks for (D-001 in this very
  * repository).
+ *
+ * It is a **fan-out, not a pair**, and `.js → .tsx` is the entry that was
+ * missing. `Header.tsx` compiles to `Header.js`, so a React project on NodeNext
+ * writes `import { Header } from './components/Header.js'` for a file called
+ * `Header.tsx` — and with only `.js → .ts` in this table, all nine such imports
+ * in this repository were reported as unresolved relative imports while
+ * extension-less ones resolved fine. Found by running the tool against this
+ * repository rather than against a fixture.
+ *
+ * The pairs are derived, not guessed: `.ts`/`.tsx`/`.js`/`.jsx` all emit
+ * `.js`; `.tsx`/`.jsx` emit `.jsx`; `.mts` emits `.mjs`; `.cts` emits `.cjs`.
+ * The first candidate that exists on disk wins, so the order is a tie-break
+ * for a case TypeScript itself rejects as ambiguous.
  */
-const SOURCE_REWRITES: readonly (readonly [string, string])[] = [
-  ['.js', '.ts'],
-  ['.jsx', '.tsx'],
-  ['.mjs', '.mts'],
-  ['.cjs', '.cts'],
+const SOURCE_REWRITES: readonly (readonly [string, readonly string[]])[] = [
+  ['.js', ['.ts', '.tsx', '.js', '.jsx']],
+  ['.jsx', ['.tsx', '.jsx']],
+  ['.mjs', ['.mts', '.mjs']],
+  ['.cjs', ['.cts', '.cjs']],
 ];
 
 function sourceRewrites(base: string, language: string): string[] {
@@ -292,7 +305,9 @@ function sourceRewrites(base: string, language: string): string[] {
 
   const out: string[] = [];
   for (const [from, to] of SOURCE_REWRITES) {
-    if (base.endsWith(from)) out.push(`${base.slice(0, -from.length)}${to}`);
+    if (!base.endsWith(from)) continue;
+    const stem = base.slice(0, -from.length);
+    for (const ext of to) out.push(`${stem}${ext}`);
   }
   return out;
 }

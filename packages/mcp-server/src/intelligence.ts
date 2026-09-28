@@ -517,6 +517,16 @@ export interface RepositoryContext {
   fileCount: number;
   /** Every artifact's own account of what it could not read, merged. */
   limitations: string[];
+  /**
+   * True when an artifact was weaker than it could have been — the fetch fell
+   * back, the tree was truncated, a language has no parser, a list hit its cap.
+   *
+   * It is the OR of two flags with different scopes, so it is a *signal to go
+   * read `limitations`*, not a diagnosis: the reason may concern data this
+   * answer does not itself contain. On this repository it is true because the
+   * symbol list was capped at 500 and HTML/CSS have no extractor — and the
+   * symbol list is exactly what `get_repository_context` does not return.
+   */
   degraded: boolean;
 }
 

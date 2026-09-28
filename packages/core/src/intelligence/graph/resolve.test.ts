@@ -83,6 +83,7 @@ describe('path helpers', () => {
     expect(isRelativeSpecifier('./a')).toBe(true);
     expect(isRelativeSpecifier('../a')).toBe(true);
     expect(isRelativeSpecifier('.')).toBe(true);
+    expect(isRelativeSpecifier('..')).toBe(true);
     expect(isRelativeSpecifier('a/b')).toBe(false);
     expect(isRelativeSpecifier('.hidden')).toBe(false);
   });
@@ -122,9 +123,73 @@ describe('resolveSpecifier — relative', () => {
     expect(resolve('./index.js', 'src/a.test.ts', 'TypeScript', ['src/a.test.ts', 'src/index.ts'])).toEqual(
       { kind: 'file', path: 'src/index.ts' }
     );
+  });
+
+  it('reads a .js specifier as the .tsx file it names', () => {
+    // The same rule, one extension further: `Header.tsx` compiles to
+    // `Header.js`, so a React project on NodeNext writes `./components/
+    // Header.js` for a file called `Header.tsx`. This table used to hold only
+    // `.js → .ts`, which made every component import in every such project an
+    // unresolved relative import — nine of them in this repository.
+    expect(
+      resolve('./components/Header.js', 'src/App.tsx', 'TypeScript', [
+        'src/App.tsx',
+        'src/components/Header.tsx',
+      ])
+    ).toEqual({ kind: 'file', path: 'src/components/Header.tsx' });
+
+    // A `.jsx` source emits `.js` too, so it is reachable the same way.
+    expect(resolve('./C.js', 'src/a.ts', 'TypeScript', ['src/a.ts', 'src/C.jsx'])).toEqual({
+      kind: 'file',
+      path: 'src/C.jsx',
+    });
+  });
+
+  it('reads a .jsx specifier as the .tsx file it names', () => {
     expect(resolve('./view.jsx', 'src/a.tsx', 'TypeScript', ['src/a.tsx', 'src/view.tsx'])).toEqual({
       kind: 'file',
       path: 'src/view.tsx',
+    });
+  });
+
+  it('reads a .mjs specifier as the .mts file it names', () => {
+    // The same rule one module system over: `.mts` emits `.mjs`, so a NodeNext
+    // project writes `./util.mjs` for a file called `util.mts`. The mutation
+    // check found this row of the table unguarded, which is how the `.js → .tsx`
+    // row came to be missing in the first place.
+    expect(resolve('./util.mjs', 'src/a.mts', 'TypeScript', ['src/a.mts', 'src/util.mts'])).toEqual({
+      kind: 'file',
+      path: 'src/util.mts',
+    });
+  });
+
+  it('reads a .cjs specifier as the .cts file it names', () => {
+    expect(resolve('./util.cjs', 'src/a.cts', 'TypeScript', ['src/a.cts', 'src/util.cts'])).toEqual({
+      kind: 'file',
+      path: 'src/util.cts',
+    });
+  });
+
+  it('does not rewrite for a language whose extensions are its own', () => {
+    // The rewrite exists because TypeScript's emitted extension differs from
+    // its source extension. Python has no such gap, so a `.py` file named by a
+    // `.js` specifier stays missing rather than becoming a guess.
+    const result = resolve('./a.js', 'src/a.py', 'Python', ['src/a.py', 'src/a.py']);
+    expect(result.kind).toBe('unresolved');
+  });
+
+  it('rewrites for Vue and Svelte too, whose sources also emit .js', () => {
+    // A single-file component is written `Widget.vue` and emitted `Widget.js`,
+    // so the NodeNext convention names it with the emitted extension as well.
+    // What the rewrite buys here is the `.js → .ts` row — a Vue project's
+    // plain TypeScript modules are named the same way.
+    expect(resolve('./util.js', 'src/App.vue', 'Vue', ['src/App.vue', 'src/util.ts'])).toEqual({
+      kind: 'file',
+      path: 'src/util.ts',
+    });
+    expect(resolve('./util.js', 'src/App.svelte', 'Svelte', ['src/App.svelte', 'src/util.ts'])).toEqual({
+      kind: 'file',
+      path: 'src/util.ts',
     });
   });
 
@@ -132,6 +197,18 @@ describe('resolveSpecifier — relative', () => {
     expect(
       resolve('./x.js', 'src/a.ts', 'TypeScript', ['src/a.ts', 'src/x.js', 'src/x.ts'])
     ).toEqual({ kind: 'file', path: 'src/x.js' });
+  });
+
+  it('prefers .ts over .tsx when a .js specifier could name either', () => {
+    // TypeScript rejects a `.js` specifier that is ambiguous between two
+    // sources, so this cannot arise in a project that compiles. The order is
+    // pinned anyway: "candidates are generated in a fixed order and the first
+    // hit wins" is one of this module's stated rules, and that rule asks for an
+    // arbitrary-but-stable answer, which is only stable if it is asserted.
+    expect(resolve('./x.js', 'src/a.ts', 'TypeScript', ['src/a.ts', 'src/x.tsx', 'src/x.ts'])).toEqual({
+      kind: 'file',
+      path: 'src/x.ts',
+    });
   });
 
   it('prefers the importing language when a repository holds both', () => {

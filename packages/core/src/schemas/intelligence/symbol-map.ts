@@ -66,7 +66,19 @@ export const SymbolMapSchema = z.object({
   schemaVersion: z.literal(SYMBOL_MAP_SCHEMA_VERSION),
   languageCoverage: z.array(LanguageCoverageSchema).default([]),
   symbols: z.array(SymbolSchema).default([]),
-  /** True when at least one language could not be parsed with its preferred parser. */
+  /**
+   * True when any part of this map is weaker or less complete than it could
+   * have been. `failures` says which part and why.
+   *
+   * **Wider than `languageCoverage[*].degraded`, deliberately.** That one is
+   * about a parser: the preferred parser was unavailable and a fallback ran.
+   * This one also covers a language with no extractor at all, a file skipped
+   * for exceeding the byte limit, and a symbol list that hit its cap — none of
+   * which is a parser falling back, and all of which a caller who checks a
+   * single boolean needs to know about. A map that returned the first 500 of
+   * 2062 symbols with `degraded: false` would be claiming a completeness it
+   * does not have.
+   */
   degraded: z.boolean().default(false),
   failures: z
     .array(

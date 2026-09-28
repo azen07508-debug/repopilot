@@ -565,6 +565,18 @@ V0.2-h  文档 + CHANGELOG + 状态表
 > 说明、示例调用、以及 `docs/INDEX.md` 的导航——CHANGELOG 与状态表已随
 > V0.2-g 一并更新（`docs/MCP_CLIENT_SETUP.md` 与 `docs/ARCHITECTURE.md`
 > 的工具清单也已同步，否则文档会指向一个只有 9 个 tool 的服务器）。
+>
+> **V0.2-g 收尾（2026-09-28，ADR D-029）：** 把 4 个免费 tool 第一次指向
+> **真实仓库**（而不是 fixture），当场查出一个已发布的缺陷——`SOURCE_REWRITES`
+> 每个产出扩展名只记了一个目标，于是本仓库里 **9 处** `import './components/
+> Header.js'` 命名 `Header.tsx` 的导入全被判成未解析。改成扇出表后实测：
+> 未解析相对导入 9 → 0、graph limitations 21 → 2、边 470 → 488、节点 205 → 206。
+> 这条路径 CI 到不了（要联网，且 37 个 tool 测试全部注入假 loader），所以补的是
+> **`scripts/intelligence-smoke.mts`**（`pnpm intelligence:smoke`），不是测试。
+> 另跑了一轮 `resolve.ts` 的变异检查（17 条，修完全中），它查出重写表有 **5 行
+> 没有测试保护**，并暴露了变异检查自身的两个缺陷（详见 D-029）。
+> 教训一句话：**fixture 里根本没有 `.tsx`/`.jsx`，所以发现这个缺陷的形状在
+> fixture 里不可表达；快照记录的是行为，不是正确性。**
 
 ---
 
@@ -699,6 +711,29 @@ V0.2-h  文档 + CHANGELOG + 状态表
     不打分、不判定、不扫历史
   - `RepositorySnapshots` 进程内缓存，LRU 同时受**条数**与**字节数**约束（8 个快照 / 64 MiB），
     且只剩一个条目时不再淘汰——否则超过上界的仓库每次调用都会把自己淘汰掉、重新取一遍
+- [x] V0.2-g 收尾：真实仓库 + 解析器守卫（完成 2026-09-28，ADR D-029）
+  - **查出已发布缺陷**：`SOURCE_REWRITES` 每个产出扩展名只记一个目标（`.js → .ts`），
+    而 `Header.tsx` 编译成 `Header.js`——本仓库 **9 处** `.js` 导入命名 `.tsx` 全被判未解析。
+    改成扇出表（`.js → .ts/.tsx/.js/.jsx`、`.jsx → .tsx/.jsx`、`.mjs → .mts/.mjs`、
+    `.cjs → .cts/.cjs`）。实测：未解析相对导入 9 → 0、limitations 21 → 2、边 470 → 488、
+    节点 205 → 206
+  - **`scripts/intelligence-smoke.mts`**（`pnpm intelligence:smoke`）：真实 loader 跑两个形状
+    不同的仓库（单文件仓库——空图是合法答案且不能崩；本仓库——发现缺陷的那个形状），
+    各 13 项检查。核心检查**刻意不依赖 `resolve.ts`**：读 limitation 行、重建 specifier 指向的
+    路径、去问文件清单。**先验证它有牙齿**：把扇出表退回修复前的样子，检查当场变红并列出那 9 条
+  - **守卫是解析器单测，不是快照**：快照记录行为而非正确性，它会把这个缺陷当成预期输出记下来。
+    这一条**收窄了 D-028 的「快照有牙齿」结论**——fixture 里没有任何 `.tsx`/`.jsx`，
+    发现该缺陷的形状在 fixture 里根本不可表达
+  - **`resolve.ts` 变异检查 17 条**（修完后全中）。首轮查出重写表 **5 行无测试保护**
+    （`.mjs`/`.cjs`/Vue/Svelte/`.ts`-`.tsx` 定序）外加 `isRelativeSpecifier('..')`；
+    补 4 个用例 + 1 条断言，`resolve.test.ts` 47 → 51
+  - 变异检查**自身**暴露两个缺陷，已写进 `mutation-check` 技能（坑 7 / 坑 8）：
+    被杀的运行把变异留在源码里、且下一轮把**脏文件**当基准快照（写回时把污染固化，还打印
+    `worktree restored`）；运行器挂掉（无 summary 行）被误记成漏报
+  - `symbols.degraded` / `RepositoryContext.degraded` 的注释比代码窄，改注释不改代码
+    （4 个用例钉的是宽含义；改代码会让 `get_symbol_map` 在 `degraded: false` 下只返回 500/2062）
+  - **故意未修**：`vitest.config.ts` 在 `importantFiles` 里排 0.8650，高于所有真实入口
+    （library 0.8475、server 0.8300）——那是 V0.2-d 的权重问题，见 D-029 决定 8
   - 调用方把 `repository.ref` 传回来时复用已持有的快照：`get_repository_context` 会回
     `repository.ref`，而下一个自然调用就是带着它再问一次；按 `url@ref` 做键这是两个键，
     同一个仓库会被取两遍，而「只取一遍」正是这个缓存存在的理由

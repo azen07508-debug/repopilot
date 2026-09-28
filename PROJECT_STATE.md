@@ -4,7 +4,7 @@
 **Repository:** `/home/gem/workspace/agent/workspace/repopilot`
 **Current version:** 0.1.0-rc.2
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-09-28 13:20 UTC
+**Last updated:** 2026-09-28 15:00 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -85,29 +85,29 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-09-28 13:20 UTC)
+## Test baseline (2026-09-28 15:00 UTC)
 
-- @repopilot/core: 759/759
+- @repopilot/core: 766/766
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
 - @repopilot/mcp-server: 37/37
 - @repopilot/web: 0 (skipped intentionally)
-- **Total: 875/875 (877/877 with the Postgres tests when CI is green)**
+- **Total: 882/882 (884/884 with the Postgres tests when CI is green)**
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
 > 550 after the Repository Map (V0.2-d), 628 after the Symbol Map
-> (V0.2-e), 740 after the Dependency Graph (V0.2-f) and 759 after the
-> fixture snapshots (V0.2-g). The MCP server went 4 → 37 in V0.2-g,
-> where the three artifacts finally got a surface. None of them is wired
-> into the audit path — they are additive, and every pre-existing test
-> still passes unchanged.
+> (V0.2-e), 740 after the Dependency Graph (V0.2-f), 759 after the
+> fixture snapshots (V0.2-g) and 766 after the resolver guard (D-029).
+> The MCP server went 4 → 37 in V0.2-g, where the three artifacts finally
+> got a surface. None of them is wired into the audit path — they are
+> additive, and every pre-existing test still passes unchanged.
 
 ## Quality gates already passing
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (875/875; Postgres integration test runs in CI)
+- `pnpm -r test` (882/882; Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
@@ -237,6 +237,39 @@ stack, API, MCP, DB, analyzers, fixtures and tests all stay.
   rather than merely thin.
 - After that: Phase 4 — the Architecture Graph, which is what finally
   fills `Symbol.references` (0 everywhere today).
+- **Done 2026-09-28 (follow-up to V0.2-g):** the tools were pointed at a
+  real repository for the first time, and it found a shipped defect.
+  - **`.js` names `.tsx` (ADR D-029).** `SOURCE_REWRITES` held a single
+    target per emitted extension, so **all nine** `import './components/
+    Header.js'` specifiers naming a `.tsx` file in this repository were
+    reported as unresolved relative imports. The table is a fan-out now.
+    Measured here: unresolved relative imports 9 → 0, dependency-graph
+    limitations 21 → 2, edges 470 → 488, nodes 205 → 206. Nothing in the
+    suite could have caught it: all 37 tool tests inject a fake loader,
+    and the fixtures hold no `.tsx`/`.jsx` at all.
+  - **`scripts/intelligence-smoke.mts`** — the real loader over two
+    repositories, 13 checks each. Its central check is written to be
+    independent of `resolve.ts`, and was verified to have teeth by
+    reverting the fix (red, with the nine imports listed).
+  - **The guard is a resolver test, not a snapshot.** A snapshot records
+    behaviour, not correctness — it would have recorded the defect as
+    expected. This narrows D-028's "snapshots have teeth" claim.
+  - **A mutation check over `resolve.ts` (17 mutations, all caught after
+    the fixes).** Its first run found six genuine gaps in the rewrite
+    table and its neighbours (`.mjs → .mts`, `.cjs → .cts`, Vue, Svelte,
+    the `.ts`/`.tsx` tie-break, `isRelativeSpecifier('..')`); four tests
+    and one assertion were added. It also exposed **two faults in the
+    check itself**, both now recorded in the `mutation-check` skill: a
+    killed run leaves the mutation in the source *and* the next run
+    snapshots that dirty file as its baseline (corrupting the source
+    while reporting "restored"), and a runner that dies is filed as a
+    weak test rather than as an error.
+  - `symbols.degraded` / `RepositoryContext.degraded` doc comments were
+    widened to match the code (four tests pin the wide meaning).
+  - **Open, deliberately not fixed here:** `vitest.config.ts` ranks
+    0.8650 in `importantFiles`, above every real entrypoint (library
+    0.8475, server 0.8300). That is V0.2-d's weighting and needs its own
+    record (D-029 decision 8).
 - **Done 2026-09-28:** V0.2-g — the artifacts get a surface, and the
   fixtures get snapshots. Two halves.
   - **Snapshots over the six real fixtures**

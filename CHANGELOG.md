@@ -590,6 +590,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Verified with 11 checks over the in-memory MCP transport: the tool
     list, the billing map, plan derivation with evidence and agent
     instructions, diff attribution, and every error path.
+- **`scripts/intelligence-smoke.mts` (ADR D-029).** Reads real
+  repositories with the real loader and checks the four free tools
+  against them — the one path the suite cannot reach, because it needs
+  the network and every one of the 37 tool tests injects a fake loader.
+  It is why the `.js → .tsx` defect above was found rather than shipped
+  again. Two repositories by default: `octocat/Hello-World` (one file,
+  where an empty graph is a valid answer and must not crash) and this
+  repository (a NodeNext monorepo with a React app). 13 checks each.
+  Its central check is deliberately **independent of `resolve.ts`**: it
+  reads the limitation line, rebuilds the path the specifier points at,
+  and asks the file list — a check written against `SOURCE_REWRITES`
+  would have agreed with the defect. Run it with
+  `GITHUB_TOKEN=$(gh auth token) pnpm intelligence:smoke`; anonymous
+  access is 60 requests/hour per IP and one run exhausts it.
+  It is `.mts`, not `.ts`: the repo root has no `"type": "module"`, so a
+  `.ts` script is compiled as CJS by tsx and `@repopilot/core`'s
+  `exports` declares only an `import` condition
+  (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
 
 ### Changed
 
@@ -635,6 +653,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`.js` names `.tsx`, and `SOURCE_REWRITES` only knew about `.ts`
+  (ADR D-029).** `Header.tsx` compiles to `Header.js`, so a React project
+  on NodeNext writes `import { Header } from './components/Header.js'`
+  for a file called `Header.tsx` — the convention D-001 already requires.
+  The rewrite table held a single target per emitted extension, so
+  **all nine such imports in this repository were reported as unresolved
+  relative imports** while extension-less ones resolved fine. The table is
+  now a fan-out (`.js` names `.ts`/`.tsx`/`.js`/`.jsx`; `.jsx` names
+  `.tsx`/`.jsx`; `.mjs` names `.mts`/`.mjs`; `.cjs` names `.cts`/`.cjs`).
+  Measured on this repository: unresolved relative imports 9 → 0,
+  dependency-graph limitations 21 → 2, edges 470 → 488, nodes 205 → 206.
+  Found by running the four free tools against a real repository, not a
+  fixture — the fixture set contains no `.tsx` or `.jsx` at all, so the
+  shape that finds this defect was not representable in it. The guard is a
+  resolver unit test, not a snapshot: a snapshot records behaviour, not
+  correctness, and would have recorded the missing target as expected.
+- **`symbols.degraded` / `RepositoryContext.degraded` were documented
+  more narrowly than they behave.** Both are deliberately wider than
+  `languageCoverage[*].degraded` — they also cover a language with no
+  extractor, an oversize file that was skipped, and a capped symbol list.
+  Four tests pin the wide meaning; the comments were corrected rather than
+  the code, because narrowing it would have made `get_symbol_map` return
+  500 of 2062 symbols while reporting `degraded: false`.
 - **Two credentials on one line satisfied a contract that allows one
   (R-23, ADR D-023).** `collectFindings()` deduplicated on
   `findingKey()` alone. A fingerprint is resolved rule id plus evidence

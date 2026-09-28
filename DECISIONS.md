@@ -959,3 +959,159 @@ Architecture Decision Records (ADR-style, lightweight).
   `Symbol.references` is still 0 everywhere — the graph is what fills it,
   and that is a later stage.
 
+
+## D-029 — Pointing the tools at a real repository, and what the guard for the fix turned out to be missing
+
+**Status:** Accepted
+**Date:** 2026-09-28
+**Depends on:** D-001 (NodeNext emits the extension in source), D-025
+(limitations), D-027 (the unit of an edge is the unit the language
+imports), D-028 (the four free tools).
+
+**Context.** D-028 shipped the four free Repository Intelligence tools
+with 37 tests, and **every one of them injects a fake `SnapshotLoader`**.
+Nothing in the suite had ever run the real path — `parseRepoUrl` →
+`MetadataAnalyzer` → `GitHubFetcher` (tree + tarball) → the three builders
+→ the two views — because it needs the network. Pointing the real loader at
+this repository for the first time found a defect that had already shipped,
+and the guard written for that defect then turned out to have gaps of its
+own. Both halves are recorded here because the second half is the more
+generalisable one.
+
+**Decisions**
+
+ 1. **`.js` names `.tsx`, so `SOURCE_REWRITES` is a fan-out, not a pair.**
+    `Header.tsx` compiles to `Header.js`, so a React project on NodeNext
+    writes `import { Header } from './components/Header.js'` for a file
+    called `Header.tsx`. The table held only `.js → .ts` — and
+    `.jsx → .tsx`, `.mjs → .mts`, `.cjs → .cts` were each a *single*
+    target, which is what "pair" means. It is now
+    `.js → ['.ts','.tsx','.js','.jsx']`, `.jsx → ['.tsx','.jsx']`,
+    `.mjs → ['.mts','.mjs']`, `.cjs → ['.cts','.cjs']`.
+    The pairs are **derived, not guessed**: `.ts`/`.tsx`/`.js`/`.jsx` all
+    emit `.js`; `.tsx`/`.jsx` emit `.jsx`; `.mts` emits `.mjs`; `.cts`
+    emits `.cjs`. The order is a tie-break for a case TypeScript itself
+    rejects as ambiguous.
+ 2. **The guard for a resolver defect is a unit test on the resolver, not a
+    fixture snapshot.** A snapshot records behaviour, not correctness: it
+    would have recorded the missing `.tsx` target as expected output and
+    stayed green. This **downgrades the "snapshots have teeth" argument in
+    D-028** to the narrower claim it can support — a snapshot catches a
+    change nobody asserted, and a resolver test catches a rule that is
+    wrong. Neither substitutes for the other, and the fixture set is also
+    the wrong place: it holds no `.tsx`/`.jsx` at all, so the shape that
+    found this defect was not representable.
+ 3. **Every row of the rewrite table is asserted separately.** The mutation
+    check found five of the eight rows unguarded (see consequences) — the
+    same class of gap that let `.js → .tsx` go missing. A table of rules is
+    only as tested as its least-tested row, and the rows are independent:
+    covering `.js` says nothing about `.mjs`.
+ 4. **The path CI cannot reach gets a script, not a test.**
+    `scripts/intelligence-smoke.mts` runs the real loader over two
+    repositories of different shapes (a one-file repository, where an empty
+    graph is a valid answer and must not crash; and this one, which is the
+    shape that found the defect). Its central check is written to be
+    **independent of `resolve.ts`**: it reads the limitation line, rebuilds
+    the path the specifier points at, and asks the file list. A check
+    written against `SOURCE_REWRITES` would have agreed with the defect.
+    It is `.mts`, not `.ts`, because the repo root has no
+    `"type": "module"` and `@repopilot/core`'s `exports` declares only an
+    `import` condition — a `require` of it fails with
+    `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+ 5. **`symbols.degraded` is deliberately wider than
+    `languageCoverage[*].degraded`, and the comments were wrong, not the
+    code.** Four tests pin the wide meaning (no extractor for the language,
+    an oversize file skipped, a capped symbol list, a parser that threw).
+    Narrowing the code to match the comment would have made
+    `get_symbol_map` return 500 of 2062 symbols with `degraded: false`.
+ 6. **A fetch failure keeps its HTTP status at the tool boundary.** `404`,
+    `403` and `502` are three different next moves — "the repository is
+    not there", "you are rate-limited", "the proxy or GitHub is
+    unhealthy". `describeError` prefixes the status and the smoke script
+    adds the one hint that matters when a human runs it: the anonymous
+    limit is 60 requests/hour per IP.
+ 7. **The mutation harness stays out of the repository.** It encodes this
+    machine's absolute paths, and the finding that matters is the *test*,
+    not the harness. The durable home for the harness fixes is the
+    `mutation-check` skill, which is where they went.
+ 8. **The `vitest.config.ts` weighting is an open V0.2-d item, not fixed
+    here.** `vitest.config.ts` ranks 0.8650 in `importantFiles` — above
+    every real entrypoint (library 0.8475, server 0.8300). It is a
+    config-shaped path that happens to satisfy several entrypoint rules at
+    once. Fixing it means changing `importance.ts`'s weights, which is
+    V0.2-d's subject and needs its own record; silently retuning a scoring
+    curve inside a follow-up would make two stages responsible for one
+    number.
+
+**Alternatives rejected**
+
+  - *Add a `.tsx` fixture and let the snapshot catch it.* Decision 2. The
+    snapshot would have encoded the bug; and a new fixture belongs with a
+    plan, not appended at the end of a stage.
+  - *Make the smoke script a test guarded by an env var so CI can skip it.*
+    A test that is skipped by default is a test that is green without
+    having run, which is the exact failure mode this whole entry is about.
+  - *Write the smoke check against `SOURCE_REWRITES`.* It would have
+    confirmed the defect instead of finding it.
+  - *Trust the mutation check's first run (16 caught / 1 invalid).* The
+    invalid row was the harness reading a stale baseline — see
+    consequences. The run's own "worktree restored" line was false.
+  - *Keep `.js → .ts` a pair and special-case `.tsx` where React is
+    detected.* It makes correctness depend on a heuristic about the
+    repository, when the rule is a property of the language.
+  - *Fold the smoke script into `verify:release`.* That drives the paid
+    audit flow; these four tools are the free ones, and the script needs a
+    GitHub token and the network.
+
+**Consequences**
+
+The defect and its size, measured on this repository:
+
+| | before | after |
+|---|---|---|
+| unresolved relative imports | 9 | 0 |
+| dependency-graph limitations | 21 | 2 |
+| graph edges | 470 | 488 |
+| graph nodes | 205 | 206 |
+| merged context limitations | — | 10 |
+
+`scripts/intelligence-smoke.mts` runs 13 checks per repository and passes
+on both. Its central check was verified to have teeth the same way the
+resolver test was: reverting `SOURCE_REWRITES` to the pre-fix table turns
+the check **red** with exactly those nine imports listed, and the graph
+shrinks back to 470 edges over 205 nodes.
+
+The mutation check ran 17 mutations over `resolve.ts`: **17 caught, 0
+missed, 0 invalid, 0 errored** (run in short batches — see below). Its first
+run found six genuine gaps, all in the rewrite table and its neighbours:
+`.mjs → .mts`, `.cjs → .cts`, Vue and Svelte in `REWRITTEN_LANGUAGES`, the
+`.ts`/`.tsx` tie-break, and `isRelativeSpecifier('..')`. Four tests and one
+assertion were added; `resolve.test.ts` is 47 → 51.
+
+**Two harness faults were found in the check itself, and they are the part
+worth generalising.** Both are now in the `mutation-check` skill as 坑 7
+and 坑 8:
+
+  - **A killed run leaves the mutation in the source, and the next run
+    snapshots that dirty file as its baseline.** A run stopped by this
+    environment's timeout left the *exact defect under test* (`.tsx`
+    missing from the `.js` row) in `resolve.ts`, twice. The next run then
+    reported that mutation as `INVALID (anchor absent)` and — worse —
+    restored from the dirty snapshot, writing the corruption back while
+    printing `worktree restored`. The fix is to pin the baseline in a
+    separate golden copy outside `/tmp`, run in short batches, and verify
+    by md5 afterwards.
+  - **A runner that dies is filed as a weak test.** The classifier read
+    "no failing count and no `Tests no tests`" as "the suite passed". A
+    Go-resolution mutation was reported MISSED this way and a manual run
+    proved it is caught. A missing summary line is now its own verdict.
+
+Both faults point the same way: **a mutation check is a measurement, and a
+measurement you have not calibrated is a number, not evidence.** The first
+run's headline (16 caught / 1 invalid) was wrong in both directions.
+
+Still outstanding, unchanged: `security.scanFixtures` defaults to `false`;
+two `ruleId ?? ''` sites remain; the four free tools inherit R-03's
+anonymous 60 req/h limit, which the smoke script now makes easy to hit;
+`Symbol.references` is still 0 everywhere; and the `vitest.config.ts`
+weighting in decision 8.

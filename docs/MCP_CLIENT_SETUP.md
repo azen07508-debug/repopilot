@@ -53,6 +53,21 @@ pnpm --filter @repopilot/mcp-server build
 # → packages/mcp-server/dist/cli.js
 ```
 
+To check the four free repository-intelligence tools against real
+repositories — the one path the test suite cannot reach, because it needs
+the network:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) pnpm intelligence:smoke
+# or point it at specific repositories:
+GITHUB_TOKEN=$(gh auth token) pnpm intelligence:smoke https://github.com/owner/repo
+```
+
+Anonymous GitHub access is 60 requests/hour per IP, which one run over two
+repositories is easily enough to exhaust — pass a token. See ADR D-029 for
+what this script caught (a shipped defect in `.js` → `.tsx` resolution) and
+why it is a script rather than a test.
+
 The CLI is also exposed as a binary after `pnpm install`:
 
 ```bash

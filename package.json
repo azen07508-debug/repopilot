@@ -31,6 +31,7 @@
     "db:migrate": "pnpm --filter @repopilot/api db:migrate",
     "db:seed": "pnpm --filter @repopilot/api db:seed",
     "env:check": "tsx scripts/env-check.ts",
+    "intelligence:smoke": "tsx scripts/intelligence-smoke.mts",
     "verify:release": "tsx scripts/verify-release.ts",
     "docker:check": "bash scripts/docker-check.sh",
     "clean": "pnpm -r exec rm -rf dist node_modules .turbo",
