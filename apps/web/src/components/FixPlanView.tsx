@@ -49,7 +49,7 @@ export function FixPlanView({ jobId }: { jobId: string }) {
 
   return (
     <>
-      <h3 className="section-title">{t.fixPlanTitle}</h3>
+      <h3 className="section-title section-title--standalone">{t.fixPlanTitle}</h3>
       <p className="meta" style={{ marginTop: -4 }}>{t.fixPlanHint}</p>
 
       {loading && (
@@ -67,64 +67,77 @@ export function FixPlanView({ jobId }: { jobId: string }) {
         <div className="empty">{t.fixPlanEmpty}</div>
       )}
 
-      {!loading &&
-        planSet?.plans.map((plan) => (
-          <article className="card" key={plan.planId}>
-            <header className="plan-head">
-              <span className={`pill ${priorityClass(plan.priority)}`}>{plan.priority}</span>
-              <span className="pill">{plan.estimatedEffort}</span>
-              <h4>{plan.title}</h4>
-            </header>
+      {/*
+        The plans are ONE list, not twelve panels.
 
-            <p style={{ margin: '8px 0' }}>{plan.why}</p>
+        Measured before this change: the fix plan ran 4384px — 47.6% of a
+        9219px report page — as twelve `article.card` elements whose only two
+        distinct heights were 343px and 368px. Twelve identically-chromed cards
+        read as twelve unrelated objects, so the section that *is* the product
+        was also the least scannable. As a list with a priority rail the twelve
+        become one object with a readable gradient.
+      */}
+      {!loading && planSet && planSet.plans.length > 0 && (
+        <ol className="plan-list">
+          {planSet.plans.map((plan) => (
+            <li className="plan-item" key={plan.planId} data-priority={plan.priority}>
+              <header className="plan-head">
+                <span className={`plan-priority ${priorityClass(plan.priority)}`}>{plan.priority}</span>
+                <h4>{plan.title}</h4>
+                <span className="pill plan-effort">{plan.estimatedEffort}</span>
+              </header>
 
-            <div className="meta">
-              {t.labelEvidence}:{' '}
-              {plan.evidence.map((e) => (
-                <code key={`${e.file}-${e.line}`}>
-                  {e.file}
-                  {e.line ? `:${e.line}` : ''}
-                </code>
-              ))}
-            </div>
+              <p className="plan-why">{plan.why}</p>
 
-            <ol className="plan-steps">
-              {plan.steps.map((step) => (
-                <li key={step.order}>
-                  {step.action}
-                  {step.target && <span className="meta"> — {step.target}</span>}
-                </li>
-              ))}
-            </ol>
-
-            {plan.testsToAdd.length > 0 && (
               <div className="meta">
-                {t.fixPlanTests}: {plan.testsToAdd.map((p) => <code key={p}>{p}</code>)}
+                {t.labelEvidence}:{' '}
+                {plan.evidence.map((e) => (
+                  <code key={`${e.file}-${e.line}`}>
+                    {e.file}
+                    {e.line ? `:${e.line}` : ''}
+                  </code>
+                ))}
               </div>
-            )}
 
-            <div className="meta" style={{ marginTop: 8 }}>{t.fixPlanAcceptance}</div>
-            <ul className="plan-criteria">
-              {plan.acceptanceCriteria.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ul>
+              <ol className="plan-steps">
+                {plan.steps.map((step) => (
+                  <li key={step.order}>
+                    {step.action}
+                    {step.target && <span className="meta"> — {step.target}</span>}
+                  </li>
+                ))}
+              </ol>
 
-            {plan.risks.length > 0 && (
-              <div className="meta">
-                {t.fixPlanRisks}: {plan.risks.join(' ')}
-              </div>
-            )}
+              {plan.testsToAdd.length > 0 && (
+                <div className="meta">
+                  {t.fixPlanTests}: {plan.testsToAdd.map((p) => <code key={p}>{p}</code>)}
+                </div>
+              )}
 
-            <details className="plan-instructions">
-              <summary>{t.fixPlanInstructions}</summary>
-              <pre>{plan.agentInstructions}</pre>
-              <button className="secondary" onClick={() => copy(plan.agentInstructions, plan.planId)}>
-                {copied === plan.planId ? t.copied : t.copyInstructions}
-              </button>
-            </details>
-          </article>
-        ))}
+              <div className="meta plan-acceptance-label">{t.fixPlanAcceptance}</div>
+              <ul className="plan-criteria">
+                {plan.acceptanceCriteria.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+
+              {plan.risks.length > 0 && (
+                <div className="meta">
+                  {t.fixPlanRisks}: {plan.risks.join(' ')}
+                </div>
+              )}
+
+              <details className="plan-instructions">
+                <summary>{t.fixPlanInstructions}</summary>
+                <pre>{plan.agentInstructions}</pre>
+                <button className="secondary" onClick={() => copy(plan.agentInstructions, plan.planId)}>
+                  {copied === plan.planId ? t.copied : t.copyInstructions}
+                </button>
+              </details>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {!loading && planSet && planSet.plans.length > 0 && (
         <p className="meta">

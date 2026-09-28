@@ -58,9 +58,17 @@ export function AuditHistoryView({
 
   return (
     <section>
-      <h3 className="section-title" style={{ marginTop: 0 }}>{t.historyTitle}</h3>
-      <p className="meta" style={{ marginTop: -4 }}>
-        {owner}/{repo} · {t.historyHint}
+      {/*
+        Every view carries exactly one h1 for its own subject. Before this,
+        the app's only h1 was the marketing headline in the hero, and the
+        hero is now collapsed once a report exists — which would have left
+        this view with no page heading at all. Here the subject is the repo,
+        same as the report view.
+      */}
+      <p className="report-kind">{t.historyTitle}</p>
+      <h1 className="report-title">{owner}/{repo}</h1>
+      <p className="meta" style={{ marginTop: 4 }}>
+        {t.historyHint}
       </p>
 
       {loading && (

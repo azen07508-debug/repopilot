@@ -35,7 +35,10 @@
   --r-pill: 999px;
   --r-code: 6px;
 
-  --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04);
+  /*
+   * One elevation step, not two. The default card is flat (see the Surfaces
+   * section); only the report head casts a shadow, so the step is legible.
+   */
   --shadow-elevated: 0 4px 16px rgba(24, 24, 27, 0.08);
 
   /*
@@ -68,7 +71,6 @@
     --warn: #e0a832;
     --bad: #f08a8a;
 
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.5);
 
     --delta-up: #f08a8a;
@@ -136,20 +138,54 @@ a { color: inherit; }
   max-width: 62ch;
 }
 
+/*
+ * The form, collapsed, once a report exists.
+ *
+ * It keeps every field and the copy — it just stops holding the top of the
+ * document. Measured before: on a 9219px report page the hero and form owned
+ * the first 741px and the report began at 8% depth.
+ */
+.rerun {
+  margin: 0 0 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rerun > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+.rerun > summary::marker { color: var(--muted); }
+.rerun[open] > summary { color: var(--fg); }
+.rerun > .meta { margin: 10px 0 0; }
+.rerun .card { margin-top: 14px; }
+
 /* ---------- Surfaces ---------- */
 
+/*
+ * Elevation is a scale with two steps, and a step is only a step if it is
+ * visible. Measured on the report view before this change: 17 of 18 surfaces
+ * shared one identical signature (radius + border + background + shadow),
+ * because the default card carried a shadow too. A shadow on everything is
+ * the same as a shadow on nothing.
+ *
+ * So the default card is flat and exactly one surface steps up: the report
+ * head. That is what makes it read as the head.
+ */
 .card {
   border: 1px solid var(--line);
   border-radius: var(--r-card);
   padding: 20px;
   margin: 16px 0;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
 }
 
 .card.tight { padding: 12px 16px; }
 
-/* Elevated variant: the one place hierarchy is allowed to step up. */
+/* The one place hierarchy is allowed to step up. */
 .card.elevated { box-shadow: var(--shadow-elevated); }
 
 .card.error {
@@ -159,19 +195,55 @@ a { color: inherit; }
 
 .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 
+/* ---------- Report head ---------- */
+
+/*
+ * The document's identity. The repository is the h1 — it used to be an h2 at
+ * 20px while the marketing headline sat above it as the h1 at 34px, so the
+ * page's outline said the pitch was the subject and the repository was a
+ * sub-point of it.
+ */
+.report-kind {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.report-title {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.score-block { text-align: right; }
+
 /* ---------- Type helpers ---------- */
 
 /*
- * Section headings. Deliberately NOT uppercase tracked eyebrows: this
- * report has six sections and an uppercase micro-label above each one
- * produces a templated rhythm instead of hierarchy.
+ * Section headings. Deliberately NOT uppercase tracked eyebrows: this report
+ * has ten sections and an uppercase micro-label above each one produces a
+ * templated rhythm instead of hierarchy.
+ *
+ * The size was 15px against 13.5px body copy — a 1.5px step, which is not a
+ * step. It moves to 17px. `--standalone` adds a hairline above the headings
+ * that sit directly on the page (as opposed to inside a card), so a section
+ * boundary is structural in a document that runs past 9000px, not just a
+ * slightly larger word.
  */
 .section-title {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--fg);
   margin: 28px 0 10px;
+}
+
+.section-title--standalone {
+  margin: 36px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
 .meta { font-size: 12.5px; color: var(--muted); }
@@ -263,13 +335,29 @@ button:disabled {
 .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
 .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
 
+/*
+ * The overall score.
+ *
+ * It used to be a `.pill` inside a `.score` wrapper: the wrapper declared
+ * 44px but had no text of its own, and the pill's own 12px won — so the
+ * headline number of a launch-readiness report painted at exactly the size of
+ * the four sub-scores it summarises, and the 44px was dead CSS. Measured:
+ * wrapper 44px / pill 12px / wrapper text nodes "".
+ *
+ * The number now carries the type and the colour; the sub-scores stay pills.
+ * 52px against their 12px is a 4.3x step, which is what makes it a headline.
+ */
 .score {
   font-variant-numeric: tabular-nums;
-  font-size: 44px;
+  font-size: 52px;
   font-weight: 680;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
   line-height: 1;
 }
+
+.score.ok { color: var(--ok); }
+.score.warn { color: var(--warn); }
+.score.bad { color: var(--bad); }
 
 .subscore {
   display: flex;
@@ -285,15 +373,27 @@ button:disabled {
 
 /* ---------- Findings ---------- */
 
+/*
+ * Findings are a LIST, and they have to look like one.
+ *
+ * They used to carry `background: var(--surface)` and a rounded right edge,
+ * which is the same surface the cards use — so a page whose sections are
+ * "card, card, card, list of findings, list of findings" read as one long
+ * undifferentiated stack. Transparent, rail-led and separated by hairlines
+ * gives the report two registers: cards are summary surfaces, lists are
+ * findings.
+ */
 .findings { margin: 0; padding: 0; list-style: none; }
 
 .finding {
-  border-left: 2px solid var(--line);
-  padding: 10px 14px;
-  margin: 10px 0;
-  background: var(--surface);
-  border-radius: 0 var(--r-code) var(--r-code) 0;
+  border-left: 3px solid var(--line);
+  padding: 12px 0 12px 16px;
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
 }
+
+.finding + .finding { border-top: 1px solid var(--line); }
 
 .finding.critical { border-left-color: var(--bad); }
 .finding.high { border-left-color: var(--bad); }
@@ -443,8 +543,52 @@ pre {
   margin-bottom: -1px;
 }
 
-.plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.plan-head h4 { margin: 0; font-size: 14.5px; font-weight: 620; }
+/* ---------- Fix plan: one list, not twelve panels ---------- */
+
+/*
+ * Measured before: the fix plan ran 4384px — 47.6% of a 9219px report — as
+ * twelve `article.card` elements whose only two distinct heights were 343px
+ * and 368px. Twelve identically-chromed panels read as twelve unrelated
+ * objects, so the section that *is* the product was the least scannable part
+ * of the page. As a list with a priority rail the twelve become one object
+ * with a readable gradient, and the rail carries the priority that the
+ * two-pill header was burying.
+ */
+.plan-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.plan-item {
+  border-left: 3px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0 18px 16px;
+}
+
+.plan-item[data-priority='P0'] { border-left-color: var(--bad); }
+.plan-item[data-priority='P1'] { border-left-color: var(--warn); }
+
+.plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.plan-head h4 { margin: 0; font-size: 15px; font-weight: 620; flex: 1 1 auto; }
+
+.plan-priority {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 1px 7px;
+  border-radius: var(--r-code);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.plan-priority.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.plan-priority.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+
+.plan-effort { flex: 0 0 auto; }
+.plan-why { margin: 8px 0; }
+.plan-acceptance-label { margin-top: 8px; }
 
 .plan-steps, .plan-criteria { margin: 8px 0 0; padding-left: 22px; font-size: 13.5px; }
 .plan-steps li, .plan-criteria li { margin: 4px 0; }
@@ -498,6 +642,8 @@ pre {
 @media (max-width: 768px) {
   .container { padding: 20px 16px 64px; }
   .hero h1 { font-size: 27px; max-width: none; }
-  .score { font-size: 36px; }
+  .report-title { font-size: 22px; }
+  .score { font-size: 40px; }
+  .score-block { text-align: left; }
   .card { padding: 16px; }
 }

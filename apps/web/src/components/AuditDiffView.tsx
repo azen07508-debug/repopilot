@@ -88,8 +88,13 @@ export function AuditDiffView({ headJobId, baseJobId }: { headJobId: string; bas
       <div className="card elevated">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div className="meta">{t.diffTitle}</div>
-            <div style={{ fontSize: 18, fontWeight: 650, marginTop: 2 }}>{verdictLabel}</div>
+            {/*
+              The verdict is the answer this view exists to give, so it is the
+              h1. It used to be a plain div at 18px, which meant the diff view
+              had no heading at all once the hero started collapsing.
+            */}
+            <p className="report-kind">{t.diffTitle}</p>
+            <h1 className="report-title">{verdictLabel}</h1>
             <div className="meta" style={{ marginTop: 6 }}>
               {shortSha(diff.base.commitSha)} → {shortSha(diff.head.commitSha)}
             </div>
@@ -118,7 +123,7 @@ export function AuditDiffView({ headJobId, baseJobId }: { headJobId: string; bas
         ))}
       </div>
 
-      <h3 className="section-title">{t.diffRules}</h3>
+      <h3 className="section-title section-title--standalone">{t.diffRules}</h3>
       {diff.ruleDeltas.length === 0 ? (
         <div className="empty">{t.diffRulesEmpty}</div>
       ) : (
@@ -149,7 +154,7 @@ export function AuditDiffView({ headJobId, baseJobId }: { headJobId: string; bas
         </div>
       )}
 
-      <h3 className="section-title">{t.diffFindings}</h3>
+      <h3 className="section-title section-title--standalone">{t.diffFindings}</h3>
       <div className="card">
         <div className="diff-group">
           <div className="meta">{t.diffResolved}</div>

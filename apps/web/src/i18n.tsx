@@ -19,6 +19,14 @@ const en = {
   heroTitle: 'One repo in. A launch-ready plan out.',
   heroSubtitle:
     'Paste a public GitHub URL. Get a launch-readiness report with documented evidence, prioritized blockers and acceptance criteria. Static analysis only. Your repository code is never executed.',
+  /**
+   * Shown once a report exists, in place of the hero. The marketing headline
+   * was previously the page's `h1` even after an audit, so the document
+   * outranked its own subject by 612px and 14px of type.
+   */
+  rerunTitle: 'Audit another repository',
+  /** The document's own name, above the repo title. Used once, not per section. */
+  reportTitleLabel: 'Launch-readiness report',
 
   formRepoUrl: 'GitHub repository URL',
   formRepoPlaceholder: 'https://github.com/owner/repo',
@@ -147,6 +155,8 @@ const zhCN: Dict = {
   heroTitle: '输入一个仓库，输出一份可上线的方案。',
   heroSubtitle:
     '粘贴一个公开 GitHub 仓库地址，得到一份带证据、按优先级排列阻塞项、并附验收标准的发布就绪度报告。仅做静态分析，绝不执行被审计仓库的代码。',
+  rerunTitle: '再审计一个仓库',
+  reportTitleLabel: '发布就绪度报告',
 
   formRepoUrl: 'GitHub 仓库地址',
   formRepoPlaceholder: 'https://github.com/owner/repo',

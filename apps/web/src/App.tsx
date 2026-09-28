@@ -119,21 +119,38 @@ function Shell() {
   }, []);
 
   const showNav = Boolean(report && jobId);
+  /*
+   * Once a report exists the page has a subject, and the subject is the
+   * repository — not the pitch.
+   *
+   * Measured before this change, on a 9219px report page: the hero (h1, 34px)
+   * and the input form occupied the first 741px, the report's own title was an
+   * h2 at 20px sitting 612px below the marketing h1, and the report began at
+   * 8% page depth. The copy and the form are unchanged; the form just moves
+   * one click away instead of holding the top of the document.
+   */
+  const collapsed = showNav;
 
   return (
     <div className="container">
       <Header health={health} caps={caps} />
       <StatusBar health={health} caps={caps} />
 
-      <section className="hero">
-        <h1>{t.heroTitle}</h1>
-        <p>{t.heroSubtitle}</p>
-      </section>
-
-      <AuditForm
-        disabled={loading}
-        onSubmit={onSubmit}
-      />
+      {collapsed ? (
+        <details className="rerun">
+          <summary>{t.rerunTitle}</summary>
+          <p className="meta">{t.heroSubtitle}</p>
+          <AuditForm disabled={loading} onSubmit={onSubmit} />
+        </details>
+      ) : (
+        <>
+          <section className="hero">
+            <h1>{t.heroTitle}</h1>
+            <p>{t.heroSubtitle}</p>
+          </section>
+          <AuditForm disabled={loading} onSubmit={onSubmit} />
+        </>
+      )}
 
       {loading && <LoadingCard />}
 

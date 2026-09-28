@@ -39,17 +39,27 @@ export function ReportView({ report }: { report: Report }) {
       <div className="card elevated">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h2 style={{ margin: '0 0 4px', fontSize: 20, letterSpacing: '-0.01em' }}>{report.repository.name}</h2>
+            {/*
+              The repo is the document's h1. It used to be an h2 at 20px with
+              the marketing headline above it as the h1 at 34px.
+            */}
+            <p className="report-kind">{t.reportTitleLabel}</p>
+            <h1 className="report-title">{report.repository.name}</h1>
             <div className="meta">
               <a href={report.repository.url} target="_blank" rel="noreferrer">{report.repository.url}</a>
               {report.repository.license && <> · {report.repository.license}</>}
               {report.repository.primaryLanguage && <> · {report.repository.primaryLanguage}</>}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="score">
-              <span className={`pill ${scoreClass(report.scores.overall)}`}>{report.scores.overall}</span>
-            </div>
+          <div className="score-block">
+            {/*
+              The score is the report's headline number, so it is sized like
+              one. It used to render inside `.pill`, whose 12px overrode the
+              `.score` rule's 44px — the wrapper had no text of its own, so the
+              44px was dead CSS and the overall score painted at the same size
+              as the four sub-scores it summarises.
+            */}
+            <div className={`score ${scoreClass(report.scores.overall)}`}>{report.scores.overall}</div>
             <div className="meta">{t.reportOverall}</div>
             <button className="secondary" style={{ marginTop: 10 }} onClick={downloadJson}>{t.reportDownload}</button>
           </div>
@@ -92,7 +102,7 @@ export function ReportView({ report }: { report: Report }) {
         )}
       </div>
 
-      <h3 className="section-title">{t.reportBlockers}</h3>
+      <h3 className="section-title section-title--standalone">{t.reportBlockers}</h3>
       {report.blockers.length === 0 ? (
         <div className="empty">{t.reportBlockersEmpty}</div>
       ) : (
@@ -109,7 +119,7 @@ export function ReportView({ report }: { report: Report }) {
         </ul>
       )}
 
-      <h3 className="section-title">{t.reportDocGaps}</h3>
+      <h3 className="section-title section-title--standalone">{t.reportDocGaps}</h3>
       {report.documentationGaps.length === 0 ? (
         <div className="empty">{t.reportDocGapsEmpty}</div>
       ) : (
@@ -123,7 +133,7 @@ export function ReportView({ report }: { report: Report }) {
         </ul>
       )}
 
-      <h3 className="section-title">{t.reportSecurity}</h3>
+      <h3 className="section-title section-title--standalone">{t.reportSecurity}</h3>
       {report.securityFindings.length === 0 ? (
         <div className="empty">{t.reportSecurityEmpty}</div>
       ) : (
@@ -190,7 +200,7 @@ export function ReportView({ report }: { report: Report }) {
         </details>
       )}
 
-      <h3 className="section-title">{t.reportChecklist}</h3>
+      <h3 className="section-title section-title--standalone">{t.reportChecklist}</h3>
       <ul className="findings">
         {report.launchChecklist.map((c) => (
           <li key={c.id} className={`finding ${c.done ? 'low' : 'high'}`}>
@@ -209,7 +219,7 @@ export function ReportView({ report }: { report: Report }) {
 
       {report.launchCopy.oneSentencePitch && (
         <>
-          <h3 className="section-title">{t.reportLaunchCopy}</h3>
+          <h3 className="section-title section-title--standalone">{t.reportLaunchCopy}</h3>
           <div className="card">
             <div><strong>{t.copyOneSentence}:</strong> {report.launchCopy.oneSentencePitch}</div>
             <div style={{ marginTop: 8 }}><strong>{t.copyShort}:</strong> {report.launchCopy.shortDescription}</div>
@@ -220,7 +230,7 @@ export function ReportView({ report }: { report: Report }) {
 
       {report.limitations.length > 0 && (
         <>
-          <h3 className="section-title">{t.reportLimitations}</h3>
+          <h3 className="section-title section-title--standalone">{t.reportLimitations}</h3>
           <ul className="findings">
             {report.limitations.map((l, i) => (
               <li key={i} className="finding low">
