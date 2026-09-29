@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`apps/web` has tests.** The package shipped a `test` script that
+  printed `no web tests yet` and exited 0, so `pnpm -r test` reported
+  success for a workspace with no web coverage at all. The bug that made
+  the submit button a silent no-op — a settled `POST /api/v1/audits`
+  answers 202, and the UI assumed the report arrived in that response
+  body — was invisible to `tsc`, invisible to `vite build`, and invisible
+  to every existing test. That is exactly the gap a stub script hides.
+  - 16 tests in jsdom: 2 harness self-tests that prove the instrument
+    receives the app's requests before any product assertion is trusted,
+    and 14 contract tests that drive the real `App` through the real
+    `lib/api.ts` against a `fetch` stub reproducing the status codes and
+    bodies from `routes/audits.ts` — the 402 challenge (which carries
+    **no** `statusUrl` / `pollAfterMs`), the replay with `X-PAYMENT`, the
+    202 that does carry them, the `queued → processing → completed`
+    transitions, `pollAfterMs` used as the poll interval, the report
+    reaching `ReportView`, a failed job surfacing an error rather than a
+    silent empty state, three transport failures, refreshing a job that
+    is still running, and polling hygiene (one chain, stopped once the
+    job settles).
+  - The 202 body is additionally checked against the `required` list in
+    `apps/api/src/openapi.ts`, so the fixture cannot drift from the
+    published contract without the web suite saying so.
+
 - **Repository Map builder (V0.2-d).** The first Repository Intelligence
   artifact: a deterministic description of what a repository is made of
   — modules, how important each is, how they depend on each other, and
