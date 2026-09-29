@@ -145,6 +145,14 @@ jobs:
       - name: Deploy topology (compose + edge routing)
         run: pnpm compose:check
 
+      # Static review of the Dockerfile itself. It needs no Docker CLI — the
+      # build and smoke steps self-skip without it — so the parts that *can* be
+      # checked here, including whether the Node base image matches
+      # `engines.node`, run on every push instead of only on the PR that
+      # happens to touch a Dockerfile.
+      - name: Dockerfile (static review)
+        run: pnpm docker:check
+
       - name: Test
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgres://repopilot:repopilot_test@localhost:5432/repopilot_test') || 'file::memory:?cache=shared' }}

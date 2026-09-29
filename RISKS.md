@@ -33,6 +33,8 @@ Active risks the team is aware of and how they are mitigated.
   — A reverse proxy that omits `X-Forwarded-For` disables rate limiting
 - [R-25](#r-25--a-healthy-container-can-be-serving-an-unmigrated-database)
   — A healthy container can be serving an unmigrated database
+- [R-26](#r-26--a-check-that-never-runs-is-indistinguishable-from-one-that-passes)
+  — A check that never runs is indistinguishable from one that passes
 
 ---
 
@@ -524,3 +526,56 @@ failed", so no status-code-only check can detect this class. Changing that is a
 larger decision about what `/health` means; the deliberate 200 is recorded as a
 rejected alternative in D-031, so that the next person to meet this does not
 have to re-litigate it from first principles.
+
+## R-26 — A check that never runs is indistinguishable from one that passes
+
+**Severity:** High
+**Likelihood:** Certain — it has already happened three times in this repository
+
+**What happens.** A green dashboard means "nothing that ran found a problem",
+which is not the same claim as "nothing is wrong". When the thing that would
+have found the problem never executes, the two are visually identical, and the
+gap is invisible precisely because the instrument that would report it is the
+one that is missing.
+
+Three instances, each found independently and each having survived review:
+
+1. **`apps/web` had no tests.** Its `test` script printed `no web tests yet`
+   and exited 0, so `pnpm -r test` reported success for a workspace with no web
+   coverage at all. The bug that made the submit button a silent no-op lived
+   there undetected from the first commit (2ea445d).
+2. **`.github/workflows/docker.yml` was PR-only.** The repository has had no
+   pull requests, so the only workflow that builds an image had never run on
+   `main`. The image did not build — `FROM node:20-alpine` against
+   `pnpm@11.11.0`, which needs Node 22 — and had not since the initial import.
+   Adding `push:` surfaced it in 17 seconds.
+3. **`docker:check`'s static half could not fail.** `err` printed a red ✗ and
+   the script still exited 0, so every assertion in it, including "the
+   Dockerfile is present", was advisory. It was also not wired into CI at all,
+   so nothing ran it either way.
+
+**Why this is High rather than Low.** Each instance hid a real defect, and two
+of the three had been shipping since the initial import. The failure mode is
+self-concealing: the more thorough a check looks in the file, the less likely
+anyone is to ask whether it ever executes.
+
+**Mitigation, and the rule that follows from it.**
+
+1. `docker.yml` runs on push as well as PR.
+2. `compose:check` and `docker:check` are both steps in `ci.yml`, so they run
+   on every push rather than only where someone remembered to look.
+3. `docker:check` exits 1 on any ✗, and its build half self-skips *after* the
+   static half rather than instead of it.
+4. **The rule:** a new check is not done when it passes — it is done when a
+   deliberately reintroduced defect makes it fail, and when something runs it
+   automatically. Fourteen mutations cover `compose:check` and `docker:check`;
+   the web suite has six. Both harnesses live in the audit scratch directory
+   rather than the repository (D-029 decision 7), so the mutations are
+   documented in `DECISIONS.md` and `CHANGELOG.md` instead of being committed.
+
+**Still open.** `pnpm -r lint` is only as strong as each package's `lint`
+script, and every package's is `echo skip-package-lint` — the recursive form
+still checks nothing, and the real lint is the root `pnpm lint`, which only
+runs because `ci.yml` names it explicitly. The same question should be asked of
+every script in `package.json` before the next release: *what runs this, and
+what would it take for it to fail?*

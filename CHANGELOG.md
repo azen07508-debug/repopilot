@@ -669,9 +669,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/docs/` and the SPA fallback, forwards `X-Forwarded-For`, and that every
   `include` in it has a file behind it. A compose file is only correct together
   with the config inside the image it builds, and the YAML looks fine on its
-  own. It runs in CI now, and twelve mutations — each a real defect from the
-  list above or from D-031 — were reintroduced one at a time and all twelve
-  were caught.
+  own. It runs in CI now, and fourteen mutations — each a real defect from the
+  list above, from D-031, or from the Dockerfile's Node base image — were
+  reintroduced one at a time and all fourteen were caught.
 - **`docker compose up -d` brought up a deployment that could not audit
   anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
   stack ran against an empty database: the `/health` probe (`repo.list(1)`)
@@ -801,6 +801,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Docker image had never built.** `FROM node:20-alpine`, against a
+  `packageManager` of `pnpm@11.11.0` — which does not run on Node 20. `pnpm
+  install` died partway through the builder stage with
+  `ERR_UNKNOWN_BUILTIN_MODULE`, so `docker build .` failed in about 17 seconds
+  and had done since the initial import. Nothing surfaced it because the only
+  workflow that builds an image was PR-only, and the repository has had no PRs;
+  `docker:check` skipped its build step without a Docker CLI, which is the
+  situation on every machine that has run it. Both stages are now Node 22 —
+  the version `.github/workflows/ci.yml` already tests on — and `engines.node`
+  moved from `>=20.0.0` to `>=22.0.0` to state the requirement instead of
+  leaving it implicit. The two stages have to agree, not merely be recent
+  enough: `node_modules` is copied from `builder` into `runtime` and carries a
+  compiled `better-sqlite3`, so a split major fails at *runtime* with
+  `NODE_MODULE_VERSION`.
+- **`docker:check` could not fail.** `err` printed a red ✗ and the script
+  still exited 0, so every static assertion in it — including "the Dockerfile
+  is present" — was advisory. It now counts errors and exits 1 before the
+  build half, and `ci.yml` runs it on every push. It also gained a check that
+  the Node base image matches `engines.node` and that no two stages disagree;
+  both were falsified (splitting the majors, and raising `engines.node` above
+  the image, each exit 1).
+- **`docker:check`'s own smoke test could not start the container.** It ran
+  the API with `NODE_ENV=production` and `PAYMENT_MODE=mock` — rejected
+  outright by `validateProductionConfig` (R-02) — and omitted
+  `AUDIT_QUEUE_DRIVER`, whose `inline` default is rejected for the same
+  reason. It now runs in `development` config and migrates before serving,
+  matching `docker-compose.yml`.
 - **A failed audit told the user to submit a repository.** `App.tsx`
   rendered the empty state on `!report && !loading` without also checking
   `!error`, so a job that came back `failed` — or a request that never

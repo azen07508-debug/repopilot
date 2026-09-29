@@ -6,7 +6,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.11.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "pnpm -r --filter './packages/*' build && pnpm -r --filter './apps/*' build",

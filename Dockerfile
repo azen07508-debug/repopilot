@@ -1,5 +1,18 @@
 # Multi-stage build for RepoPilot API + MCP server
-FROM node:20-alpine AS builder
+#
+# Node 22, not 20, and both stages agree on it. Two reasons, neither of which
+# fails at build time when it is wrong:
+#
+#   * `packageManager` pins `pnpm@11.11.0`, which does not run on Node 20. It
+#     dies partway through `pnpm install` with `ERR_UNKNOWN_BUILTIN_MODULE`,
+#     so the image has never built.
+#   * `node_modules` is copied from `builder` into `runtime` and it contains a
+#     compiled native module (`better-sqlite3`). Different Node majors are
+#     different ABIs, so a mismatch there fails at *runtime* with
+#     `NODE_MODULE_VERSION`, not here.
+#
+# `engines.node` declares the requirement; `docker:check` asserts the two agree.
+FROM node:22-alpine AS builder
 WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
@@ -59,7 +72,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 # -----------------------------------------------------------------------------
 # API runtime image.
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable
