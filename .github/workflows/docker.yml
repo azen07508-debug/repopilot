@@ -3,6 +3,13 @@ name: Docker
 on:
   pull_request:
     branches: [main, master]
+  # Also on push to main. This workflow used to be PR-only, which meant a
+  # Dockerfile or compose change merged without its own build ever running —
+  # the CI workflow builds packages, not images, and `docker:check` skips the
+  # build when the CLI is absent. A topology change is exactly the kind of
+  # change that only fails in a container.
+  push:
+    branches: [main, master]
   workflow_dispatch:
 
 # Cancel in-flight runs of the same ref.
@@ -20,7 +27,7 @@ jobs:
     # Ubuntu 26 on 2026-10-19, and a runner image change is not something
     # a Dockerfile should have to absorb unannounced.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -28,42 +35,147 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      - name: Build API image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
+          target: runtime
           push: false
           load: true
           tags: repopilot:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test image (start, hit /health, stop)
+      # Same Dockerfile, different stage. Built as its own step so a failure
+      # names the image that broke instead of one opaque "build failed".
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web
+          push: false
+          load: true
+          tags: repopilot-web:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Exercises the real topology rather than each image alone: nginx
+      # resolving `api:4000` over a docker network, serving the built UI at
+      # `/`, and proxying `/api/*` and `/health` through to the API.
+      #
+      # The web container cannot even start without something answering to
+      # `api` — nginx resolves upstream names at boot and exits with "host not
+      # found in upstream" otherwise — so this is also the check that the
+      # service name in `deploy/nginx/repopilot.conf` matches the compose
+      # service name. `compose:check` asserts the two agree; this proves it.
+      - name: Smoke test the topology (edge + API on one network)
         env:
-          NODE_ENV: production
+          # `development`, not `production`, and deliberately so. The API
+          # refuses to boot in production with `PAYMENT_MODE=mock` or with an
+          # inline queue (`apps/api/src/config.ts` `validateProductionConfig`,
+          # R-02) — a production-shaped config would need the pg-boss driver
+          # and a real Postgres, which is a different test. This step is about
+          # routing: does the edge serve the UI at `/` and reach the API. The
+          # production guards have their own tests (`config.test.ts`).
+          NODE_ENV: development
           PAYMENT_MODE: mock
+          AUDIT_QUEUE_DRIVER: inline
           DATABASE_URL: file:/tmp/repopilot-smoke.db
           PORT: 4000
-          HOST: 127.0.0.1
+          HOST: 0.0.0.0
           ALLOWED_REPO_HOSTS: github.com,raw.githubusercontent.com
           LOG_LEVEL: warn
         run: |
           set -euo pipefail
-          docker run --rm -d --name repopilot-smoke -p 4000:4000 \
-            -e NODE_ENV -e PAYMENT_MODE -e DATABASE_URL -e PORT -e HOST \
-            -e ALLOWED_REPO_HOSTS -e LOG_LEVEL \
-            repopilot:test
+
+          cleanup() {
+            docker logs repopilot-smoke-web || true
+            docker logs repopilot-smoke-api || true
+            docker rm -f repopilot-smoke-web repopilot-smoke-api >/dev/null 2>&1 || true
+            docker network rm repopilot-smoke-net >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          fail() {
+            echo "FAIL: $1"
+            echo "--- docker ps ---"
+            docker ps -a
+            exit 1
+          }
+
+          docker network create repopilot-smoke-net
+          # Migrate, then serve — the same order `docker-compose.yml` enforces
+          # with its `migrate` job. `server.js` never applies migrations, and
+          # `/health` probes the database (`repo.list(1)`), so without this the
+          # API answers `degraded` and check 3 fails for the wrong reason.
+          #
+          # No `--rm`: if the migration or the boot fails, the container has to
+          # survive long enough for `docker logs` to say why. `cleanup` removes
+          # both explicitly.
+          docker run -d --name repopilot-smoke-api \
+            --network repopilot-smoke-net --network-alias api \
+            -e NODE_ENV -e PAYMENT_MODE -e AUDIT_QUEUE_DRIVER -e DATABASE_URL \
+            -e PORT -e HOST -e ALLOWED_REPO_HOSTS -e LOG_LEVEL \
+            repopilot:test \
+            sh -c 'node apps/api/dist/db/migrate.js && exec node apps/api/dist/server.js'
+          docker run -d --name repopilot-smoke-web \
+            --network repopilot-smoke-net -p 8080:80 \
+            repopilot-web:test
+
+          # 1. The edge serves the built UI at the origin root.
+          served=0
           for i in $(seq 1 30); do
-            code=$(curl -sS -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:4000/health || echo 000)
-            if [ "$code" = "200" ]; then
-              echo "Health OK after ${i}s"
-              cat /tmp/health.json
-              echo
-              exit 0
+            if body=$(curl -sS --max-time 5 http://127.0.0.1:8080/ 2>/dev/null) \
+               && echo "$body" | grep -q 'id="root"'; then
+              echo "PASS: / serves the app shell after ${i}s"
+              served=1
+              break
             fi
             sleep 1
           done
-          echo "Health check never returned 200"
-          docker logs repopilot-smoke || true
-          exit 1
+          [ "$served" = "1" ] || fail "/ never served the app shell (is apps/web/dist in the web image?)"
+
+          # 2. `/api/*` is proxied to the real API, not answered by nginx.
+          proxied=0
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /tmp/caps.json -w '%{http_code}' --max-time 5 \
+                     http://127.0.0.1:8080/api/v1/capabilities 2>/dev/null || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "PASS: /api/v1/capabilities proxied after ${i}s"
+              cat /tmp/caps.json; echo
+              proxied=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$proxied" = "1" ] || fail "/api/v1/capabilities never returned 200 through the edge"
+
+          # 3. `/health` is proxied, and the body is the API's, not nginx's.
+          healthy=0
+          for i in $(seq 1 30); do
+            if curl -sS --max-time 5 http://127.0.0.1:8080/health 2>/dev/null \
+               | grep -q '"status":"ok"'; then
+              echo "PASS: /health proxied after ${i}s"
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$healthy" = "1" ] || fail "/health never proxied to the API"
+
+          # 4. A client-side route must return the SPA shell, not a 404. This is
+          #    what catches a missing `try_files ... /index.html`.
+          code=$(curl -sS -o /tmp/deep.html -w '%{http_code}' --max-time 5 \
+                   http://127.0.0.1:8080/some/client/route)
+          [ "$code" = "200" ] || fail "deep link returned $code, expected the SPA fallback"
+          grep -q 'id="root"' /tmp/deep.html || fail "deep link did not return the app shell"
+          echo "PASS: deep link falls back to the app shell"
+
+          # 5. The edge's own liveness endpoint must not be proxied away.
+          curl -sS --max-time 5 http://127.0.0.1:8080/healthz | grep -q 'ok' \
+            || fail "/healthz did not answer from nginx"
+          echo "PASS: /healthz answers from the edge"
+
+          echo "topology smoke: all checks passed"

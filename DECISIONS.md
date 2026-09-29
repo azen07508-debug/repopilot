@@ -50,6 +50,10 @@ Architecture Decision Records (ADR-style, lightweight).
 - [D-029](#d-029--pointing-the-tools-at-a-real-repository-and-what-the-guard-for-the-fix-turned-out-to-be-missing)
   — Pointing the tools at a real repository, and what the guard for the
   fix turned out to be missing
+- [D-030](#d-030--the-edge-owns-the-origin-and-the-api-stops-being-the-public-root)
+  — The edge owns the origin, and the API stops being the public root
+- [D-031](#d-031--schema-bootstrap-is-a-job-that-runs-before-the-api)
+  — Schema bootstrap is a job that runs before the API
 
 ---
 
@@ -1164,3 +1168,155 @@ two `ruleId ?? ''` sites remain; the four free tools inherit R-03's
 anonymous 60 req/h limit, which the smoke script now makes easy to hit;
 `Symbol.references` is still 0 everywhere; and the `vitest.config.ts`
 weighting in decision 8.
+
+## D-030 — The edge owns the origin, and the API stops being the public root
+
+**Context.** Three artifacts disagreed about where the UI lives, and none of
+them actually served it.
+
+- The `Dockerfile` built `apps/web/dist` and copied it into the API runtime
+  image. Nothing in that image reads it: there is no static plugin in
+  `apps/api`, no `sendFile`, no catch-all route. The copy was dead weight that
+  made the image look like it served a UI.
+- `docs/deployment/nginx.conf.example` and `Caddyfile.example` proxied `/` to
+  the API and left the UI **commented out** at an `/app/` subpath. As written,
+  a visitor to the domain got the API's `GET /` service index — a JSON blob
+  naming internal endpoints. Neither template was a deployable shape.
+- `PROJECT_STATE.md` said "Web UI: http://localhost:5173 (dev) / static
+  `apps/web/dist` in Docker". The second half was aspiration.
+
+**Decision.** One public origin, owned by the edge.
+
+```text
+browser ──► web (nginx, the only published port)
+              ├── /            → /usr/share/nginx/html (apps/web/dist), SPA fallback
+              ├── /assets/*    → the same directory, immutable
+              ├── /api/*       → api:4000
+              ├── /health      → api:4000
+              ├── /docs/*      → api:4000
+              └── /healthz     → nginx itself
+            api (Fastify :4000, published on 127.0.0.1 only)
+            worker (pg-boss consumer)
+            db (Postgres)
+```
+
+The edge config lives in `deploy/nginx/repopilot.conf` with the response
+headers factored into `deploy/nginx/snippets/repopilot-security.conf`, and both
+are baked into a `web` stage of the root `Dockerfile`. The `web` stage is
+placed **before** `runtime` because Docker's default target is the last stage
+and `docker:check` / `docker.yml` build the file without `--target` expecting
+the API image.
+
+**Consequences, stated so they are decisions rather than surprises.**
+
+1. **`apps/web` keeps `base: '/'`.** It is served from the origin root, so the
+   sub-path deployment question is closed, not deferred. A `/repopilot/`
+   deployment would need `base`, the router's basename, *and* the proxy's
+   location to agree; choosing the root removes all three. The white-screen
+   symptom that prompted the question was never diagnosed because the premise
+   is now false.
+2. **CORS is not load-bearing in this topology.** Browser requests are
+   same-origin. The API keeps `CORS_ORIGINS` configured for local development,
+   where the UI runs on `:5173` and the API on `:4000`.
+3. **The API's `GET /` is deliberately shadowed.** It stays reachable from
+   inside the compose network. An index that enumerates internal endpoints
+   should not be the public root.
+4. **The API image no longer carries `apps/web/dist`.** The `web` image is the
+   only thing that serves it, and the copy that no process read is gone.
+5. **The API is published on loopback only** (`127.0.0.1:4000:4000`). This is
+   not tidiness — it closes a rate-limit bypass. See R-24.
+6. **Two images from one Dockerfile**, selected by `target`. A compose service
+   that silently builds the wrong stage is caught by `compose:check`.
+
+**Alternatives rejected.**
+
+- **`@fastify/static` inside the API.** One process, one port, nothing to keep
+  in sync — genuinely tempting, and it is the right answer for platforms that
+  accept a single container. Rejected as the *default* because it adds a
+  dependency to the API, puts a file server in the process that holds the
+  database credentials and the GitHub token, and couples every UI deploy to an
+  API restart. The split keeps a queue worker free of static-file concerns.
+- **Separate subdomains** (`app.example.com` + `api.example.com`). Two
+  certificates, CORS becomes load-bearing, and the UI's `fetch` calls are
+  relative (`base = ''` in `lib/api.ts`), so every call site would need a
+  configured origin.
+- **Serving the UI at a subpath.** See consequence 1.
+
+**Verification.** Docker is not available on every machine that has to review
+this, so the topology is checked in two places that do not need it:
+
+- `pnpm compose:check` (now a CI step) parses the compose file, asserts the
+  `web` service exists on the `web` target with a healthcheck, asserts nothing
+  but the edge is published on every interface, and asserts
+  `deploy/nginx/repopilot.conf` actually routes `/api/`, `/health`, `/docs/`
+  and the SPA fallback, forwards `X-Forwarded-For`, and that every `include` in
+  it has a file behind it. Twelve mutations — each one a real defect from the
+  list above or from D-031 — were reintroduced one at a time and every one was
+  caught.
+- `.github/workflows/docker.yml` builds both stages and runs them **together on
+  one docker network**, then asserts `/` serves the app shell, `/api/*` and
+  `/health` proxy through to the API, a deep link returns the shell rather than
+  a 404, and `/healthz` answers from the edge. It also now runs on push to
+  `main`; it was PR-only, which meant a Dockerfile change could merge without
+  its own build ever running.
+
+## D-031 — Schema bootstrap is a job that runs before the API
+
+- **Date:** 2026-09-29
+- **Status:** Accepted
+- **Context:** D-030 moved the public origin to the edge, which made
+  `docker-compose.yml` the recommended deployment path. It was not a working
+  one. Neither `server.js` nor `worker.js` calls `runMigrations`, so
+  `docker compose up -d` brought up an API whose `checkDatabase` probe
+  (`repo.list(1)`, `server.ts`) threw `no such table`. `/health` answered
+  `degraded` on every request and every audit failed at the database layer —
+  and every container still reported healthy, because `/health` returns HTTP
+  200 whether or not the schema exists. `docker compose ps` showed a full set
+  of green ticks for a deployment that could not audit anything. The docs had
+  said "run `pnpm db:migrate` once", a step that cannot be run: the runtime
+  image carries `dist/` and `node_modules/` but not `tsx`, which is what the
+  `db:migrate` script shells out to.
+- **Decision:** A one-shot `migrate` service applies the schema and exits;
+  `api` and `worker` both depend on it with
+  `condition: service_completed_successfully`. `restart: "no"`, and the command
+  is `node apps/api/dist/db/migrate.js` rather than the `pnpm` script.
+- **Consequences:**
+  1. **The schema exists before anything queries it.** The ordering is
+     expressed in the compose file rather than in a runbook, so it survives a
+     reader who never opens the docs.
+  2. **`docker compose ps` shows `migrate` as `exited (0)`.** That is success,
+     not a crash loop, and the deployment docs now say so explicitly — the
+     first thing a reader will otherwise do is restart it.
+  3. **Re-running is safe.** Every statement in `runMigrations` is
+     `CREATE ... IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`
+     (`apps/api/src/db/client.ts`), so `up -d` against an existing database is
+     a no-op.
+  4. **The job has to satisfy the production guards**, so it carries the same
+     `PAYMENT_MODE` / `AUDIT_QUEUE_DRIVER` / `DATABASE_URL` values as `api`.
+     A misconfigured deployment now fails at `migrate` — earlier, and with a
+     migration-shaped error, instead of failing a few seconds later inside the
+     server.
+  5. **`compose:check` asserts the ordering.** Removing the dependency from
+     either service, pointing the job at the wrong command, or letting it
+     restart are all errors, and all four mutations were falsified.
+- **Alternatives rejected.**
+  - **Document `docker compose run --rm api pnpm db:migrate`.** It cannot run
+    in the runtime image (no `tsx`). This is what the docs said before, and its
+    impossibility is precisely why the gap went unnoticed.
+  - **Migrate from `server.js` at boot.** Every replica races the same DDL, and
+    a process restart becomes a schema change. It also puts a write behind a
+    read-only probe.
+  - **Make a `degraded` health check fail.** It would have surfaced the
+    original bug immediately, and it is tempting for that reason alone.
+    Rejected because the deliberate `200` is what lets an operator tell "the
+    process is up, a probe failed" apart from "the process is gone"
+    (`routes/health.ts`). Fixing the deployment is better than overloading the
+    probe. R-25 records what that costs.
+- **Verification.** `pnpm compose:check` asserts the job exists, runs the
+  compiled runner, does not restart, and is waited on by both processes with
+  `service_completed_successfully`; four mutations cover it (M9–M12 in the
+  topology falsification harness) and all four are caught. The `docker.yml`
+  smoke test performs the same ordering by hand — `node
+  apps/api/dist/db/migrate.js && exec node apps/api/dist/server.js` — so a
+  regression surfaces as a failing smoke test rather than as a `degraded`
+  `/health` that nobody reads.

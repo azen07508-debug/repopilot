@@ -1,58 +1,94 @@
 # =============================================================================
-# Caddy configuration template for RepoPilot
+# Caddy template for a RepoPilot host install.
 #
-# Replace `api.example.com` with your real domain.
-# Caddy will automatically request a Let's Encrypt certificate on first
-# request — no manual cert setup required.
+# This is the *host* variant. If you are using `docker-compose.yml`, you do not
+# need this file — the edge config is baked into the `web` image from
+# `deploy/nginx/repopilot.conf`, and that image already listens on :80.
 #
-# To enable:
+# The routing table is the same in both, because the browser is the same
+# browser:
+#
+#   /            → the built UI (`apps/web/dist`), SPA fallback
+#   /assets/*    → the same directory, immutable, hashed filenames
+#   /api/*       → the API
+#   /health      → the API
+#   /docs/*      → the API (the OpenAPI document)
+#
+# Caddy obtains and renews the certificate on the first request — no certbot
+# step, which is the main reason to prefer it over the nginx template here.
+#
+# Before you use this:
+#
+#   1. Replace `example.com` with your domain.
+#   2. Build the UI:  pnpm --filter @repopilot/web build
+#      and point `root` at the resulting `apps/web/dist`.
+#   3. Make sure the API is NOT reachable from the internet directly — see the
+#      warning at the bottom. It is a rate-limit bypass, not just untidiness.
+#
 #   sudo cp Caddyfile.example /etc/caddy/Caddyfile
+#   sudo caddy validate --config /etc/caddy/Caddyfile
 #   sudo systemctl reload caddy
 # =============================================================================
 
-api.example.com {
+example.com {
     encode zstd gzip
 
-    # Reverse proxy to the local API
-    reverse_proxy 127.0.0.1:4000 {
-        # Forward the real client info
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-
-        # Timeouts
-        transport http {
-            dial_timeout  10s
-            read_timeout  120s
-            write_timeout 120s
+    # `reverse_proxy` sets X-Forwarded-For itself, and appends to an existing
+    # one rather than replacing it, which is the behaviour the API needs: its
+    # rate limiter keys on that header and `@fastify/rate-limit@10.3.0`
+    # compares its allowList against that key rather than against `req.ip`
+    # (`index.js:233`). Do not add `header_up -X-Forwarded-For` here; that
+    # would hand the API `req.ip = 127.0.0.1`, which is the allowListed
+    # address, and rate limiting would silently stop. See R-24.
+    #
+    # `handle` blocks are mutually exclusive and evaluated in the order
+    # written, so the API routes must come before the catch-all.
+    handle /api/* {
+        reverse_proxy 127.0.0.1:4000 {
+            transport http {
+                dial_timeout  10s
+                read_timeout  120s
+                write_timeout 120s
+            }
         }
-
-        # Health checks (optional but useful behind a load balancer)
-        # health_uri  /health
-        # health_interval 10s
-        # health_timeout 5s
     }
 
-    # Optional: serve the admin web UI as a subpath
-    # @web path /app/*
-    # handle @web {
-    #     root * /opt/repopilot/web/dist
-    #     try_files {path} /index.html
-    #     file_server
-    # }
+    handle /health {
+        reverse_proxy 127.0.0.1:4000
+    }
 
-    # Security headers
+    handle /docs/* {
+        reverse_proxy 127.0.0.1:4000
+    }
+
+    # Everything else is the UI.
+    handle {
+        root * /opt/repopilot/apps/web/dist
+
+        # Hashed filenames can be cached forever; the entry document names the
+        # current hashes and must never be. Caddy's `header` has no inheritance
+        # trap, unlike nginx's `add_header`, so these can sit beside the
+        # security headers below without repeating them.
+        header /assets/* Cache-Control "public, max-age=31536000, immutable"
+        header /index.html Cache-Control "no-cache"
+
+        # The SPA fallback: a deep link resolves to the shell and the client
+        # router takes over.
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Caddy sets HSTS itself when it serves a TLS site, so it is not repeated
+    # here. The rest are not automatic.
     header {
         X-Content-Type-Options "nosniff"
         X-Frame-Options        "DENY"
         Referrer-Policy        "no-referrer"
-        Strict-Transport-Security "max-age=63072000; includeSubDomains"
-        # X-XSS-Protection is deprecated; deliberately not set
-        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        Permissions-Policy     "geolocation=(), microphone=(), camera=()"
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+        # X-XSS-Protection is deprecated and deliberately not set.
     }
 
-    # Logging
     log {
         level INFO
         output file /var/log/caddy/repopilot.log {
@@ -62,10 +98,19 @@ api.example.com {
     }
 }
 
-# Optional: a separate sub-domain for the MCP HTTP transport (future).
-# For now MCP only supports stdio; the HTTP transport is a 0.2.0 feature.
-# mcp.example.com {
-#     reverse_proxy 127.0.0.1:4000 {
-#         header_up Host {host}
-#     }
-# }
+# =============================================================================
+# WARNING — the API must not be reachable from the internet.
+#
+# `apps/api/src/server.ts` sets `trustProxy: true`, so Fastify believes
+# `X-Forwarded-For`. Combined with the `allowList` behaviour described above,
+# an API a client can reach directly is an API whose rate limit any client can
+# skip by sending `X-Forwarded-For: 127.0.0.1`.
+#
+#   * Bind it to loopback: `HOST=127.0.0.1`.
+#   * Do not open port 4000 in the firewall.
+#   * If you put a load balancer in front of Caddy, it must also set
+#     `X-Forwarded-For`, and it must append rather than replace.
+#
+# The MCP server is stdio-only in this release; there is no HTTP transport to
+# expose yet. That is a 0.2.0 feature.
+# =============================================================================

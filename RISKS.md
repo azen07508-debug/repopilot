@@ -29,6 +29,10 @@ Active risks the team is aware of and how they are mitigated.
 - [R-22](#r-22--a-lockfile-drives-securityhygiene-to-0) — A lockfile drives `securityHygiene` to 0
 - [R-23](#r-23--two-hits-of-one-rule-on-one-line-share-a-fingerprint)
   — Two hits of one rule on one line share a fingerprint
+- [R-24](#r-24--a-reverse-proxy-that-omits-x-forwarded-for-disables-rate-limiting)
+  — A reverse proxy that omits `X-Forwarded-For` disables rate limiting
+- [R-25](#r-25--a-healthy-container-can-be-serving-an-unmigrated-database)
+  — A healthy container can be serving an unmigrated database
 
 ---
 
@@ -413,3 +417,110 @@ so a finer key is a schema change, and "is this problem still at this
 place?" is genuinely answered by the coarse key. A caller that needs the
 count should read `Report.securityFindings`, not the diff.
 
+
+## R-24 — A reverse proxy that omits `X-Forwarded-For` disables rate limiting
+
+**Severity:** High. **Status:** mitigated in the shipped configurations,
+undetectable at runtime.
+
+`apps/api/src/middleware/rate-limit.ts` keys the limiter like this:
+
+```ts
+keyGenerator: (req) => {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0]!.trim();
+  return req.ip;
+},
+allowList: ['127.0.0.1', '::1'],
+```
+
+The `allowList` is matched against the **key**, not against `req.ip`.
+`@fastify/rate-limit@10.3.0` does `params.allowList.indexOf(key)`
+(`index.js:233`), and its `allowList` docs describe it as an IP list, which is
+true only when no custom `keyGenerator` is supplied. Here one is.
+
+The consequence is that the fallback branch is a trap. A proxy that forwards
+the request **without** `X-Forwarded-For` leaves `req.ip` equal to the proxy's
+own address. When the proxy runs on the same host as the API — the shape both
+`docs/deployment/nginx.conf.example` and `Caddyfile.example` describe — that
+address is `127.0.0.1`, which is exactly the allowListed entry. Every request
+then matches the allowList, and the rate limit is skipped entirely. Nothing
+logs a warning; the limiter simply stops limiting.
+
+The same trap has a second door. `apps/api/src/server.ts` sets
+`trustProxy: true`, so Fastify believes `X-Forwarded-For` from anyone. An API
+that a client can reach directly is therefore an API whose limit any client can
+skip by sending `X-Forwarded-For: 127.0.0.1`.
+
+**Why it is High rather than Low.** R-03 is the reason the limiter exists at
+all: anonymous GitHub access is 60 requests/hour per IP, and the four free
+tools inherit that budget. With the limiter off, one caller can exhaust the
+shared budget and take the service down for everyone, and the failure looks
+like GitHub rate limiting rather than like a misconfiguration.
+
+**Mitigation, in three places.**
+
+1. `deploy/nginx/repopilot.conf` sets `X-Forwarded-For
+   $proxy_add_x_forwarded_for` and carries a comment saying why the line must
+   not be removed. Both host templates carry the same warning.
+2. `docker-compose.yml` publishes the API on `127.0.0.1:4000:4000`, not
+   `4000:4000`, so the direct-reach door is shut in the shipped topology.
+3. `scripts/compose-check.ts` fails if any service other than `web` is
+   published on every host interface, and fails if the nginx config stops
+   forwarding `X-Forwarded-For`. Both checks were falsified: removing the
+   header line and re-publishing the API on `0.0.0.0` each make it exit 1.
+
+**Still open, by design.** The `keyGenerator` is not changed. Preferring the
+header is the correct behaviour behind a proxy, and dropping the loopback
+entries would break local development, where there is no proxy and the client
+genuinely is `127.0.0.1`. The fix belongs in deployment configuration, which is
+where it now is — but a reviewer reading `rate-limit.ts` alone would not see
+it, so the trap is recorded here rather than left to be rediscovered.
+
+## R-25 — A healthy container can be serving an unmigrated database
+
+**Severity:** High
+**Likelihood:** Likely — every fresh deployment starts in this state
+
+**What happens.** `/health` answers HTTP 200 in both the good and the bad
+state; only the body distinguishes them. `status: 'ok'` requires `dbOk &&
+queue.status === 'ok' && queue.acceptingJobs`
+(`apps/api/src/routes/health.ts`), and `dbOk` is a real query —
+`repo.list(1)`. Against a database with no schema that query throws, the body
+says `degraded`, and the response is still `200 OK`.
+
+So a deployment whose database has never been migrated looks healthy to
+everything that checks liveness by status code:
+
+- `docker compose ps` — healthy (the API healthcheck is `r.ok ? 0 : 1`).
+- A Railway, Render or Kubernetes readiness probe pointed at `/health` — ready.
+- A load balancer — in rotation.
+
+…while every audit POST fails at the database layer. The operator sees a
+running stack and a product that does not work, and the two facts do not
+obviously share a cause.
+
+**Why this is recorded even though compose now enforces it.** D-031 fixed the
+compose path by turning the bootstrap into a job that `api` and `worker` wait
+on. Three of the four documented deployment shapes are not compose: Railway,
+Render and the plain-VPS install all require the operator to run
+`node apps/api/dist/db/migrate.js` (or `pnpm db:migrate`) before the API takes
+traffic, and nothing in the application says so if they forget. The condition
+was also live until 2026-09-29, including in the docs — which presented
+`docker compose up -d` as the whole procedure.
+
+**Mitigation.**
+
+1. `docker-compose.yml` runs the bootstrap as a one-shot job and gates `api`
+   and `worker` on `service_completed_successfully` (D-031).
+2. `scripts/compose-check.ts` fails if that ordering is removed — from either
+   service, with the wrong command, or with a server-style restart policy.
+   Four mutations, all caught.
+3. `docs/DEPLOYMENT.md` names the step in every platform section that needs
+   it, and describes what the failure looks like when it is missed.
+
+**Still open.** Nothing in the API distinguishes "I cannot serve" from "a probe
+failed", so no status-code-only check can detect this class. Changing that is a
+larger decision about what `/health` means; the deliberate 200 is recorded as a
+rejected alternative in D-031, so that the next person to meet this does not
+have to re-litigate it from first principles.

@@ -1,33 +1,51 @@
 # =============================================================================
-# nginx configuration template for RepoPilot
+# nginx template for a RepoPilot host install.
 #
-# Replace `api.example.com` with your real domain.
-# This config assumes:
-#   - RepoPilot API is running on 127.0.0.1:4000 (the default)
-#   - You want HTTPS-only with a Let's Encrypt cert at
-#     /etc/letsencrypt/live/api.example.com/
-#   - You want HTTP -> HTTPS redirect
+# This is the *host* variant: nginx is installed on the machine, TLS terminates
+# here, and the API listens on 127.0.0.1:4000. If you are using
+# `docker-compose.yml` instead, you do not need this file — the edge config is
+# baked into the `web` image from `deploy/nginx/repopilot.conf`.
 #
-# To enable:
+# Both variants route identically, and they have to: the browser is the same
+# browser. The routing table is:
+#
+#   /            → the built UI (`apps/web/dist`), SPA fallback
+#   /assets/*    → the same directory, immutable, hashed filenames
+#   /api/*       → the API
+#   /health      → the API
+#   /docs/*      → the API (the OpenAPI document)
+#
+# The API used to be the public root here, with the UI left commented out at an
+# `/app/` subpath. That is not a deployable shape: the API's `GET /` answers a
+# JSON service index, so a visitor to the domain got a JSON blob. The UI is what
+# a visitor asks for, so the UI gets `/`.
+#
+# Before you use this:
+#
+#   1. Replace `example.com` with your domain, everywhere.
+#   2. Build the UI:  pnpm --filter @repopilot/web build
+#      and point `root` at the resulting `apps/web/dist`.
+#   3. Issue a certificate (certbot --nginx -d example.com).
+#   4. Make sure the API is NOT reachable from the internet directly. See the
+#      warning at the bottom — it is a rate-limit bypass, not just untidiness.
+#
 #   sudo cp nginx.conf.example /etc/nginx/sites-available/repopilot.conf
 #   sudo ln -s /etc/nginx/sites-available/repopilot.conf /etc/nginx/sites-enabled/
-#   sudo nginx -t
-#   sudo systemctl reload nginx
+#   sudo nginx -t && sudo systemctl reload nginx
 # =============================================================================
 
-# -- Upstream -------------------------------------------------------------
 upstream repopilot_api {
     server 127.0.0.1:4000;
     keepalive 32;
 }
 
-# -- HTTP -> HTTPS redirect ----------------------------------------------
+# -- HTTP -> HTTPS redirect ---------------------------------------------------
 server {
     listen 80;
     listen [::]:80;
-    server_name api.example.com;
+    server_name example.com;
 
-    # Allow Let's Encrypt http-01 challenge
+    # Allow the Let's Encrypt http-01 challenge through before redirecting.
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
@@ -37,15 +55,15 @@ server {
     }
 }
 
-# -- HTTPS ----------------------------------------------------------------
+# -- HTTPS -------------------------------------------------------------------
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name api.example.com;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
-
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -53,54 +71,140 @@ server {
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
-    # Security headers
+    # HSTS belongs here and only here: this is the block where the connection is
+    # actually https. Declaring it on an http:// origin is ignored by browsers.
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    # Do not advertise the nginx version.
+    server_tokens off;
+
+    # The UI. `pnpm --filter @repopilot/web build` writes here.
+    root /opt/repopilot/apps/web/dist;
+    index index.html;
+
+    # -------------------------------------------------------------------------
+    # Response headers
+    # -------------------------------------------------------------------------
+    #
+    # Careful: nginx's `add_header` inheritance is all-or-nothing per block. The
+    # moment a `location` declares any `add_header`, everything inherited from
+    # this block is discarded. The two locations below that set `Cache-Control`
+    # therefore repeat the security set — if you add a header here, add it there
+    # too, or factor all of them into an `include` file (which is what
+    # `deploy/nginx/snippets/repopilot-security.conf` does for the container
+    # variant).
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "no-referrer" always;
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
-    add_header X-XSS-Protection "0" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'" always;
 
-    # Request size limit (matches the API's body limit)
-    client_max_body_size 5m;
+    # -------------------------------------------------------------------------
+    # Compression
+    # -------------------------------------------------------------------------
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml;
 
-    # Real client IP
-    set_real_ip_from 127.0.0.1;
-    real_ip_header X-Forwarded-For;
+    # -------------------------------------------------------------------------
+    # Request size
+    # -------------------------------------------------------------------------
+    #
+    # The API hard-limits JSON bodies at 64 KB. This is deliberately larger so
+    # the API is the one that rejects, in its own JSON envelope, rather than
+    # nginx returning a bare HTML 413 a JSON client cannot parse.
+    client_max_body_size 128k;
 
-    # Logging
-    access_log /var/log/nginx/repopilot.access.log;
-    error_log  /var/log/nginx/repopilot.error.log warn;
+    # -------------------------------------------------------------------------
+    # API
+    # -------------------------------------------------------------------------
 
-    # Timeouts: full audits can take a while
+    proxy_http_version 1.1;
+
+    # WARNING — X-Forwarded-For is load-bearing, not cosmetic.
+    #
+    # The API's rate limiter keys on this header before falling back to the
+    # socket address, and `@fastify/rate-limit@10.3.0` compares its `allowList`
+    # against that key rather than against `req.ip` (`index.js:233`). The API
+    # allows `127.0.0.1` and `::1`.
+    #
+    # So a proxy that forwards without this header hands the API
+    # `req.ip = 127.0.0.1` — precisely the allowListed address — and rate
+    # limiting is silently disabled for the whole deployment. See R-24.
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host              $host;
+    # Needed for the `keepalive` on the upstream to do anything.
+    proxy_set_header Connection        "";
+
     proxy_connect_timeout 10s;
     proxy_send_timeout    120s;
     proxy_read_timeout    120s;
 
-    # API
-    location / {
+    location /api/ {
         proxy_pass http://repopilot_api;
-        proxy_http_version 1.1;
-
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection        "";
-
-        # Disable buffering for streaming responses (MCP stdio over HTTP/SSE in future)
-        proxy_buffering off;
-        proxy_request_buffering off;
     }
 
-    # /health is cheap; rate limit less strictly
     location = /health {
-        proxy_pass http://repopilot_api;
         access_log off;
+        proxy_pass http://repopilot_api;
     }
 
-    # Static web UI (optional): if you build apps/web and serve it here
-    # location /app/ {
-    #     alias /opt/repopilot/web/dist/;
-    #     try_files $uri $uri/ /index.html;
-    # }
+    location /docs/ {
+        proxy_pass http://repopilot_api;
+    }
+
+    # -------------------------------------------------------------------------
+    # Static UI
+    # -------------------------------------------------------------------------
+
+    # Hashed filenames: safe to cache forever. `try_files ... =404` so a missing
+    # asset is a clean 404 instead of an HTML document served as JavaScript.
+    location /assets/ {
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'" always;
+        try_files $uri =404;
+    }
+
+    # The entry document names the current asset hashes, so it must never be
+    # cached. `try_files`'s `/index.html` fallback lands here too, which is what
+    # gives the SPA its client-side routes without caching them.
+    location = /index.html {
+        expires -1;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'" always;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
 }
+
+# =============================================================================
+# WARNING — the API must not be reachable from the internet.
+#
+# `apps/api/src/server.ts` sets `trustProxy: true`, so Fastify believes
+# `X-Forwarded-For`. Combined with the `allowList` behaviour described above,
+# an API a client can reach directly is an API whose rate limit any client can
+# skip by sending `X-Forwarded-For: 127.0.0.1`.
+#
+#   * Bind it to loopback: `HOST=127.0.0.1`.
+#   * Do not open port 4000 in the firewall.
+#   * If you front it with a second proxy or a load balancer, that proxy must
+#     also set `X-Forwarded-For`, and it must append rather than replace.
+# =============================================================================

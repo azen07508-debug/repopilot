@@ -62,10 +62,19 @@ repopilot/
 
 - `GET /health` — liveness + payment mode + db status
 - `GET /api/v1/capabilities` — service metadata + input/output schema + pricing
-- `POST /api/v1/audits` — start a new audit, returns 402 + challenge on first call, 200 + report after X-PAYMENT replay
-- `GET /api/v1/audits/:jobId` — fetch job status + report
-- `GET /docs/openapi.json` — OpenAPI 3.1 doc (consumed by web UI)
-- Web UI: http://localhost:5173 (dev) / static `apps/web/dist` in Docker
+- `POST /api/v1/audits` — start a new audit: 402 + challenge on the first call,
+  then **202** + `statusUrl` + `pollAfterMs` after the `X-PAYMENT` replay
+  (D-015). Never a report — the report is a separate `GET` on `statusUrl`.
+- `GET /api/v1/audits/:jobId` — job status, and the report once it exists.
+  Answers **202** while queued or processing, 200 when completed, and 200 with a
+  structured `error` when failed (deliberately not a 5xx, so a failed job is
+  never confused with an outage).
+- `GET /docs/openapi.json` — OpenAPI 3.1 doc. Served for external clients; the
+  web UI does not read it (its types come from `@repopilot/core`).
+- Web UI: http://localhost:5173 (dev, Vite) — in Docker it is served by the
+  `web` service at the origin root, with `/api/*`, `/health` and `/docs/*`
+  proxied to the API. See D-030 for the routing table and
+  `deploy/nginx/repopilot.conf` for the config that implements it.
 
 ## Process model (0.1.0-rc.3)
 
@@ -123,12 +132,13 @@ repopilot/
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (882/882; Postgres integration test runs in CI)
+- `pnpm -r test` (899 passed, 2 skipped — the Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
 - `pnpm docker:check` (static review; Docker CLI not in dev sandbox)
-- `pnpm compose:check` (compose file sanity; 0 issues)
+- `pnpm compose:check` (compose + edge topology: build targets, port exposure,
+  schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
   Retry-After, cache miss/hit, cache disabled, free-check 200)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit
@@ -145,7 +155,9 @@ repopilot/
   wallet login must run on the user's host. See `docs/OKX_LIVE_INTEGRATION.md`.
 - **Live audit smoke** (anecdotal, not in `verify:release`): `octocat/Hello-World` returned
   a full report in ~3s with cache miss → 1st request, no rate-limit issues.
-- Docker CI: `.github/workflows/docker.yml` (buildx + smoke `/health`)
+- Docker CI: `.github/workflows/docker.yml` (builds both stages, runs them on
+  one network, and asserts the edge serves the UI at `/`, proxies `/api/*` and
+  `/health`, falls back for deep links, and answers `/healthz` itself)
 
 ## Repository Intelligence upgrade (planning, Phase 0 done)
 

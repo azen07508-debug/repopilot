@@ -1,8 +1,27 @@
 # RepoPilot — Deployment
 
-This document covers local development, Docker, the supported reverse
-proxies, and the production environment variables. The product does
-**not** require any cloud provider; a single VPS works fine.
+This document covers local development, Docker, the production topology,
+the supported reverse proxies, and the production environment variables.
+The product does **not** require any cloud provider; a single VPS works fine.
+
+## Contents
+
+- [Local development](#local-development)
+- [Process model: API and worker](#process-model-api-and-worker)
+- [Single-shot release verification](#single-shot-release-verification)
+- [Docker (single image, API only)](#docker-single-image-api-only)
+- [Docker Compose (db + migrate + api + worker + web)](#docker-compose-db--migrate--api--worker--web)
+- [Production topology](#production-topology)
+- [Reverse proxy](#reverse-proxy)
+  - [In front of the containers](#in-front-of-the-containers)
+  - [nginx or Caddy on the host](#nginx-or-caddy-on-the-host)
+- [Database: SQLite vs Postgres](#database-sqlite-vs-postgres)
+- [Production env checklist](#production-env-checklist)
+- [Platform-specific notes](#platform-specific-notes)
+  - [Railway](#railway)
+  - [Render](#render)
+  - [Plain VPS (Ubuntu 22.04+)](#plain-vps-ubuntu-2204)
+- [Operational guardrails](#operational-guardrails)
 
 ## Local development
 
@@ -79,12 +98,28 @@ pnpm verify:release -- --live
 
 The script never uses real credentials and never calls OKX.
 
-## Docker (single image)
+## Docker (single image, API only)
+
+The default build target is the API. It is multi-stage, runs as a non-root
+user, and embeds a `HEALTHCHECK` that calls `/health`.
 
 ```bash
-docker build -t repopilot:0.1.0-rc.2 .
-docker run --rm -p 4000:4000 \
-  -e NODE_ENV=production \
+docker build -t repopilot:0.1.0-rc.2 .          # → the API image
+mkdir -p data                                   # the container runs as uid 1000
+
+# 1. Apply the schema. A fresh database has no tables and `/health` probes one
+#    (`repo.list(1)`), so this has to happen before the API is any use.
+docker run --rm \
+  -e NODE_ENV=development \
+  -e PAYMENT_MODE=mock \
+  -e DATABASE_URL=file:/data/repopilot.db \
+  -v $(pwd)/data:/data \
+  repopilot:0.1.0-rc.2 \
+  node apps/api/dist/db/migrate.js
+
+# 2. Serve.
+docker run --rm -p 127.0.0.1:4000:4000 \
+  -e NODE_ENV=development \
   -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
@@ -95,24 +130,144 @@ docker run --rm -p 4000:4000 \
 curl http://127.0.0.1:4000/health
 ```
 
-The image is multi-stage, runs as a non-root user, and embeds a
-`HEALTHCHECK` that calls `/health`.
+`NODE_ENV=development` here is deliberate, not a simplification: the API
+refuses to start with `NODE_ENV=production` plus `PAYMENT_MODE=mock` or the
+default inline queue (`apps/api/src/config.ts` `validateProductionConfig`,
+R-02), and a production config also requires a Postgres `DATABASE_URL`. A real
+deployment therefore needs `PAYMENT_MODE=okx`, `OKX_PAYMENT_ADDRESS` and
+`AUDIT_QUEUE_DRIVER=pg-boss` — which is what the compose file sets, and why it
+is the recommended path.
 
-## Docker Compose (api + Postgres)
+This image serves the API and nothing else. It does **not** serve the UI: the
+`apps/web/dist` copy that used to sit inside it was never read by any process,
+and it now belongs to the `web` image instead (D-030). To run the whole thing,
+use compose.
+
+Bind the published port to loopback as above, not `-p 4000:4000`. See the
+warning under *Reverse proxy* — an internet-reachable API is a rate-limit
+bypass (R-24).
+
+To build the UI image by hand:
+
+```bash
+docker build --target web -t repopilot-web:0.1.0-rc.2 .
+```
+
+## Docker Compose (db + migrate + api + worker + web)
 
 ```bash
 docker compose up -d
-docker compose ps
-curl http://127.0.0.1:4000/health
+docker compose ps                     # `migrate` shows "exited (0)" — that is success
+curl http://127.0.0.1:8080/health     # through the edge
+curl http://127.0.0.1:8080/           # the UI
 docker compose down
 ```
 
-The compose file:
+Five services. **`migrate` runs once and exits; `web` is the only one that
+publishes a port.**
 
-- Builds the image from `Dockerfile`
-- Mounts `./data/postgres` and `./data/api` for persistence
-- Wires `DATABASE_URL=postgres://...` to the API container
-- Waits for Postgres health before starting the API
+| Service   | What it is                                                   | Published          |
+|-----------|--------------------------------------------------------------|--------------------|
+| `db`      | Postgres 16                                                   | no                 |
+| `migrate` | one-shot schema bootstrap, then exits 0                       | no                 |
+| `api`     | Fastify HTTP server, enqueue-only (`REPOPILOT_API_MODE=http`)  | `127.0.0.1:4000`   |
+| `worker`  | pg-boss consumer                                              | no                 |
+| `web`     | nginx: serves `apps/web/dist` at `/`, proxies the API          | `${WEB_PORT:-8080}` |
+
+Notes on the shape:
+
+- The compose file builds **two images from one `Dockerfile`**, selected by
+  `target`: `runtime` for `migrate`, `api` and `worker`, `web` for the edge.
+- **`migrate` runs before `api` and `worker`**, which wait on
+  `service_completed_successfully`. Neither `server.js` nor `worker.js` applies
+  migrations, and `/health` probes the database (`repo.list(1)` in `server.ts`),
+  so without this step a fresh deployment answers `degraded` forever and every
+  audit fails at the database — while every container still reports healthy,
+  because `/health` returns HTTP 200 either way. Re-running is safe: every
+  statement in `runMigrations` is `IF NOT EXISTS`.
+- `db` uses the named volume `repopilot-db`. It does not bind-mount `./data`.
+- `api` is published on loopback only. That is a security boundary, not
+  tidiness — see the warning under *Reverse proxy* below and R-24.
+- `worker` has no port; its healthcheck (`kill -0 1`) only proves the process
+  is alive. Worker liveness is visible through the API's queue health.
+- The edge's healthcheck fetches `/` and looks for the app shell, so "healthy"
+  means "this deployment serves the UI", not merely "nginx started".
+
+Override the edge's port with `WEB_PORT=80 docker compose up -d`.
+
+## Production topology
+
+One public origin. The edge owns `/`; the API is reached only through it.
+
+```text
+browser ──► web (nginx)
+              ├── /            → apps/web/dist, SPA fallback
+              ├── /assets/*    → the same directory, immutable
+              ├── /api/*       → api:4000
+              ├── /health      → api:4000
+              ├── /docs/*      → api:4000
+              └── /healthz     → nginx itself
+```
+
+Two consequences worth knowing before you deploy:
+
+- **The UI is served from the origin root**, so `apps/web` keeps
+  `base: '/'`. A sub-path deployment (`/repopilot/`) would need `base`, the
+  router's basename and the proxy's `location` to agree — it is not supported.
+- **The API's `GET /` service index is shadowed** by the UI and is only
+  reachable from inside the network. That is intentional.
+
+The container config lives at `deploy/nginx/repopilot.conf`; the host-install
+templates are in `docs/deployment/`. Both route identically. `pnpm
+compose:check` asserts that they do, without needing a Docker CLI.
+
+## Reverse proxy
+
+There are two supported shapes, and they must route the same way.
+
+### In front of the containers
+
+Nothing to do: the `web` service *is* the reverse proxy. Point your DNS at the
+host and put TLS in front of it, or terminate TLS in the `web` container by
+mounting a certificate and extending `deploy/nginx/repopilot.conf`.
+
+### nginx or Caddy on the host
+
+Use `docs/deployment/nginx.conf.example` or
+`docs/deployment/Caddyfile.example`. Both serve the UI at `/` and proxy
+`/api/*`, `/health` and `/docs/*` to the API. The essential part is the split,
+not the TLS settings:
+
+```nginx
+upstream repopilot_api { server 127.0.0.1:4000; keepalive 32; }
+
+server {
+  listen 443 ssl;
+  server_name example.com;
+
+  root /opt/repopilot/apps/web/dist;
+  index index.html;
+
+  # Load-bearing: the API's rate limiter keys on this header, and matches its
+  # allowList against that key rather than against req.ip. Without it the API
+  # sees 127.0.0.1 — the allowListed address — and rate limiting stops. R-24.
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+  location /api/  { proxy_pass http://repopilot_api; }
+  location = /health { proxy_pass http://repopilot_api; }
+  location /docs/ { proxy_pass http://repopilot_api; }
+  location /      { try_files $uri $uri/ /index.html; }
+}
+```
+
+> **The API must not be reachable from the internet.** `apps/api/src/server.ts`
+> sets `trustProxy: true`, so Fastify believes `X-Forwarded-For` from anyone.
+> A directly reachable API is one whose rate limit any client can skip by
+> sending `X-Forwarded-For: 127.0.0.1`. Bind it to loopback (`HOST=127.0.0.1`)
+> and do not open port 4000 in the firewall. See R-24.
+
+Caddy needs no certificate step: `reverse_proxy` sets `X-Forwarded-For` itself,
+appending rather than replacing, which is the behaviour the API needs.
 
 ## Database: SQLite vs Postgres
 
@@ -138,66 +293,6 @@ To switch from SQLite to Postgres in production:
    (planned for 0.2.0; until then, do a one-shot job by running the
    pipeline directly)
 
-## Reverse proxy: nginx
-
-`docs/deployment/nginx.conf.example` provides a full template. The
-essentials are:
-
-```nginx
-# Redirect HTTP -> HTTPS
-server {
-  listen 80;
-  server_name api.example.com;
-  return 301 https://$host$request_uri;
-}
-
-server {
-  listen 443 ssl http2;
-  server_name api.example.com;
-
-  ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
-
-  # Real client IP (Fastify uses req.ip)
-  real_ip_header X-Forwarded-For;
-  set_real_ip_from <reverse_proxy_internal_subnet>;
-
-  client_max_body_size 5m;
-
-  location / {
-    proxy_pass http://127.0.0.1:4000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_http_version 1.1;
-    proxy_read_timeout 120s;
-    proxy_send_timeout 120s;
-  }
-}
-```
-
-## Reverse proxy: Caddy
-
-`docs/deployment/Caddyfile.example` provides a full template. The
-essentials are:
-
-```caddy
-api.example.com {
-  encode gzip zstd
-  reverse_proxy 127.0.0.1:4000 {
-    header_up Host {host}
-    header_up X-Real-IP {remote_host}
-    header_up X-Forwarded-For {remote_host}
-    header_up X-Forwarded-Proto {scheme}
-    transport http {
-      read_timeout 120s
-      dial_timeout 10s
-    }
-  }
-}
-```
-
-Caddy will automatically request a Let's Encrypt certificate.
 
 ## Production env checklist
 
@@ -217,29 +312,56 @@ secret.
 
 ## Platform-specific notes
 
+The deployable unit is **two images from one Dockerfile**: `runtime` (the API,
+and the worker as a separate command) and `web` (nginx + the built UI). A
+platform that runs one container per service needs three — the API, the edge,
+and the worker — plus a one-shot schema bootstrap that runs before the API
+takes traffic. A platform that can only run one container can still host the
+API there and the UI somewhere static, but then `CORS_ORIGINS` must name the
+UI's origin, because the browser is no longer same-origin (D-030,
+consequence 2).
+
 ### Railway
 
-- Use the `Dockerfile`; expose port `4000`
-- Add a Postgres service and point `DATABASE_URL` at its connection
-  string
-- Set `NODE_ENV=production` in the service variables
+- Three services from this repo: the API (default build target, port `4000`),
+  the edge (the Dockerfile's `web` target, port `80`), and a background worker
+  running `node apps/api/dist/worker.js`. Without the worker the queue is never
+  consumed.
+- Add a Postgres service and point `DATABASE_URL` at its connection string.
+- Apply the schema once before the API takes traffic: a one-shot
+  `node apps/api/dist/db/migrate.js` against the same `DATABASE_URL`. A fresh
+  database has no tables and `/health` probes one, so the API answers
+  `degraded` until this has run.
+- Set `NODE_ENV=production`, and `HOST=0.0.0.0` on the API service so the
+  platform's router can reach it. That is safe here because the platform's
+  router is the only thing that can, and it sets `X-Forwarded-For`.
 
 ### Render
 
-- Use the `Dockerfile`; set the health check path to `/health`
-- Render's managed Postgres works with the default `postgres` URL format
+- Same three-service split. Set the API service's health check path to
+  `/health` and the edge service's to `/`.
+- Render's managed Postgres works with the default `postgres://` URL format.
+- The worker is a background worker service running
+  `node apps/api/dist/worker.js`.
+- Run the schema bootstrap once per deploy — a job service running
+  `node apps/api/dist/db/migrate.js` — before the API takes traffic.
 
 ### Plain VPS (Ubuntu 22.04+)
 
 1. `apt install -y nodejs npm` then `corepack enable`
-2. `git clone` the repo, `pnpm install`, `pnpm build`
-3. `cp .env.example .env` and edit (production values)
+2. `git clone` the repo, `pnpm install`, `pnpm build` — this also writes
+   `apps/web/dist`, which is what the proxy serves
+3. `cp .env.example .env` and edit (production values). Keep `HOST=127.0.0.1`
 4. `pnpm db:migrate`
-5. Create a `systemd` unit pointing at `node /opt/repopilot/apps/api/dist/server.js`
-6. `cp docs/deployment/nginx.conf.example /etc/nginx/sites-available/api.conf`
-7. `certbot --nginx -d api.example.com`
-8. `systemctl restart repopilot nginx`
-9. `curl https://api.example.com/health` to confirm
+5. Create a `systemd` unit pointing at
+   `node /opt/repopilot/apps/api/dist/server.js`, and a second one for
+   `node /opt/repopilot/apps/api/dist/worker.js`
+6. `cp docs/deployment/nginx.conf.example /etc/nginx/sites-available/repopilot.conf`
+   and set `root` to the absolute path of `apps/web/dist`
+7. `certbot --nginx -d example.com`
+8. `systemctl restart repopilot-api repopilot-worker nginx`
+9. `curl https://example.com/health` to confirm the proxy reaches the API, and
+   open `https://example.com/` for the UI
 
 ## Operational guardrails
 

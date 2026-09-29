@@ -1,6 +1,42 @@
 version: "3.9"
 
 services:
+  # Schema bootstrap. One-shot: it runs the compiled migration runner, exits 0,
+  # and both database-touching processes wait for that exit code.
+  #
+  # This service exists because nothing else applies migrations. `api` starts
+  # `server.js` and `worker` starts `worker.js`; neither calls `runMigrations`.
+  # Without this, a fresh `docker compose up -d` brings up an API whose
+  # `checkDatabase` probe (`repo.list(1)`, `server.ts`) throws `no such table`,
+  # so `/health` reports `degraded` forever and every audit POST fails at the
+  # database — while every container still reports healthy, because `/health`
+  # answers HTTP 200 either way.
+  #
+  # This file used to say "run `pnpm db:migrate` once" instead. That step
+  # cannot be run here: the runtime image carries `dist/` and `node_modules/`
+  # but not `tsx`, which is what the `db:migrate` script shells out to. The
+  # runner is reachable as `dist/db/migrate.js`, so it is invoked directly.
+  #
+  # Safe to re-run on every `up`: every statement in `runMigrations` is
+  # `CREATE ... IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` (see
+  # `apps/api/src/db/client.ts`).
+  migrate:
+    build: .
+    image: repopilot:latest
+    container_name: repopilot-migrate
+    # A job, not a server: never restart it, and its exit code is the signal.
+    restart: "no"
+    command: ["node", "apps/api/dist/db/migrate.js"]
+    environment:
+      NODE_ENV: production
+      AUDIT_QUEUE_DRIVER: pg-boss
+      DATABASE_URL: postgresql://repopilot:repopilot@db:5432/repopilot
+      PAYMENT_MODE: ${PAYMENT_MODE:-okx}
+      OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build: .
     image: repopilot:latest
@@ -22,12 +58,60 @@ services:
       PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.10}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
-      - "4000:4000"
+      # Loopback only, deliberately. The public entry point is the `web`
+      # service; this mapping exists so an operator can still run
+      # `curl http://127.0.0.1:4000/health` on the host. Publishing the API on
+      # every interface would defeat two things:
+      #
+      #   1. `trustProxy: true` (`server.ts`) makes Fastify believe
+      #      `X-Forwarded-For`. A client that can reach the API directly can
+      #      therefore send `X-Forwarded-For: 127.0.0.1` and be matched against
+      #      the rate limiter's `allowList` — a full bypass.
+      #   2. `@fastify/rate-limit` compares `allowList` against the key the
+      #      `keyGenerator` produced, not against `req.ip`
+      #      (`index.js:233`), and the key prefers `X-Forwarded-For`. Traffic
+      #      that skips the edge is traffic the edge's accounting never sees.
+      #
+      # R-24 records the same trap from the proxy side.
+      - "127.0.0.1:4000:4000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # The only service that publishes a port to the world. It serves the built UI
+  # at `/` and proxies `/api/*`, `/health` and `/docs/*` to `api:4000`; the
+  # routing table and the reasoning live in `deploy/nginx/repopilot.conf`.
+  #
+  # `depends_on: service_healthy` here is about *start order*, not liveness.
+  # Compose does not tear down or restart a dependent service when a dependency
+  # later fails, so gating the edge on the API's first healthy moment does not
+  # mean "an API outage takes the UI down with it" — the edge keeps serving the
+  # static shell, which is exactly what its own healthcheck measures.
+  web:
+    build:
+      context: .
+      target: web
+    image: repopilot-web:latest
+    container_name: repopilot-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # Asks whether the *deployment* works, not merely whether the process is
+      # alive: nginx answering on `/healthz` only proves nginx started, so this
+      # fetches `/` and looks for the built entry document. Deliberately not a
+      # proxied `/health` — that would restart the edge during an API outage.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ | grep -q 'id=\"root\"' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -50,6 +134,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # Scale with: docker compose up --scale worker=N
     # The healthcheck below only ensures the process is alive (it
     # doesn't bind a port). Worker liveness is verified through the

@@ -136,6 +136,15 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+      # Static review of docker-compose.yml, the Dockerfile and the edge nginx
+      # config. It needs no Docker CLI, so it can run on every push — and it
+      # should, because these three files are only correct *together*: a `web`
+      # service whose nginx does not proxy `/api/` is a UI that cannot reach
+      # its own backend, and the YAML still looks fine on its own. Until now
+      # the only thing that ever read them was the PR-only Docker workflow.
+      - name: Deploy topology (compose + edge routing)
+        run: pnpm compose:check
+
       - name: Test
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgres://repopilot:repopilot_test@localhost:5432/repopilot_test') || 'file::memory:?cache=shared' }}

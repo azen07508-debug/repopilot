@@ -641,6 +641,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The web UI has a production home.** Three artifacts disagreed about where
+  it lived and none of them served it: the `Dockerfile` built
+  `apps/web/dist` into the API image where no process ever read it, both
+  reverse-proxy examples proxied `/` to the API and left the UI commented out
+  at an `/app/` subpath — a shape that hands a browser the API's JSON service
+  index — and `PROJECT_STATE.md` described the first of those as if it worked.
+  There is now one public origin, owned by an nginx `web` service built from a
+  `web` stage of the same Dockerfile: `/` and `/assets/*` serve the built UI
+  with an SPA fallback, `/api/*`, `/health` and `/docs/*` proxy to Fastify, and
+  `/healthz` answers from the edge (D-030).
+  - The `web` stage is placed **before** `runtime` because Docker's default
+    target is the last stage and `docker:check` / `docker.yml` build without
+    `--target` expecting the API image. Both now name the target explicitly.
+  - `apps/web` keeps `base: '/'`. The sub-path deployment question is closed
+    rather than deferred: at the origin root there is no sub-path.
+  - The API image no longer carries `apps/web/dist`, and the API is published
+    on `127.0.0.1` only in compose.
+  - `docs/deployment/nginx.conf.example` and `Caddyfile.example` were rewritten
+    to the same routing table, and `docs/DEPLOYMENT.md` gained a *Production
+    topology* section. Its compose description was also wrong — it claimed
+    `./data/postgres` bind mounts that the compose file has never had.
+- **`pnpm compose:check` now checks the topology, not just the YAML.** It
+  asserts the `web` service exists on the right build target with a
+  healthcheck, that nothing but the edge is published on every host interface,
+  and that `deploy/nginx/repopilot.conf` actually routes `/api/`, `/health`,
+  `/docs/` and the SPA fallback, forwards `X-Forwarded-For`, and that every
+  `include` in it has a file behind it. A compose file is only correct together
+  with the config inside the image it builds, and the YAML looks fine on its
+  own. It runs in CI now, and twelve mutations — each a real defect from the
+  list above or from D-031 — were reintroduced one at a time and all twelve
+  were caught.
+- **`docker compose up -d` brought up a deployment that could not audit
+  anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
+  stack ran against an empty database: the `/health` probe (`repo.list(1)`)
+  threw `no such table`, `/health` answered `degraded` forever, and every audit
+  POST failed at the database layer — while every container reported healthy,
+  because `/health` returns HTTP 200 either way. `docker compose ps` showed a
+  full set of green ticks. The docs had prescribed "run `pnpm db:migrate`
+  once", which cannot be run in the runtime image: it carries `dist/` and
+  `node_modules/` but no `tsx`, which is what the script shells out to. There
+  is now a one-shot `migrate` service running `node
+  apps/api/dist/db/migrate.js`, and both `api` and `worker` wait on it with
+  `service_completed_successfully` (D-031). Re-running is a no-op — every
+  statement in `runMigrations` is `IF NOT EXISTS`. `compose:check` asserts the
+  ordering, and four mutations cover it (M9–M12). R-25 records the residual
+  risk for the three deployment shapes that are not compose.
+- **The single-image Docker instructions could not start.** The documented
+  `docker run` set `NODE_ENV=production` with `PAYMENT_MODE=mock`, which
+  `validateProductionConfig` rejects outright (R-02) — and it also omitted
+  `AUDIT_QUEUE_DRIVER`, whose `inline` default is rejected in production for the
+  same reason. It now runs as `NODE_ENV=development`, applies the schema first,
+  and states what a production config actually requires. The Railway and Render
+  sections gained the migration step they were missing.
+- **`.github/workflows/docker.yml` runs on push to `main`, and smoke-tests the
+  topology rather than each image alone.** It builds both stages, runs them on
+  one docker network, and asserts that `/` serves the app shell, `/api/*` and
+  `/health` proxy through to the API, a deep link returns the shell instead of
+  a 404, and `/healthz` answers from the edge. It was PR-only, so a Dockerfile
+  change could merge without its own build ever running. It applies the schema
+  before it serves, and it deliberately runs the API in `development` config:
+  a production-shaped environment is refused by the R-02 guard before the first
+  request arrives, which would have made every routing assertion fail for a
+  reason that has nothing to do with routing.
+- **`PROJECT_STATE.md` claimed `POST /api/v1/audits` answers "200 + report
+  after X-PAYMENT replay".** It answers 202 with `statusUrl` and `pollAfterMs`,
+  which is what D-015 says and what `routes/audits.ts` does. The same list said
+  the OpenAPI document is "consumed by web UI"; the web client never fetches
+  it. Both corrected.
+
 - **The documentation index now covers every document it claims to.**
   `docs/INDEX.md` opens with "the single entry point for every document
   in the repository" and did not link six of them — including
