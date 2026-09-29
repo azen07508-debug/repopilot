@@ -83,6 +83,35 @@ else
   ok "Node $docker_majors (engines.node '$engines_node')"
 fi
 
+# 2c. Every package the builder builds must also be installed by it.
+#
+# `pnpm install --filter` decides what exists in `node_modules`; the later
+# `pnpm --filter ... build` list decides what gets compiled. They are two
+# hand-maintained lists in one file, and nothing but this check keeps them in
+# sync. `@repopilot/web` was in the second and not the first, so the builder ran
+# `tsc && vite build` against a missing `node_modules` and died with
+# `TS2688: Cannot find type definition file for 'vite/client'` — a full stage
+# after the install had succeeded, which is why it read as a web problem rather
+# than as an install problem.
+echo "2c. builder install/build filter agreement"
+install_filters="$(grep -E 'pnpm install' Dockerfile 2>/dev/null \
+  | grep -oE '\-\-filter @[A-Za-z0-9/_-]+' | sed 's/.*--filter //' | sort -u || true)"
+build_filters="$(grep -oE 'pnpm --filter @[A-Za-z0-9/_-]+ build' Dockerfile 2>/dev/null \
+  | sed 's/.*--filter //; s/ build$//' | sort -u || true)"
+if [ -z "$install_filters" ] || [ -z "$build_filters" ]; then
+  warn "could not read both filter lists from the Dockerfile — check 2c skipped"
+else
+  not_installed=""
+  for pkg in $build_filters; do
+    printf '%s\n' "$install_filters" | grep -qx -- "$pkg" || not_installed="$not_installed $pkg"
+  done
+  if [ -n "$not_installed" ]; then
+    err "the builder builds packages it never installs:$not_installed — the build will fail on a missing type definition, not a missing dependency"
+  else
+    ok "install and build filters agree ($(printf '%s\n' "$build_filters" | wc -l | tr -d '[:space:]') packages)"
+  fi
+fi
+
 # 3. Compose services
 echo "3. docker-compose sanity"
 if grep -q '^services:' docker-compose.yml 2>/dev/null; then

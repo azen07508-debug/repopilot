@@ -21,7 +21,14 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/mcp-server/package.json packages/mcp-server/package.json
 COPY packages/okx-adapter/package.json packages/okx-adapter/package.json
-RUN pnpm install --filter @repopilot/core... --filter @repopilot/okx-adapter... --filter @repopilot/mcp-server... --filter @repopilot/api... --frozen-lockfile=false
+# `--filter ...` decides what exists in `node_modules`; the build list below
+# decides what gets compiled. `@repopilot/web` used to be in the second and not
+# the first, so `tsc && vite build` ran against a missing `node_modules` and
+# died with `TS2688: Cannot find type definition file for 'vite/client'` — one
+# stage after the install had succeeded, which is why it read as a web problem
+# rather than an install problem. `docker:check` now asserts the two lists
+# agree, because they are two hand-maintained lists in one file.
+RUN pnpm install --filter @repopilot/core... --filter @repopilot/okx-adapter... --filter @repopilot/mcp-server... --filter @repopilot/api... --filter @repopilot/web... --frozen-lockfile=false
 COPY . .
 RUN pnpm --filter @repopilot/core build && \
     pnpm --filter @repopilot/okx-adapter build && \

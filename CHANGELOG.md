@@ -669,9 +669,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/docs/` and the SPA fallback, forwards `X-Forwarded-For`, and that every
   `include` in it has a file behind it. A compose file is only correct together
   with the config inside the image it builds, and the YAML looks fine on its
-  own. It runs in CI now, and fourteen mutations — each a real defect from the
-  list above, from D-031, or from the Dockerfile's Node base image — were
-  reintroduced one at a time and all fourteen were caught.
+  own. It runs in CI now, and fifteen mutations — each a real defect from the
+  list above, from D-031, or from the Dockerfile's Node base image and its
+  install/build filter lists — were reintroduced one at a time and all fifteen
+  were caught.
 - **`docker compose up -d` brought up a deployment that could not audit
   anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
   stack ran against an empty database: the `/health` probe (`repo.list(1)`)
@@ -815,6 +816,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enough: `node_modules` is copied from `builder` into `runtime` and carries a
   compiled `better-sqlite3`, so a split major fails at *runtime* with
   `NODE_MODULE_VERSION`.
+- **The builder compiled `@repopilot/web` without ever installing it.** The
+  `pnpm install --filter` list named four packages and the `pnpm --filter ...
+  build` list named five, so `tsc && vite build` ran against a missing
+  `node_modules` and died with `TS2688: Cannot find type definition file for
+  'vite/client'` — a full stage after the install had succeeded, which is why
+  it read as a web problem rather than an install problem. Both lists are
+  hand-maintained in one file and nothing kept them in sync; `docker:check` now
+  asserts that everything the builder builds it also installs.
 - **`docker:check` could not fail.** `err` printed a red ✗ and the script
   still exited 0, so every static assertion in it — including "the Dockerfile
   is present" — was advisory. It now counts errors and exits 1 before the
