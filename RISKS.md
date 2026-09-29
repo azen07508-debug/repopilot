@@ -2,6 +2,34 @@
 
 Active risks the team is aware of and how they are mitigated.
 
+## Contents
+
+- [R-01](#r-01--sandbox-escape-via-target-repo-content) — Sandbox escape via target repo content
+- [R-02](#r-02--mock-payment-silently-used-in-production) — Mock payment silently used in production
+- [R-03](#r-03--github-rate-limiting-anonymous-60-reqh) — GitHub rate limiting (anonymous 60 req/h)
+- [R-04](#r-04--dependency-drift-zod--mcp-sdk--pino) — Dependency drift (zod / MCP SDK / pino)
+- [R-05](#r-05--zod-325--registry-mirror-gap) — zod 3.25 / registry mirror gap
+- [R-06](#r-06--sqlite-in-production-by-accident) — SQLite in production by accident
+- [R-07](#r-07--cors-misconfiguration-in-production) — CORS misconfiguration in production
+- [R-08](#r-08--prompt-injection-in-readme--source) — Prompt injection in README / source
+- [R-09](#r-09--database-file-locked--migration-crash) — Database file locked / migration crash
+- [R-10](#r-10--log-redaction-bypass) — Log redaction bypass
+- [R-11](#r-11--marketplace-hero--branding-not-provided) — Marketplace hero / branding not provided
+- [R-12](#r-12--pii-leakage-from-the-audited-repo) — PII leakage from the audited repo
+- [R-13](#r-13--long-running-full-audits-time-out) — Long-running `full` audits time out
+- [R-14](#r-14--docker-sandbox-not-available-in-dev) — Docker sandbox not available in dev
+- [R-15](#r-15--user-shares-real-okx-keys-in-chat) — User shares real OKX keys in chat
+- [R-16](#r-16--inline-audit-queue-used-in-production-in-process-no-durability)
+  — Inline audit queue used in production (in-process, no durability)
+- [R-17](#r-17--tarball-extraction-exhausts-disk--memory) — Tarball extraction exhausts disk / memory
+- [R-18](#r-18--ast-parsing-oom-on-a-pathological-file) — AST parsing OOM on a pathological file
+- [R-19](#r-19--compare-api-returns-a-truncated-diff) — Compare API returns a truncated diff
+- [R-20](#r-20--intelligence-artifacts-inflate-report_json) — Intelligence artifacts inflate `report_json`
+- [R-21](#r-21--new-dependency-breaks-the-zod--mcp-sdk-pins) — New dependency breaks the zod / MCP SDK pins
+- [R-22](#r-22--a-lockfile-drives-securityhygiene-to-0) — A lockfile drives `securityHygiene` to 0
+- [R-23](#r-23--two-hits-of-one-rule-on-one-line-share-a-fingerprint)
+  — Two hits of one rule on one line share a fingerprint
+
 ---
 
 ## R-01 — Sandbox escape via target repo content
@@ -285,7 +313,7 @@ Measured on a synthetic repository whose only files were a
 `pnpm-lock.yaml` with 400 integrity digests, a one-line `src/index.ts`, a
 README and a LICENSE:
 
-```
+```text
 securityFindings: 389   (388 low from pnpm-lock.yaml, 1 medium from .gitignore)
 fixtureFindings:    0
 securityHygiene:    0
@@ -352,7 +380,7 @@ slug resolves through the registry's `secret-` prefix to the single rule
 id `SEC-SECRET-001`. One line carrying an AWS key and a Stripe key is
 therefore two findings with two ids and **one** fingerprint:
 
-```
+```text
 id=secret-aws_access_key-1-src-config-ts   fingerprint=6537623962375d80
 id=secret-stripe_live_key-1-src-config-ts  fingerprint=6537623962375d80
 ```

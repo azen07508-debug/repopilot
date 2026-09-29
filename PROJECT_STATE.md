@@ -10,6 +10,22 @@
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
 > view**; the user / buyer view lives in [README.md](README.md).
 
+## Contents
+
+- [One-line description](#one-line-description)
+- [Stack](#stack)
+- [Layout](#layout)
+- [Service endpoints (local)](#service-endpoints-local)
+- [Process model (0.1.0-rc.3)](#process-model-010-rc3)
+- [MCP server](#mcp-server)
+- [Payment model](#payment-model)
+- [Test baseline (2026-09-28)](#test-baseline-2026-09-28-1500-utc)
+- [Quality gates already passing](#quality-gates-already-passing)
+- [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
+- [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
+- [Recent shipped changes (0.1.0-rc.2)](#recent-shipped-changes-010-rc2)
+- [Known external blockers](#known-external-blockers)
+
 ## One-line description
 
 RepoPilot audits public GitHub repositories and returns a structured launch report with
@@ -28,7 +44,7 @@ analysis only; never executes the audited repository's code.
 
 ## Layout
 
-```
+```text
 repopilot/
   apps/
     api/      # Fastify HTTP API
@@ -113,7 +129,8 @@ repopilot/
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
 - `pnpm docker:check` (static review; Docker CLI not in dev sandbox)
 - `pnpm compose:check` (compose file sanity; 0 issues)
-- `pnpm verify:release` (full end-to-end smoke; covers 202 + Location + Retry-After, cache miss/hit, cache disabled, free-check 200)
+- `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
+  Retry-After, cache miss/hit, cache disabled, free-check 200)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit
   lifecycle, cache miss/hit, cache disabled
 - MCP smoke: stdio initialize + tools/list

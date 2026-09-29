@@ -132,7 +132,7 @@ Project meta:
 
 ## Project layout
 
-```
+```text
 repopilot/
   apps/
     api/      Fastify HTTP API

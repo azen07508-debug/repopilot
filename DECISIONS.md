@@ -2,6 +2,55 @@
 
 Architecture Decision Records (ADR-style, lightweight).
 
+## Contents
+
+- [D-001](#d-001--typescript-strict--nodenext-esm) — TypeScript strict + NodeNext ESM
+- [D-002](#d-002--pnpm-workspaces--allowbuilds-for-native-modules) — pnpm workspaces + `allowBuilds` for native modules
+- [D-003](#d-003--zod-3241--mcp-sdk-1220) — Zod 3.24.1 + MCP SDK 1.22.0
+- [D-004](#d-004--pino-10--named-import) — Pino 10 + named import
+- [D-005](#d-005--drizzle-hand-rolled-migrations-no-drizzle-kit) — Drizzle hand-rolled migrations (no `drizzle-kit`)
+- [D-006](#d-006--mock-payment-is-the-dev-default-okx-is-opt-in) — Mock payment is the dev default, OKX is opt-in
+- [D-007](#d-007--static-analysis-only) — Static analysis only
+- [D-008](#d-008--evidence-is-mandatory-for-every-finding) — Evidence is mandatory for every finding
+- [D-009](#d-009--llm-is-optional-not-load-bearing) — LLM is optional, not load-bearing
+- [D-010](#d-010--single-process-api--worker-model-for-now) — Single-process API + worker model (for now)
+- [D-011](#d-011--two-payment-tests-never-one-shared-one) — Two payment tests, never one shared one
+- [D-012](#d-012--pino-redact-covers-all-known-secret-paths) — Pino redact covers all known secret paths
+- [D-013](#d-013--auditqueue-interface--two-adapters-inline--pgboss)
+  — AuditQueue interface + two adapters (Inline / PgBoss)
+- [D-014](#d-014--single-auditworker-is-the-only-state-machine-owner)
+  — Single `AuditWorker` is the only state-machine owner
+- [D-015](#d-015--audit-post-always-returns-202-free-check-stays-200)
+  — Audit POST always returns 202, Free Check stays 200
+- [D-016](#d-016--production-must-use-a-persistent-queue) — Production must use a persistent queue
+- [D-017](#d-017--repository-io-切换到-tarball-批量拉取) — Repository I/O 切换到 tarball 批量拉取
+- [D-018](#d-018--symbol-parser-selection-typescript-compiler-api--regex-fallback)
+  — Symbol parser selection (TypeScript compiler API + regex fallback)
+- [D-019](#d-019--mcp-billing-split-report-tools-paid-query-tools-free)
+  — MCP billing split (report tools paid, query tools free)
+- [D-020](#d-020--changesource-abstraction-compare-api-first-local-git-later)
+  — ChangeSource abstraction (Compare API first, local git later)
+- [D-021](#d-021--intelligence-artifact-caching) — Intelligence artifact caching
+- [D-022](#d-022--the-severity-penalty-is-capped-per-file-rule) — The severity penalty is capped per `(file, rule)`
+- [D-023](#d-023--collectfindings-dedupes-on-the-comparison-key-and-the-finding-id)
+  — `collectFindings` dedupes on the comparison key *and* the finding id
+- [D-024](#d-024--the-tarball-is-decompressed-in-memory-not-onto-disk)
+  — The tarball is decompressed in memory, not onto disk
+- [D-025](#d-025--repository-map-importance-is-absolute-and-only-the-tree-is-a-source-of-paths)
+  — Repository Map importance is absolute, and only the tree is a source
+  of paths
+- [D-026](#d-026--symbol-map-syntactic-extraction-and-a-missing-extractor-is-reported-rather-than-guessed)
+  — Symbol Map: syntactic extraction, and a missing extractor is reported
+  rather than guessed
+- [D-027](#d-027--dependency-graph-the-unit-of-an-edge-is-the-unit-the-language-imports)
+  — Dependency Graph: the unit of an edge is the unit the language imports
+- [D-028](#d-028--the-intelligence-artifacts-get-their-own-tools-and-free-means-no-pipeline)
+  — The intelligence artifacts get their own tools, and "free" means no
+  pipeline
+- [D-029](#d-029--pointing-the-tools-at-a-real-repository-and-what-the-guard-for-the-fix-turned-out-to-be-missing)
+  — Pointing the tools at a real repository, and what the guard for the
+  fix turned out to be missing
+
 ---
 
 ## D-001 — TypeScript strict + NodeNext ESM

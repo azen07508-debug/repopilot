@@ -17,7 +17,7 @@ the `audit_github_repository` tool.
 
 ## High-level diagram
 
-```
+```text
                    ┌──────────────────────────────────────────────┐
                    │  Clients                                     │
                    │  - Web UI (apps/web)                         │

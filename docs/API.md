@@ -3,6 +3,23 @@
 Base URL: `http://localhost:4000` (default). All routes are under
 `/api/v1` except `/health`.
 
+## Contents
+
+- [`GET /health`](#get-health)
+- [`GET /api/v1/capabilities`](#get-apiv1capabilities)
+- [`POST /api/v1/free-check`](#post-apiv1free-check)
+- [`POST /api/v1/audits`](#post-apiv1audits)
+- [`GET /api/v1/audits/:jobId`](#get-apiv1auditsjobid)
+- [Derived, read-only endpoints](#derived-read-only-endpoints)
+- [`GET /api/v1/audits/:jobId/fix-plan`](#get-apiv1auditsjobidfix-plan)
+- [`GET /api/v1/audits/:jobId/diff`](#get-apiv1auditsjobiddiffbasejobid)
+- [`GET /api/v1/repositories/:owner/:repo/audits`](#get-apiv1repositoriesownerrepoauditslimit)
+- [`GET /api/v1/audits/:jobId/quality`](#get-apiv1auditsjobidquality)
+- [`POST /api/v1/repositories/:owner/:repo/reaudit`](#post-apiv1repositoriesownerreporeaudit)
+- [`GET /docs/openapi.json`](#get-docsopenapijson)
+- [Rate limits](#rate-limits)
+- [Caching](#caching)
+
 ## `GET /health`
 
 Liveness probe. Always returns 200 if the process is up.
@@ -243,7 +260,7 @@ mode it's the full x402 v2 envelope with `network`, `payTo`,
 
 Replays the same body with the `X-PAYMENT` header set:
 
-```
+```text
 X-PAYMENT: mock:<paymentId>     (mock mode)
 X-PAYMENT: <base64 envelope>    (OKX mode)
 ```

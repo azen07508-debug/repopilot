@@ -3,6 +3,16 @@
 RepoPilot ships an MCP (Model Context Protocol) server that exposes
 RepoPilot as thirteen tools to any MCP-compatible client.
 
+## Contents
+
+- [Build the server](#build-the-server)
+- [Configuration](#configuration)
+- [Client setup](#client-setup)
+- [Tool reference](#tool-reference)
+- [Repository intelligence tools](#repository-intelligence-tools)
+- [Debugging](#debugging)
+- [Security notes](#security-notes)
+
 **Paid** — these run the analysis pipeline:
 
 - `audit_github_repository` — start a new audit

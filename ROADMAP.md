@@ -117,7 +117,9 @@ production credentials required.
 - [x] Project management files: PROJECT_STATE / ROADMAP / BACKLOG / DECISIONS / RISKS / CHANGELOG
 - [x] Documentation cleanup: remove duplicated CN/EN blocks from README
 - [x] **Free Check** endpoint (`POST /api/v1/free-check`) — 5 quick checks, never 402, free of payment
-- [x] **Report cache** — persistent cache (SQLite + Postgres), TTL configurable, request-coalescing, key includes commit SHA so SHA changes invalidate; cache never bypasses payment
+- [x] **Report cache** — persistent cache (SQLite + Postgres), TTL
+  configurable, request-coalescing, key includes commit SHA so SHA
+  changes invalidate; cache never bypasses payment
 
 ## 0.1.0 (after rc.2)
 

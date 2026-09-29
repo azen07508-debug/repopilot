@@ -11,6 +11,25 @@
 > 本文是**唯一**的 Phase 0 事实来源。后续每个 Phase 开始前必须重读本文，
 > 落地后必须更新本文末尾的 Phase 状态表。
 
+## 目录
+
+- [0. 结论摘要（先读这段）](#0-结论摘要先读这段)
+- [1. 当前架构](#1-当前架构)
+- [2. 当前 analyzer 清单](#2-当前-analyzer-清单)
+- [3. 当前 report schema](#3-当前-report-schema)
+- [4. 当前 MCP tools](#4-当前-mcp-tools)
+- [5. 当前数据库结构](#5-当前数据库结构)
+- [6. 当前 API](#6-当前-api)
+- [7. 可以复用的模块（明确清单）](#7-可以复用的模块明确清单)
+- [8. 不应该重写的模块（禁止清单）](#8-不应该重写的模块禁止清单)
+- [9. 新增模块](#9-新增模块)
+- [10. Migration strategy](#10-migration-strategy)
+- [11. Backward compatibility strategy](#11-backward-compatibility-strategy)
+- [12. 审计发现的风险 + 需要立的 ADR](#12-审计发现的风险--需要立的-adr)
+- [13. Phase 0 验收标准](#13-phase-0-验收标准)
+- [14. Phase 状态表](#14-phase-状态表)
+- [附：本计划与原计划的差异对照](#附本计划与原计划的差异对照)
+
 ---
 
 ## 0. 结论摘要（先读这段）
@@ -50,7 +69,7 @@ evidence 强制校验（D-008）、LLM 可选（D-009）、static-only 安全边
 
 ### 1.1 分层
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │ 客户端                                                   │
 │   apps/web (React 18 + Vite 6)                          │
@@ -84,7 +103,7 @@ evidence 强制校验（D-008）、LLM 可选（D-009）、static-only 安全边
 
 `packages/core/src/pipeline.ts:60-96`
 
-```
+```text
 parseRepoUrl(repoUrl, allowedHosts)
   → MetadataAnalyzer.fetch(owner, repo)        // Octokit repos.get
   → GitHubFetcher.fetchTree(owner, repo, ref)  // git.getTree recursive
@@ -131,7 +150,7 @@ parseRepoUrl(repoUrl, allowedHosts)
 
 **已确认的 finding id 全集**（33 个）：
 
-```
+```text
 doc-api, doc-changelog, doc-coc, doc-contributing, doc-env-example,
 doc-license, doc-readme, doc-readme-short, doc-security,
 repro-no-ci, repro-no-docker, repro-no-lockfile, repro-no-run-script,
@@ -153,7 +172,7 @@ hack-no-screenshots, hack-no-social, hack-no-video
 
 ### 3.1 顶层结构
 
-```
+```text
 Report {
   reportVersion: '1.0'          // ⚠ literal，不可加值，只能用新字段表达 v2
   repository: Repository        // url/owner/name/defaultBranch/license/...
@@ -312,7 +331,7 @@ Fastify 5，`/api/v1` 前缀。
 
 ### 9.1 目录（落地版 — 已按 §0.3 修正）
 
-```
+```text
 repopilot/
 ├── packages/core/src/
 │   ├── intelligence/                    # 新增 V0.2
@@ -549,7 +568,7 @@ export const ChangeImpactSchema = z.object({
 
 ### 10.3 V0.2 落地顺序（细化到可交付）
 
-```
+```text
 V0.2-a  ADR 写入 DECISIONS.md（D-017 tarball I/O / D-018 parser 选型 / D-019 计费分层）
 V0.2-b  schemas/intelligence/repository-map.ts + symbol-map.ts + evidence-v2.ts + schema 单测
 V0.2-c  git/fetcher.ts 改造：TarballSource（保留原接口签名，内部换实现）+ 沙箱解压
