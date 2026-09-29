@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Contents
+
+- [Unreleased](#unreleased) — [Added](#added) · [Changed](#changed) · [Fixed](#fixed)
+- [0.1.0-rc.3](#010-rc3---2026-07-19)
+- [0.1.0-rc.2](#010-rc2---2026-07-19)
+- [0.1.0-rc.1](#010-rc1---2026-07-19)
+
 ## [Unreleased]
 
 ### Added
@@ -611,6 +618,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The documentation index now covers every document it claims to.**
+  `docs/INDEX.md` opens with "the single entry point for every document
+  in the repository" and did not link six of them — including
+  `DECISIONS.md`, the largest file in the repo at 1118 lines. The ADR
+  log, the risk register and the changelog now sit under a new *For
+  reviewers / auditors* section, and *Design intent* names the second
+  overlapping cluster (`ROADMAP` / `BACKLOG` / `PROJECT_STATE`, which
+  all answer some form of "what's next") with a precedence rule for
+  each pair.
+- **The seven documents over 300 lines have a table of contents**, and
+  the twelve untagged code fences — ASCII diagrams, directory trees and
+  plain command output — are marked `text`. TOC anchors were generated
+  with `github-slugger` instead of by hand: a hand-rolled slugger
+  disagreed with GitHub on 124 of this repository's 414 headings, so
+  every link it blessed would have 404'd.
 - **The report view is now the page, instead of sitting underneath the
   pitch for it.** Measured with `playwright-core` against system Chrome,
   on a real 9219px report: the marketing hero (`h1`, 34px) and the input
