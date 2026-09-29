@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-09-28)](#test-baseline-2026-09-28-1500-utc)
+- [Test baseline (2026-09-28)](#test-baseline-2026-09-29-0947-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -55,6 +55,9 @@ repopilot/
     okx-adapter/ # PaymentAdapter interface + mock + okx
   fixtures/      # 6 sample repos
   docs/          # Deployment / MCP / External actions
+  deploy/        # nginx edge config + security-header snippet (the real one
+                 # the web image ships; the two examples under docs/deployment
+                 # are illustrations, not the source of truth)
   .github/workflows/  # ci.yml + docker.yml (new in this RC pass)
 ```
 
@@ -92,6 +95,17 @@ repopilot/
     `consume: true` in the worker).
 - The inline driver is refused in `http` mode at boot time to
   prevent silent job loss.
+- **Container topology** (`docker-compose.yml`, five services on one network):
+  `db` (Postgres, no published port) → `migrate` (a one-shot job that applies the
+  schema and then exits) → `api` and `worker` (both `depends_on: migrate:
+  service_completed_successfully`) → `web` (nginx, the only published service
+  besides the API's loopback binding). Neither `server.js` nor `worker.js` applies
+  migrations, so without that job a fresh stack comes up healthy against an empty
+  database and fails every audit (D-031, R-25). The edge owns the public origin:
+  `web` serves `apps/web/dist` at `/` and proxies `/api/`, `/health` and `/docs/`
+  to `api:4000` (D-030). The API itself is published only on `127.0.0.1:4000`
+  because it runs with `trustProxy: true` and its rate-limit allow-list is matched
+  against the forwarded key, not `req.ip` (R-24).
 
 ## MCP server
 
@@ -110,14 +124,14 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-09-28 15:00 UTC)
+## Test baseline (2026-09-29 09:47 UTC)
 
 - @repopilot/core: 766/766
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
 - @repopilot/mcp-server: 37/37
-- @repopilot/web: 0 (skipped intentionally)
-- **Total: 882/882 (884/884 with the Postgres tests when CI is green)**
+- @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
+- **Total: 899 passed + 2 skipped (901 with the Postgres tests when CI is green)**
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
@@ -127,6 +141,15 @@ repopilot/
 > The MCP server went 4 → 37 in V0.2-g, where the three artifacts finally
 > got a surface. None of them is wired into the audit path — they are
 > additive, and every pre-existing test still passes unchanged.
+>
+> `@repopilot/web` reported **0** for the whole life of the project because
+> its `test` script was `echo "no web tests yet" && exit 0` — a package that
+> was never wired into `pnpm -r test` is indistinguishable from one that
+> passes (R-26). It now runs `vitest run` over the async audit contract:
+> 402 → replay → 202 → poll → report, plus the four failure paths. Six
+> mutations of the product were reintroduced one at a time and all six were
+> caught, and the suite found a real defect on its first run — the empty
+> state rendered underneath an error (`8cd193e`).
 
 ## Quality gates already passing
 
@@ -136,7 +159,12 @@ repopilot/
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
-- `pnpm docker:check` (static review; Docker CLI not in dev sandbox)
+- `pnpm docker:check` (static review of the Dockerfile and the compose file;
+  **exits non-zero** on any finding, so it is a gate rather than advice.
+  Covers the Node base image against `engines.node`, builder install/build
+  filter agreement, install inputs copied before `pnpm install`, and that every
+  package whose `dist` reaches the runtime stage has its `node_modules` copied
+  too. The build half is skipped where there is no Docker CLI)
 - `pnpm compose:check` (compose + edge topology: build targets, port exposure,
   schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
@@ -155,9 +183,16 @@ repopilot/
   wallet login must run on the user's host. See `docs/OKX_LIVE_INTEGRATION.md`.
 - **Live audit smoke** (anecdotal, not in `verify:release`): `octocat/Hello-World` returned
   a full report in ~3s with cache miss → 1st request, no rate-limit issues.
-- Docker CI: `.github/workflows/docker.yml` (builds both stages, runs them on
-  one network, and asserts the edge serves the UI at `/`, proxies `/api/*` and
-  `/health`, falls back for deep links, and answers `/healthz` itself)
+- Docker CI: `.github/workflows/docker.yml` runs **on every push to `main`**, builds both
+  stages, runs them together on one docker network, and asserts the edge serves the UI at
+  `/`, proxies `/api/*` and `/health`, falls back for deep links, and answers `/healthz`
+  itself. **Green as of `5b8d3c5`** — the first time either image had ever been built in
+  CI, which is how the four Dockerfile defects below were found.
+- **Mutation-verified, not coverage-verified.** `scripts/compose-check.ts` and
+  `scripts/docker-check.sh` are themselves tested by reintroducing real defects one at a
+  time and confirming the checker reports them: **17 mutations, 17 caught**, plus a
+  baseline assertion that the restored tree still passes. See R-26 for why a check that
+  never runs is worse than no check at all.
 
 ## Repository Intelligence upgrade (planning, Phase 0 done)
 
