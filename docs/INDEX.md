@@ -10,6 +10,9 @@ Pick the one that matches your role and jump straight in.
 - [docs/MCP_CLIENT_SETUP.md](MCP_CLIENT_SETUP.md) — how to point an MCP
   client (Claude Code, Codex, OpenClaw, or any generic client) at the
   MCP server, and what its thirteen tools do.
+- [MARKETPLACE_LISTING.md](../MARKETPLACE_LISTING.md) — the ready-to-paste
+  OKX.AI Marketplace copy (name, tagline, description) in English and
+  Chinese.
 
 ## For operators / integrators
 
@@ -44,6 +47,24 @@ Pick the one that matches your role and jump straight in.
   user action).
 - [docs/HERO_IMAGE_BRIEF.md](HERO_IMAGE_BRIEF.md) — the hero image
   used in the Marketplace listing (`docs/brand/hero.png`).
+- [ROADMAP.md](../ROADMAP.md) — what is in the current sprint, what is
+  gated on external approvals, and in what order it lands.
+- [BACKLOG.md](../BACKLOG.md) — tracked work in priority order, with the
+  already-landed items kept in place so the ordering stays legible.
+
+## For reviewers / auditors
+
+The three documents that record *why* the code looks the way it does,
+and what changed along the way. Read these before proposing a change to
+anything load-bearing.
+
+- [DECISIONS.md](../DECISIONS.md) — the ADR log. Every architectural
+  choice (D-001 onward) with its context, decision and consequences.
+  When a design looks odd, the answer is usually here.
+- [RISKS.md](../RISKS.md) — the risk register. Each entry carries a
+  severity, a likelihood and the mitigation actually in the code.
+- [CHANGELOG.md](../CHANGELOG.md) — release-by-release record of what
+  changed, following Keep a Changelog.
 
 ## Design intent
 
@@ -58,3 +79,17 @@ Two documents intentionally cover overlapping ground:
 When they disagree, treat **PROJECT_STATE.md** as the source of truth
 for "is the code ready"; **README.md** is the source of truth for "how
 does a user use it".
+
+A second cluster — **ROADMAP.md**, **BACKLOG.md** and **PROJECT_STATE.md**
+— all answer some form of "what's next":
+
+- **ROADMAP.md** is the *release* view: what must land before the next
+  tag, and what is gated on external approvals.
+- **BACKLOG.md** is the *work-item* view: the same work broken into
+  priorities, with the already-landed items left in place so the
+  ordering stays legible.
+- **PROJECT_STATE.md** is the *as-built* view: what is actually running
+  today, with the test baseline that proves it.
+
+When they disagree, **PROJECT_STATE.md** wins for "what exists" and
+**ROADMAP.md** wins for "what is committed to".
