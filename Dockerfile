@@ -91,6 +91,25 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 # -----------------------------------------------------------------------------
 # API runtime image.
+#
+# Each workspace package needs **two** things copied, not one: its `dist` and
+# its own `node_modules`. pnpm does not hoist a sub-package's dependencies to
+# the workspace root — `shamefully-hoist` only affects the root project's own
+# dependencies. `apps/api/node_modules/better-sqlite3` is a symlink into the
+# root `node_modules/.pnpm/...`, and `apps/api/node_modules/@repopilot/core` is
+# a relative link to `../../../../packages/core`. Copying the root tree alone
+# therefore produces an image that builds cleanly and then dies on its first
+# import:
+#
+#     Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'better-sqlite3'
+#     imported from /app/apps/api/dist/db/client.js
+#
+# The per-package directories are symlink farms — tens of kilobytes each — so
+# copying them costs nothing. The relative link targets resolve because the
+# root `.pnpm` store is copied alongside them.
+#
+# `docker:check` asserts that every package whose `dist` is copied here also
+# has its `node_modules` copied.
 # -----------------------------------------------------------------------------
 FROM node:22-alpine AS runtime
 WORKDIR /app
@@ -98,16 +117,20 @@ ENV NODE_ENV=production
 RUN corepack enable
 COPY --from=builder /repo/apps/api/dist ./apps/api/dist
 COPY --from=builder /repo/apps/api/package.json ./apps/api/package.json
+COPY --from=builder /repo/apps/api/node_modules ./apps/api/node_modules
 # `apps/web/dist` used to be copied in here as well, and nothing in this image
 # ever read it: there is no static plugin in `apps/api`, no `sendFile`, and no
 # catch-all route, so the API has never served the UI. It now lives in the
 # `web` image, which is the only thing that serves it.
 COPY --from=builder /repo/packages/core/dist ./packages/core/dist
 COPY --from=builder /repo/packages/core/package.json ./packages/core/package.json
+COPY --from=builder /repo/packages/core/node_modules ./packages/core/node_modules
 COPY --from=builder /repo/packages/okx-adapter/dist ./packages/okx-adapter/dist
 COPY --from=builder /repo/packages/okx-adapter/package.json ./packages/okx-adapter/package.json
+COPY --from=builder /repo/packages/okx-adapter/node_modules ./packages/okx-adapter/node_modules
 COPY --from=builder /repo/packages/mcp-server/dist ./packages/mcp-server/dist
 COPY --from=builder /repo/packages/mcp-server/package.json ./packages/mcp-server/package.json
+COPY --from=builder /repo/packages/mcp-server/node_modules ./packages/mcp-server/node_modules
 COPY --from=builder /repo/node_modules ./node_modules
 COPY --from=builder /repo/package.json ./package.json
 COPY --from=builder /repo/pnpm-workspace.yaml ./pnpm-workspace.yaml

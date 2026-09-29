@@ -148,6 +148,40 @@ else
   ok "install inputs present before install"
 fi
 
+# 2e. The runtime stage must copy each package's `node_modules`, not just its
+#     `dist`.
+#
+# pnpm does not hoist a sub-package's dependencies to the workspace root —
+# `shamefully-hoist` only affects the root project's own dependencies. So
+# `apps/api/node_modules/better-sqlite3` is a symlink into the root
+# `node_modules/.pnpm/...`, and `apps/api/node_modules/@repopilot/core` is a
+# relative link to `../../../../packages/core`. Copying the root tree alone
+# gives an image that builds cleanly and dies on its first import:
+#
+#     Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'better-sqlite3'
+#     imported from /app/apps/api/dist/db/client.js
+#
+# The per-package directories are symlink farms — tens of kilobytes — so there
+# is no reason to skip them.
+echo "2e. runtime copies each package's node_modules"
+runtime_stage="$(sed -n '/^FROM .* AS runtime/,$p' Dockerfile 2>/dev/null || true)"
+dist_pkgs="$(printf '%s\n' "$runtime_stage" \
+  | grep -oE 'COPY --from=builder /repo/[A-Za-z0-9/_.-]+/dist' \
+  | sed 's|.*/repo/||; s|/dist$||' | sort -u || true)"
+if [ -z "$dist_pkgs" ]; then
+  warn "could not read the runtime stage's dist copies — check 2e skipped"
+else
+  no_modules=""
+  for pkg in $dist_pkgs; do
+    printf '%s\n' "$runtime_stage" | grep -qF -- "/repo/$pkg/node_modules" || no_modules="$no_modules $pkg"
+  done
+  if [ -n "$no_modules" ]; then
+    err "runtime copies dist but not node_modules for:$no_modules — the container will fail to resolve its first import"
+  else
+    ok "dist and node_modules copied together ($(printf '%s\n' "$dist_pkgs" | wc -l | tr -d '[:space:]') packages)"
+  fi
+fi
+
 # 3. Compose services
 echo "3. docker-compose sanity"
 if grep -q '^services:' docker-compose.yml 2>/dev/null; then

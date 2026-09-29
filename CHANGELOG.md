@@ -669,10 +669,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/docs/` and the SPA fallback, forwards `X-Forwarded-For`, and that every
   `include` in it has a file behind it. A compose file is only correct together
   with the config inside the image it builds, and the YAML looks fine on its
-  own. It runs in CI now, and sixteen mutations — each a real defect from the
+  own. It runs in CI now, and seventeen mutations — each a real defect from the
   list above, from D-031, or from the Dockerfile's Node base image, its
-  install/build filter lists and its install inputs — were reintroduced one at
-  a time and all sixteen were caught.
+  install/build filter lists, its install inputs and its runtime COPY list —
+  were reintroduced one at a time and all seventeen were caught.
 - **`docker compose up -d` brought up a deployment that could not audit
   anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
   stack ran against an empty database: the `/health` probe (`repo.list(1)`)
@@ -837,6 +837,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolves dependencies is copied first. The first version of that check
   searched the whole prefix rather than only `COPY` instructions and passed on
   a comment that mentioned `.npmrc` — which is the same mistake one level up.
+- **The runtime image copied each package's `dist` but not its `node_modules`.**
+  pnpm does not hoist a sub-package's dependencies to the workspace root —
+  `shamefully-hoist` only affects the root project's own dependencies, so the
+  root `node_modules` in this workspace holds five entries and no
+  `better-sqlite3` at all. `apps/api/node_modules/better-sqlite3` is a symlink
+  into the root `node_modules/.pnpm/...` and
+  `apps/api/node_modules/@repopilot/core` is a relative link to
+  `../../../../packages/core`, so the image built cleanly and then died on its
+  first import with `ERR_MODULE_NOT_FOUND`. The per-package directories are
+  symlink farms — 40K, 24K, 20K and 16K — and are now copied alongside each
+  `dist`; the relative link targets resolve because the root `.pnpm` store is
+  copied too. Verified by reproducing the runtime layout on disk and starting
+  the real server in it: `/health` answers `status: ok` and
+  `/api/v1/capabilities` answers 200. `docker:check` asserts that every package
+  whose `dist` reaches the runtime stage also has its `node_modules` copied.
 - **`docker:check` could not fail.** `err` printed a red ✗ and the script
   still exited 0, so every static assertion in it — including "the Dockerfile
   is present" — was advisory. It now counts errors and exits 1 before the

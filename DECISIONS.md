@@ -1250,10 +1250,10 @@ this, so the topology is checked in two places that do not need it:
   but the edge is published on every interface, and asserts
   `deploy/nginx/repopilot.conf` actually routes `/api/`, `/health`, `/docs/`
   and the SPA fallback, forwards `X-Forwarded-For`, and that every `include` in
-  it has a file behind it. Sixteen mutations — each one a real defect from the
+  it has a file behind it. Seventeen mutations — each one a real defect from the
   list above, from D-031, or from the Dockerfile's Node base image, its
-  install/build filter lists and its install inputs — were reintroduced one at a
-  time and every one was caught.
+  install/build filter lists, its install inputs and its runtime COPY list —
+  were reintroduced one at a time and every one was caught.
 - `.github/workflows/docker.yml` builds both stages and runs them **together on
   one docker network**, then asserts `/` serves the app shell, `/api/*` and
   `/health` proxy through to the API, a deep link returns the shell rather than
