@@ -15,7 +15,20 @@
 FROM node:22-alpine AS builder
 WORKDIR /repo
 RUN corepack enable
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+# `.npmrc` is not optional here. It carries `shamefully-hoist=true`, which
+# decides whether `better-sqlite3` and the `@repopilot/*` workspace links land
+# in the root `node_modules` or only in each package's own. The `runtime` stage
+# copies the root `node_modules` and nothing else, so without this file the
+# install produces a different layout than every other install in this repo and
+# the container dies at startup with
+#
+#     Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'better-sqlite3'
+#     imported from /app/apps/api/dist/db/client.js
+#
+# `COPY . .` does bring `.npmrc` in — one stage too late to matter.
+# `docker:check` asserts that every file which changes how `pnpm install`
+# resolves dependencies is copied before it runs.
+COPY package.json pnpm-workspace.yaml tsconfig.base.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json

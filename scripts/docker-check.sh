@@ -7,6 +7,11 @@
 # environment fact rather than a defect (`--strict` turns that into an error
 # too).
 #
+# `--static-only` stops after the static half. `ci.yml` uses it: the GitHub
+# runner *does* have Docker, so without the flag the CI job would perform a
+# second, uncached build of the same image that `docker.yml` already builds
+# with a warm gha cache.
+#
 # The static half used to be advisory — `err` printed a red ✗ and the script
 # still exited 0 — which made it unusable as a CI gate. It is one now.
 
@@ -16,9 +21,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 STRICT=0
-if [ "${1:-}" = "--strict" ]; then
-  STRICT=1
-fi
+STATIC_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --strict) STRICT=1 ;;
+    --static-only) STATIC_ONLY=1 ;;
+  esac
+done
 
 ERRS=0
 log()  { printf '  %s\n' "$*"; }
@@ -112,6 +121,33 @@ else
   fi
 fi
 
+# 2d. Every file that changes how `pnpm install` resolves dependencies must be
+#     copied *before* it runs.
+#
+# `.npmrc` carries `shamefully-hoist=true`, which decides whether
+# `better-sqlite3` and the `@repopilot/*` workspace links land in the root
+# `node_modules` or only in each package's own. `runtime` copies the root
+# `node_modules` and nothing else, so omitting `.npmrc` here makes the image
+# install with different settings than every other install in this repo, and
+# the container dies at startup with `ERR_MODULE_NOT_FOUND: Cannot find package
+# 'better-sqlite3'`. `COPY . .` brings the file in one stage too late.
+echo "2d. install inputs copied before install"
+# Only actual `COPY` instructions count. The first version of this check
+# searched the whole prefix and passed on a *comment* that mentioned `.npmrc`
+# while the `COPY` line no longer did — which is the same class of mistake the
+# check exists to catch, one level up.
+pre_install="$(sed -n '1,/^RUN pnpm install/p' Dockerfile 2>/dev/null | grep -E '^COPY ' || true)"
+missing_inputs=""
+for f in package.json pnpm-workspace.yaml .npmrc; do
+  [ -f "$f" ] || continue
+  printf '%s\n' "$pre_install" | grep -qF -- "$f" || missing_inputs="$missing_inputs $f"
+done
+if [ -n "$missing_inputs" ]; then
+  err "not copied before 'pnpm install':$missing_inputs — the image would install with different settings than every other install in this repo"
+else
+  ok "install inputs present before install"
+fi
+
 # 3. Compose services
 echo "3. docker-compose sanity"
 if grep -q '^services:' docker-compose.yml 2>/dev/null; then
@@ -138,6 +174,12 @@ if [ "$ERRS" -gt 0 ]; then
   echo
   err "$ERRS static check(s) failed"
   exit 1
+fi
+
+if [ "$STATIC_ONLY" = "1" ]; then
+  echo "5. docker CLI"
+  warn "--static-only: stopping before the build and smoke half"
+  exit 0
 fi
 
 # 5. docker CLI presence

@@ -145,13 +145,16 @@ jobs:
       - name: Deploy topology (compose + edge routing)
         run: pnpm compose:check
 
-      # Static review of the Dockerfile itself. It needs no Docker CLI — the
-      # build and smoke steps self-skip without it — so the parts that *can* be
-      # checked here, including whether the Node base image matches
-      # `engines.node`, run on every push instead of only on the PR that
-      # happens to touch a Dockerfile.
+      # Static review of the Dockerfile itself: the Node base image against
+      # `engines.node`, agreement between the install and build filter lists,
+      # and that every file which changes how `pnpm install` resolves
+      # dependencies is copied before it runs. All three were live defects.
+      #
+      # `--static-only` because this runner has a Docker CLI: without it the
+      # step would perform a second, uncached build of the image that
+      # `docker.yml` already builds with a warm gha cache.
       - name: Dockerfile (static review)
-        run: pnpm docker:check
+        run: bash scripts/docker-check.sh --static-only
 
       - name: Test
         env:
