@@ -223,7 +223,14 @@ function Shell() {
         </>
       )}
 
-      {!report && !loading && <EmptyCard />}
+      {/*
+       * `!report && !loading` alone is not the empty state — a *failed* audit is
+       * also "no report, no spinner", and there the copy is simply wrong: it
+       * tells the user to submit a URL above, immediately under an error card
+       * saying the submission they just made did not work. `FixPlanView` already
+       * guards its empty state with `!error`; this is the same rule.
+       */}
+      {!report && !loading && !error && <EmptyCard />}
 
       <Footer />
     </div>

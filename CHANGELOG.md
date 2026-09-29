@@ -732,6 +732,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed audit told the user to submit a repository.** `App.tsx`
+  rendered the empty state on `!report && !loading` without also checking
+  `!error`, so a job that came back `failed` — or a request that never
+  reached the server — showed "No report yet · Submit a public GitHub URL
+  above to generate the first audit" directly beneath the error card. The
+  user had just done exactly that, and the second message buried the
+  first. `FixPlanView` already guarded its empty state with `!error`; the
+  shell now follows the same rule. Found by the new web test suite, which
+  had been asserting the wrong copy as-is until the fix landed.
 - **The web UI never rendered a report, from the first commit onward.**
   `POST /api/v1/audits` is asynchronous by design — `InlineAuditQueue`'s
   own comment says `enqueue()` "schedules the job on a small, bounded

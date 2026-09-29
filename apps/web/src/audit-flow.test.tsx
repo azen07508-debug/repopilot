@@ -274,20 +274,31 @@ describe('a failed job', () => {
     expect(screen.getByText('Analyzer crashed on a malformed file')).toBeTruthy();
     expect(screen.queryByText(LOADING_TITLE)).toBeNull();
 
-    /*
-     * FINDING — recorded, not fixed. This suite must not change product
-     * behaviour, so the defect is asserted rather than repaired.
-     *
-     * `App.tsx` renders the empty state on `!report && !loading`, without also
-     * checking `!error`. After a failure the user therefore reads
-     * "No report yet — submit a public GitHub URL above to generate the first
-     * audit" directly beneath an error message, having just submitted one. The
-     * empty state is the wrong copy for this state and it buries the error.
-     *
-     * When that is fixed, delete this assertion — it is a characterisation of
-     * today's behaviour, not a requirement.
-     */
-    expect(screen.getByText(EMPTY_TITLE)).toBeTruthy();
+    // And the empty state must be gone with it. `App.tsx` used to render it on
+    // `!report && !loading` without checking `!error`, so a failed audit put
+    // "No report yet — submit a public GitHub URL above to generate the first
+    // audit" directly under the error, telling the user to do the thing they
+    // had just done. This suite caught it; the guard is `!error` now.
+    expect(screen.queryByText(EMPTY_TITLE)).toBeNull();
+  });
+
+  it('失败后再次提交：错误被清掉，报告正常出现', async () => {
+    const user = userEvent.setup();
+    const a = boot({ jobStates: ['failed'], pollAfterMs: 15 });
+
+    await submit(user);
+    await screen.findByText(ERROR_HEADING);
+    expect(screen.queryByText(EMPTY_TITLE)).toBeNull();
+
+    // The retry must not be poisoned by the previous attempt: `onSubmit` clears
+    // the error before it starts, so the stale message cannot survive and the
+    // suppressed empty state cannot stay suppressed.
+    a.setJobState('completed');
+    await submit(user);
+
+    expect(await screen.findByRole('heading', { name: REPO_HEADING })).toBeTruthy();
+    expect(screen.queryByText(ERROR_HEADING)).toBeNull();
+    expect(screen.queryByText(EMPTY_TITLE)).toBeNull();
   });
 });
 
