@@ -56,6 +56,8 @@ Architecture Decision Records (ADR-style, lightweight).
   — Schema bootstrap is a job that runs before the API
 - [D-032](#d-032--a-rules-scope-is-part-of-the-rule)
   — A rule's scope is part of the rule
+- [D-033](#d-033--a-document-states-no-fact-it-can-derive)
+  — A document states no fact it can derive
 
 ---
 
@@ -1403,3 +1405,101 @@ this, so the topology is checked in two places that do not need it:
   - **Ask each caller to pass the right list.** Four call sites, one of which
     is a test that already carried a stale copy of the wrong one. The input
     shape has to make the wrong argument unavailable, not discouraged.
+
+
+## D-033 — A document states no fact it can derive
+
+- **Date:** 2026-10-02
+- **Status:** Accepted
+- **Context:** The same review that produced D-032 also cross-checked every
+  document against the code and found **fourteen** places where they disagreed.
+  Nearly all of them were one shape: a number or a name that can be read out of
+  the source tree, typed into a paragraph by hand, and then kept in step by
+  discipline. The MCP tool count appeared as "seven" in `README.md` and
+  "thirteen" in the same file's layout section. `PROJECT_STATE.md` listed three
+  tools. `docs/RELEASE_CHECKLIST.md` carried a test baseline of 104/104.
+  `docs/ARCHITECTURE.md` said the analyzers run in parallel; they run in
+  sequence, and there are nine of them rather than seven. Two documents told an
+  operator to run `pnpm start:api`, which had never existed.
+
+  This is the same defect as D-032's, one layer up. D-032 says a rule's scope
+  must not be decided by whatever list is at hand; this says a document must not
+  restate a fact the code already holds. It is also the same defect as R-26 —
+  the review was itself a sub-agent reading files by hand, which is a check that
+  runs when someone remembers to run it, and the fourteen had accumulated across
+  several releases.
+
+- **Decision:** **A fact that can be derived from the repository is derived, and
+  a check that cannot fail is not a check.** Concretely:
+  1. **Derivable facts are generated into the documents.** `scripts/docs-facts.ts`
+     computes the MCP tool list and count (from the `server.tool()` registrations
+     *and* the `BILLING` map, which must agree), the compose service table, the
+     workspace package names and count, and the `docs/` file list. It writes them
+     between `<!-- docs-facts:… -->` markers in `README.md`,
+     `PROJECT_STATE.md`, `docs/ARCHITECTURE.md` and `docs/RELEASE_CHECKLIST.md`.
+     `pnpm docs:check` recomputes and exits non-zero on divergence; `pnpm docs:facts`
+     rewrites. The check is in CI.
+  2. **Some invariants need no rendered output, only a check.** Three of them
+     carry no block: the `BILLING` map against the registrations, `docs/INDEX.md`
+     against the `docs/` directory (coverage, and that every link resolves), and
+     every `` `pnpm <script>` `` a document names against the root
+     `package.json`. A check does not have to produce anything to be worth
+     running.
+  3. **A generated block that is absent is a failure, not a pass.** If no markers
+     are found anywhere, `docs:check` reports that the check is a no-op rather
+     than printing a green tick. A regex that stops matching must not look like
+     agreement.
+  4. **Per-batch acceptance is a tool, not a ritual.** `scripts/audit-diff.ts`
+     runs the four reference audits sequentially and prints the comparison
+     against `scripts/audit-baseline.json`. It is deliberately **not** a CI gate.
+
+- **Consequences:**
+  1. **The class is closed, not the instances.** Six of the fourteen are fixed by
+     hand in the same pass; the rest cannot recur, because the numbers they
+     contained are no longer in the documents.
+  2. **What is *not* generated is a decision, and it is written down.** Test
+     baseline numbers (unknowable until the suite runs, so a generator would be
+     circular), version strings, and narrative sentences stay hand-written.
+     `PROJECT_STATE.md` owns the baseline; `docs/RELEASE_CHECKLIST.md` points at
+     it instead of repeating it. The analyzer count is deliberately not generated
+     either, for a different reason: `packages/core/src/analyzers` holds eight
+     modules, `ReportBuilder.build()` calls nine functions, and `metadata.ts` is
+     called by the pipeline rather than the builder. A generator would have to
+     pick one of three defensible numbers and defend it. `docs/ARCHITECTURE.md`
+     names the nine calls in order and claims no count at all, which is a
+     sentence that cannot go stale.
+  3. **The check was verified by mutation, not by inspection: 12 mutations, 12
+     caught.** Each block id was corrupted in both directions, a fake `pnpm`
+     command was added, a docs file was added without an INDEX link, an INDEX
+     link was broken, a compose service was added, and every marker was deleted.
+     Two further mutations were *discarded* — they exited non-zero because pnpm
+     itself refused to run, not because the check caught anything. Counting those
+     as catches would have been the same mistake as a check that cannot fail.
+  4. **A baseline is a measurement record, not an expectation.** `audit-diff`
+     reports movement; it does not assert. The first version of
+     `scripts/audit-baseline.json` was captured against a commit nine commits
+     behind, and re-running the self-audit moved `securityHygiene` from 40.5 to
+     0.0 — which is how **R-29** (the mnemonic rule firing on the BIP-39 wordlist
+     that defines it, 166 findings) was found. A gate would have called that a
+     failure and taught everyone to update the baseline without reading it.
+
+- **Alternatives rejected.**
+  - **Re-run the sub-agent document check before each release.** This is what
+    produced the fourteen. It costs minutes of a model's attention, it is
+    non-deterministic, and its coverage is whatever the model happened to read.
+    `docs:check` costs a tenth of a second and is total over the facts it owns.
+  - **A link checker only.** Cheap and useful, and it would have caught none of
+    the fourteen: every one of them was a link that resolved, pointing at a
+    document that said something false.
+  - **Generate the test baseline too.** It cannot be generated before the tests
+    run, so the generator would have to run them, and then CI would be comparing
+    a number against itself. `PROJECT_STATE.md` owns it instead, and the
+    checklist links there.
+  - **Make `audit-diff` a CI gate.** Three of the four targets are other people's
+    repositories. pino changes; our score changes; the build goes red for a
+    reason nobody can act on. It is an acceptance tool for a human running a
+    batch, and it says so in its header.
+  - **Exclude the detector's own files from the scan.** R-29's most embarrassing
+    instance would vanish and the class would not: a target repository's
+    `@scure/bip39` wordlist is the case that matters, and this repository is the
+    one repository where the bug is harmless.

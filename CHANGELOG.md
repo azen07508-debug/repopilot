@@ -16,6 +16,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The documents no longer keep their own copy of a number.**
+  `scripts/docs-facts.ts` derives the facts a document states about the code —
+  the MCP tool list and count, the compose service table, the workspace package
+  names, the workspace count — and writes them into `README.md`,
+  `PROJECT_STATE.md`, `docs/ARCHITECTURE.md` and `docs/RELEASE_CHECKLIST.md`
+  between `<!-- docs-facts:… -->` markers. `pnpm docs:check` recomputes them and
+  exits non-zero on any divergence; `pnpm docs:facts` rewrites them; CI runs the
+  check on every push.
+  - The 2026-10-01 review found fourteen places where a document disagreed with
+    the repository, and nearly all of them were the same shape: a number or a
+    name that can be read out of the source tree, typed into a paragraph by
+    hand, and then kept in step by discipline. Six of the fourteen are fixed in
+    this pass; the generated blocks make the class impossible rather than
+    unlikely.
+  - Three checks carry no generated block. They assert the `BILLING` map
+    against the `server.tool()` registrations; that `docs/INDEX.md` links every
+    `docs/*.md` file and that every link resolves; and that every `pnpm <script>`
+    a document names exists. The last one had already caught `pnpm start:api`
+    and `pnpm start:worker` being documented before they existed.
+  - **Verified by mutation, not by inspection: 12 mutations, 12 caught.** Each
+    block id was corrupted in both directions (the source moved; the block
+    moved), a fake `pnpm` command was added to a document, a docs file was added
+    without an INDEX link, an INDEX link was broken, a compose service was
+    added, and every marker was deleted. That last one matters most: a
+    marker-syntax change that stops the regex matching would otherwise turn
+    every block check into a no-op that still prints a green tick (R-26).
+  - Two mutations were discarded rather than counted. They failed because pnpm
+    itself refused to run, not because the check caught anything — a mutation
+    battery that counts those as catches is measuring the wrong thing.
+- **`scripts/audit-diff.ts` and `scripts/audit-baseline.json`** — run the four
+  reference audits sequentially and print a five-score × four-audit table plus
+  the change against a recorded baseline. Every batch of the repair plan ended
+  by hand-copying those numbers out of a terminal into a markdown table;
+  `pnpm audit:diff` does it in one command. Deliberately not a CI gate: three of
+  the four targets are other people's repositories, so a non-zero diff is
+  information rather than a failure.
+  - Its first live run found **R-29**, a 166-finding false positive that the
+    hand-written baseline had been masking.
+- **Root `dev:worker`, `start:api` and `start:worker` scripts.** The split
+  deployment shape is documented in `PROJECT_STATE.md`, `docs/DEPLOYMENT.md` and
+  the 0.1.0-rc.3 CHANGELOG entry, and all three tell an operator to run
+  `pnpm start:api` and `pnpm start:worker` — neither of which existed at the
+  root. `dev:api` existed while `dev:worker` did not.
+- **A test that the `BILLING` map matches the registered tools.** `BILLING` is
+  what `get_repopilot_capabilities` returns, so it is what an agent reads to
+  decide what it can afford. It was module-private and asserted by nothing — the
+  test named "registers every tool the billing map advertises" checked a
+  hand-copied list in the test file instead. `BILLING` is exported now, and
+  three assertions tie the registrations, the billing map and the frozen public
+  list together.
 - **`apps/web` has tests.** The package shipped a `test` script that
   printed `no web tests yet` and exited 0, so `pnpm -r test` reported
   success for a workspace with no web coverage at all. The bug that made
@@ -641,6 +691,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`docs/INDEX.md` is checked, not trusted.** It describes itself as "the
+  single entry point for every document in the repository". `pnpm docs:check`
+  now verifies that it links every `docs/*.md` file and that every link
+  resolves, so adding a document without listing it fails the build. The check
+  skips `INDEX.md` itself, which is the one document that does not list itself.
 - **The web UI has a production home.** Three artifacts disagreed about where
   it lived and none of them served it: the `Dockerfile` built
   `apps/web/dist` into the API image where no process ever read it, both
@@ -802,6 +857,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Root `dev:api` started the wrong process.** It was
+  `pnpm --filter @repopilot/api dev`, and that package's `dev` script is
+  `REPOPILOT_API_MODE=combined`. So the root script named `dev:api` started the
+  combined API+worker process — the opposite of the same-named script inside
+  `apps/api`, which is `REPOPILOT_API_MODE=http`. It is
+  `pnpm --filter @repopilot/api dev:api` now. Found by the new
+  `pnpm docs:check` command-reference check, which had been written to catch a
+  documented command that does not exist and caught a real one that did the
+  wrong thing.
+- **Six documentation contradictions with the code.**
+  - `README.md` said the MCP server "exposes seven tools". It exposes thirteen,
+    and the same file already said thirteen in its layout section.
+  - `README.md` said "a background worker is on the P1 backlog". The worker
+    exists — `apps/api/src/worker.ts`, the `worker` compose service, and a
+    documented split deployment shape — and the bullet also claimed `mode:
+    'full'` "runs synchronously inside the HTTP request", which the 202 shift
+    ended.
+  - `docs/ARCHITECTURE.md` said "all seven analyzers run in parallel". They run
+    in sequence, synchronously, and there are nine of them. The order is
+    load-bearing: `analyzeHackathon` consumes the chains and contract addresses
+    `analyzeWeb3` produced. The document now names the nine calls in order and
+    claims no count, because "how many analyzers are there" has three defensible
+    answers — eight modules in `analyzers/`, nine calls in `ReportBuilder`, and
+    `metadata.ts` called by the pipeline rather than the builder.
+  - `docs/ARCHITECTURE.md` described `apps/api` worker mode as "(Future)". It
+    shipped in 0.1.0-rc.3.
+  - `PROJECT_STATE.md` listed three MCP tools. The list is generated now.
+  - `docs/RELEASE_CHECKLIST.md` stated a test baseline of 104/104 in dev and
+    106/106 in CI. The checklist no longer repeats a number at all;
+    `PROJECT_STATE.md` owns the baseline, and the checklist points at it.
+- **The high-level diagram in `docs/ARCHITECTURE.md` was ragged.** Four lines of
+  the analyzer box were 68 characters where the other nine were 67, so the
+  right-hand border sat one column out. It had been that way long enough to be
+  invisible. The tool box below the diagram is generated now, so its borders
+  cannot drift from its contents.
 - **The Docker image had never built.** `FROM node:20-alpine`, against a
   `packageManager` of `pnpm@11.11.0` — which does not run on Node 20. `pnpm
   install` died partway through the builder stage with

@@ -39,6 +39,8 @@ Active risks the team is aware of and how they are mitigated.
   — A check that can never pass is indistinguishable from one that found nothing
 - [R-28](#r-28--a-green-tick-over-a-capability-the-repository-does-not-have)
   — A green tick over a capability the repository does not have
+- [R-29](#r-29--the-mnemonic-rule-fires-on-the-dictionary-of-mnemonics)
+  — The mnemonic rule fires on the dictionary of mnemonics
 
 ---
 
@@ -744,5 +746,77 @@ correct answer is known. The three-repository audit is that test, run by
 hand. The self-audit is the hardest case of the three and it is the one
 that found all of this; it should be run before every release, and its
 score compared against the previous run rather than merely inspected.
+
+
+## R-29 — The mnemonic rule fires on the dictionary of mnemonics
+
+**Severity:** High
+**Likelihood:** Certain — measured on the 2026-10-02 self-audit
+
+**What happens.** The `mnemonic` rule has two halves. The candidate test is
+a regex for a run of 12–24 lowercase words; the validator,
+`isBip39Phrase`, accepts the candidate when *every word is in the BIP-39
+list*. The file that defines that list — `packages/core/src/security/
+bip39-english.ts` — satisfies both halves on almost every line, by
+construction. A wordlist is a list of words that are all in the wordlist.
+
+So the largest single source of "Possible seed phrase" findings in
+RepoPilot's own report is RepoPilot's own copy of the BIP-39 wordlist.
+
+**Measured** (self-audit, `mode: full`, 2026-10-02):
+
+| | before `82a244c` | after |
+|---|---|---|
+| `securityFindings` | 22 | **190** |
+| of which in `bip39-english.ts` | 0 | **166** (87%) |
+| `securityHygiene` | 40.5 | **0.0** |
+| `blockers` | 0 | **25** (the cap) |
+
+185 of the 190 are `SEC-SECRET-001`. The other five are three injection
+and two history findings, unchanged.
+
+**This is a regression the fix caused.** The wordlist was added by
+`82a244c` to *remove* a false positive — before it, the rule was a bare
+"12+ lowercase words", which flagged ordinary prose. Adding the dictionary
+made the rule precise for prose and, at the same time, made it fire on the
+dictionary. The 2026-10-02 baseline was captured against `b78d334`, nine
+commits before that, so nothing in the record shows the change.
+
+**Why this is High rather than Low.** Web3 repositories are the stated
+target market, and a vendored BIP-39 wordlist is common in exactly those
+repositories — `@scure/bip39`, `bip39`, `ethers` wordlists and hand-copied
+`english.txt` files all have this shape. For any such repository the
+security dimension reads 0.0 and the blocker list fills with findings that
+are all the same non-finding. A security score that is 0 for a reason the
+reader can dismiss teaches the reader to dismiss security scores.
+
+**How it was found.** Not by reading the code and not by the test suite:
+by the first live run of `scripts/audit-diff.ts`, which compares four real
+audits against a recorded baseline. The self-audit's target is this
+repository, so the tool noticed that our own commits had moved our own
+score. The baseline being stale is what made the 166 visible.
+
+**Mitigation.** None yet, deliberately. The fix is a *shape* decision —
+"this file is a wordlist, not a mnemonic dump" — and the shapes belong in
+one place (`packages/core/src/security/shapes.ts`, batch 2 of the repair
+plan), with a false-positive sample and a same-shape true-positive test
+pair for each. Three candidate fixes were considered and none is obviously
+right on its own:
+
+1. **Exclude the path.** Cheap, and it fixes only our copy of the file —
+   a target repository's `english.txt` is the case that matters.
+2. **Exclude when the file is mostly BIP-39 words.** A file-level
+   predicate. Needs a threshold, and a threshold needs a measurement on
+   real repositories, not on ours.
+3. **Require the phrase to be *used*** — assigned, passed, or committed
+   as a value — rather than merely present. The most principled of the
+   three, and the largest change: it turns the rule from a presence check
+   into a context check, and the existing 12/15/18/21/24-word window
+   logic has to survive it.
+
+**Still open.** Until it is fixed, `securityHygiene` and `securityFindings`
+in the self-audit are not usable as a signal, and batch 2's acceptance
+criterion is `190 → 0` rather than the `22 → 0` the plan was written
+against.
 
 
