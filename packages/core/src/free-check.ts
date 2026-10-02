@@ -28,6 +28,11 @@ import {
   type FreeCheckInput,
 } from './schemas/index.js';
 import type { ParsedRepoUrl } from './git/url.js';
+import {
+  ENV_EXAMPLE_FILENAMES,
+  LICENSE_FILENAMES,
+  README_FILENAMES,
+} from './utils/paths.js';
 
 export interface FreeCheckOptions {
   githubToken?: string;
@@ -46,23 +51,14 @@ interface CheckResult {
   evidence: string | null;
 }
 
-const CRITICAL_FILENAMES = new Set([
-  'README.md',
-  'README.markdown',
-  'README.rst',
-  'README',
-  'readme.md',
-]);
+// Shared with the full audit. Two separate lists is how this entry point
+// came to report `has-readme: PASS` on a repository whose paid audit
+// reported "README.md is missing or empty" as its top blocker.
+const README_NAMES = new Set(README_FILENAMES);
 
-const LICENSE_FILENAMES = new Set([
-  'LICENSE',
-  'LICENSE.md',
-  'LICENSE.txt',
-  'LICENCE',
-  'LICENCE.md',
-]);
+const LICENSE_NAMES = new Set(LICENSE_FILENAMES);
 
-const ENV_EXAMPLE_FILENAMES = new Set(['.env.example', 'env.example']);
+const ENV_EXAMPLE_NAMES = new Set(ENV_EXAMPLE_FILENAMES);
 
 const LOCKFILE_PATTERNS: RegExp[] = [
   /(^|\/)pnpm-lock\.yaml$/i,
@@ -257,9 +253,9 @@ export class FreeCheckRunner {
     const stack = buildStack(stackSignals);
 
     // 5. Five critical presence checks.
-    const readme = findFirstByNames(entries, CRITICAL_FILENAMES);
-    const license = findFirstByNames(entries, LICENSE_FILENAMES);
-    const envExample = findFirstByNames(entries, ENV_EXAMPLE_FILENAMES);
+    const readme = findFirstByNames(entries, README_NAMES);
+    const license = findFirstByNames(entries, LICENSE_NAMES);
+    const envExample = findFirstByNames(entries, ENV_EXAMPLE_NAMES);
     const lockfile = findAny(entries, LOCKFILE_PATTERNS);
     const ci = findAny(entries, CI_PATTERNS);
 

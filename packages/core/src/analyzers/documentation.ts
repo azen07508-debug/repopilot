@@ -15,6 +15,7 @@
  * files that were actually read.
  */
 import type { Finding } from '../schemas/report.js';
+import { ENV_EXAMPLE_FILENAMES, LICENSE_FILENAMES, README_FILENAMES } from '../utils/paths.js';
 
 export interface DocAnalysis {
   findings: Finding[];
@@ -31,11 +32,14 @@ export interface DocAnalysis {
 }
 
 const REQUIRED_DOCS: { id: string; title: string; files: string[]; severity: 'critical' | 'high' | 'medium' | 'low' }[] = [
-  { id: 'doc-readme', title: 'README.md is missing or empty', files: ['README.md', 'README.rst', 'README.txt'], severity: 'high' },
-  { id: 'doc-license', title: 'LICENSE is missing', files: ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'COPYING'], severity: 'high' },
+  // The README, license and env-template name lists are shared with the
+  // free check. They used to be two lists, and the two entry points
+  // disagreed about the same repository because of it.
+  { id: 'doc-readme', title: 'README is missing or empty', files: [...README_FILENAMES], severity: 'high' },
+  { id: 'doc-license', title: 'LICENSE is missing', files: [...LICENSE_FILENAMES], severity: 'high' },
   { id: 'doc-contributing', title: 'CONTRIBUTING guide is missing', files: ['CONTRIBUTING.md', 'CONTRIBUTING'], severity: 'low' },
   { id: 'doc-security', title: 'SECURITY.md / security policy is missing', files: ['SECURITY.md', '.github/SECURITY.md'], severity: 'medium' },
-  { id: 'doc-env-example', title: '.env.example is missing', files: ['.env.example', 'example.env', 'sample.env', '.env.sample'], severity: 'medium' },
+  { id: 'doc-env-example', title: '.env.example is missing', files: [...ENV_EXAMPLE_FILENAMES], severity: 'medium' },
   { id: 'doc-coc', title: 'CODE_OF_CONDUCT.md is missing', files: ['CODE_OF_CONDUCT.md', 'CODE_OF_CONDUCT'], severity: 'low' },
   { id: 'doc-changelog', title: 'CHANGELOG is missing', files: ['CHANGELOG.md', 'CHANGELOG', 'RELEASES.md'], severity: 'low' },
   { id: 'doc-api', title: 'API documentation is missing', files: ['docs/API.md', 'docs/api.md', 'API.md', 'openapi.yaml', 'openapi.json', 'swagger.yaml', 'swagger.json'], severity: 'medium' },
@@ -124,7 +128,7 @@ export function analyzeDocumentation(
   // actually be in hand. A README that exists and was skipped — over the
   // per-file cap, or dropped by a total-bytes cap — must not be reported as
   // "0 characters long"; that would trade one wrong answer for another.
-  const readmePath = findFirstFile(['README.md', 'README.rst', 'README.txt']);
+  const readmePath = findFirstFile([...README_FILENAMES]);
   const readmeContent = readmePath ? fileContents.get(readmePath) : undefined;
   if (readmePath && readmeContent !== undefined) {
     const content = readmeContent.trim();

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { analyzeDocumentation } from './documentation.js';
 import { analyzeHackathon } from './hackathon.js';
 import { classifyFile, filterFiles } from '../git/files.js';
+import { LICENSE_FILENAMES, README_FILENAMES } from '../utils/paths.js';
 
 /**
  * Existence checks must be asked of the whole tree, not of the filtered set.
@@ -92,5 +93,47 @@ describe('the filter/analyzer split is deliberate', () => {
     // reconsidered together. Until then, existence checks get `allPaths`.
     expect(classifyFile('docs/brand/hero.png', 900_000).kind).toBe('binary');
     expect(classifyFile('docs/brand/hero.svg', 900).kind).toBe('text');
+  });
+});
+
+/**
+ * One repository, two entry points, one answer.
+ *
+ * The free check and the paid audit carried separate README name lists and
+ * separate license name lists. On `octocat/Hello-World` — a repository
+ * whose entire contents are one file called `README` — the free check said
+ * `has-readme: PASS` while the audit reported `[high] README.md is missing
+ * or empty` as its top blocker and scored documentation 5.5.
+ *
+ * The lists now live in `utils/paths.ts` and both import them. These tests
+ * pin the constant and the audit's behaviour against it; the free check
+ * builds its lookup set from the same constant, so there is no second list
+ * left to drift.
+ */
+describe('shared document name lists', () => {
+  it('accepts a bare README, like octocat/Hello-World has', () => {
+    expect(README_FILENAMES).toContain('README');
+    const doc = analyzeDocumentation(['README'], new Map());
+    expect(doc.hasReadme).toBe(true);
+    expect(doc.findings.map((f) => f.id)).not.toContain('doc-readme');
+  });
+
+  it('accepts every README spelling either entry point accepted before', () => {
+    // The union, so unifying did not make either entry point stricter.
+    for (const name of ['README.md', 'README.markdown', 'README.rst', 'README.txt', 'README']) {
+      expect(README_FILENAMES).toContain(name);
+      expect(analyzeDocumentation([name], new Map()).hasReadme).toBe(true);
+    }
+  });
+
+  it('accepts COPYING and LICENCE, which the two lists used to disagree about', () => {
+    for (const name of ['LICENSE', 'LICENCE', 'COPYING']) {
+      expect(LICENSE_FILENAMES).toContain(name);
+      expect(analyzeDocumentation([name], new Map()).hasLicense).toBe(true);
+    }
+  });
+
+  it('still reports a repository that has no README at all', () => {
+    expect(analyzeDocumentation(['src/index.ts'], new Map()).hasReadme).toBe(false);
   });
 });
