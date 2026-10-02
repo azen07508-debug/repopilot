@@ -1,4 +1,4 @@
-# RepoPilot — Release Checklist (0.1.0-rc.2)
+# RepoPilot — Release Checklist (0.1.0-rc.3)
 
 Use this checklist before tagging a release. Each item has a command
 or a file you can point at.
@@ -13,7 +13,8 @@ or a file you can point at.
       `PROJECT_STATE.md` (section *Test baseline*) — that is the one place
       they are written down, so this checklist deliberately repeats neither.
 - [ ] **End-to-end smoke pass** — `pnpm verify:release`
-- [ ] **Build succeeds** — `pnpm build` (every workspace: )
+- [ ] **Build succeeds** — `pnpm build` (every workspace:
+      <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end -->)
 - [ ] **Generated docs are current** — `pnpm docs:check` (recomputes the
       facts the docs state about the code and fails on any divergence)
 
@@ -99,8 +100,8 @@ or a file you can point at.
 
 When everything above is green:
 
-1. `git tag -a v0.1.0-rc.2 -m "Release candidate 1"`
-2. `git push origin v0.1.0-rc.2` (only if the user has authorized
+1. `git tag -a v0.1.0-rc.3 -m "Release candidate 1"`
+2. `git push origin v0.1.0-rc.3` (only if the user has authorized
    the push)
 3. `git push origin sprint/default` (or the current branch)
 4. Create a GitHub Release from the tag with the CHANGELOG excerpt

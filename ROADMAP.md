@@ -1,9 +1,26 @@
 # ROADMAP.md
 
-RepoPilot is being prepared for a **0.1.0-rc.2** release candidate.
+RepoPilot is being prepared for a **0.1.0-rc.3** release candidate.
 Beyond that, the project moves into a **beta** phase gated on external approvals.
 
-## 0.1.0-rc.2 (current sprint)
+## 0.1.0-rc.3 (current)
+
+**Goal:** the audit worker becomes a first-class deployment unit, separate from
+the API process.
+
+### Scope (must land before tagging)
+
+- [x] **Standalone worker process.** `apps/api/src/worker.ts` plus the shared
+  `apps/api/src/queue/build-queue.ts` factory. The API process and the worker
+  process are two deployment units: the API passes `consume: false` so it only
+  enqueues, and the worker is the sole consumer.
+- [x] **`http` mode refuses the inline queue.** `REPOPILOT_API_MODE=http` with
+  `AUDIT_QUEUE_DRIVER=inline` fails at boot, because the inline queue is
+  in-process and a dedicated worker would never see the enqueued jobs.
+
+Detail: `CHANGELOG.md` → `[0.1.0-rc.3]`.
+
+## 0.1.0-rc.2 (previous)
 
 **Goal:** Production-safe deployment. Replace the synchronous audit
 path with a stable async queue, and harden production configuration
@@ -76,7 +93,7 @@ production and an in-process queue in production.
 - `pnpm env:check` — 0 error / 0 warning / 0 info.
 - `pnpm -r test` — 104 tests pass, 2 skipped (Postgres requires a
   live database; covered in CI).
-- `pnpm build` — all 5 packages + 2 apps compile clean.
+- `pnpm build` — all <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end --> compile clean.
 - `pnpm verify:release` — full smoke green (202 + Location +
   Retry-After, cache miss/hit, free-check 200/404/429/502 accepted).
 - Secret scan: no `.env`, OKX secret, GitHub token, database
@@ -95,7 +112,7 @@ production credentials required.
 - [x] MCP: stdio server, 3 tools, JSON-RPC, smoke-tested
 - [x] Mock payment adapter: 13 tests covering idempotency, status machine, envelope parsing
 - [x] OKX adapter: STUB with EIP-3009/EIP-712 + viem signature verification when configured
-- [x] 5 fixtures: complete / minimal / no-readme / prompt-injection / secret-leak / web3-hackathon
+- [x] Fixtures: complete / minimal / no-readme / prompt-injection / secret-leak / web3-hackathon
 - [x] API integration test: full happy-path + error contracts
 - [x] End-to-end pipeline test against complete-project fixture
 - [x] GitHub Actions CI (Node 22 + pnpm 11 + Postgres service container)
@@ -121,9 +138,9 @@ production credentials required.
   configurable, request-coalescing, key includes commit SHA so SHA
   changes invalidate; cache never bypasses payment
 
-## 0.1.0 (after rc.2)
+## 0.1.0 (after rc.3)
 
-- Tag rc.2 once 14+ days pass with no critical bugs from CI
+- Tag rc.3 once 14+ days pass with no critical bugs from CI
 - Announce on README + GitHub Releases
 - Publish Docker image to GHCR (no production secrets)
 
@@ -132,7 +149,6 @@ production credentials required.
 - Real OKX on-chain settlement once Beta access granted
 - Replace stub `OkxPaymentAdapter` with documented production wiring
 - Add `x402` receipt verification against on-chain `authorizationUsed` state
-- Standalone worker process extracted from API process
 - Add an MCP HTTP transport (SSE) alongside stdio
 - API key rate limiting (per-key) once the key issuance flow is shipped
 

@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The doc-facts check now knows which documents it owns.** Its scope was a
+  hand-written list of four files, and `ROADMAP.md` was not on it — so it had
+  drifted in exactly the way the fourteen had: "all 5 packages + 2 apps" in a
+  repository that has always had three packages, and "5 fixtures" directly
+  above six fixture names. Every markdown file in the repository is now in
+  exactly one of two lists, `BLOCK_DOCS` or `BLOCK_FREE_DOCS`, and the second
+  one carries the reason a document has no generated block. A file in neither
+  fails the check, so adding a document forces the question instead of
+  defaulting to unchecked (D-034).
+- **`fixture-count`, and two more documents inside the block set.** `README.md`
+  and `PROJECT_STATE.md` both said "6 sample repos", and `docs/INDEX.md` and
+  `docs/MCP_CLIENT_SETUP.md` both said "thirteen tools" — four numbers that
+  were correct and that nothing kept correct. The count is generated now, from
+  `fixtures/` and from the tool registrations.
 - **The documents no longer keep their own copy of a number.**
   `scripts/docs-facts.ts` derives the facts a document states about the code —
   the MCP tool list and count, the compose service table, the workspace package
@@ -691,6 +705,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The version is `0.1.0-rc.3`, which is what the code has been for two
+  weeks.** Three documents written on different days — the `[0.1.0-rc.3]`
+  CHANGELOG section, D-023 (2026-09-23) and R-23 — place the standalone worker
+  process and the quality-gate dedupe in rc.3, and `apps/api/src/worker.ts` has
+  been in the tree since the first commit. The version string is declared in
+  six manifests and was bumped in none of them; `PROJECT_STATE.md`,
+  `ROADMAP.md` and the release checklist quoted the un-bumped one.
+  - `ROADMAP.md` listed the standalone worker as future work for 0.2.0 while
+    `CHANGELOG.md` said rc.3 shipped it. The roadmap has an rc.3 section now,
+    rc.2 is marked previous, and the 0.2.0 bullet is gone.
+  - The two web test fixtures carried the release string. They carry
+    `0.0.0-fixture` now: a fixture that names the current version is a second
+    copy of it, and it goes stale on every bump.
+  - `scripts/mcp-audit.ts` printed a literal version into the footer of every
+    report it has ever produced. It reads `package.json` now.
 - **`docs/INDEX.md` is checked, not trusted.** It describes itself as "the
   single entry point for every document in the repository". `pnpm docs:check`
   now verifies that it links every `docs/*.md` file and that every link
@@ -857,6 +886,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`ROADMAP.md` was outside the document check, and had drifted.**
+  - "all 5 packages + 2 apps" — `packages/` has held three since the first
+    commit, so this was never true rather than merely stale.
+  - "5 fixtures: complete / minimal / no-readme / prompt-injection /
+    secret-leak / web3-hackathon" — five, above six names.
+  - `docs/REPOSITORY_INTELLIGENCE_PLAN.md` said "5 个 fixtures" in a boundary
+    table. There are six.
+  - The historical sections were left alone. A record of what rc.1 shipped may
+    say "3 tools" and be right; a current-state claim may not.
+- **`docs/RELEASE_CHECKLIST.md` carried an empty generated block.** The build
+  line read "(every workspace: )" — the marker pair had been removed and the
+  sentence left behind. `docs:check` could not see it, because it compares the
+  blocks it finds and there was nothing to find.
+- **`PROJECT_STATE.md` said it was last updated 2026-09-28** while its own test
+  baseline said 2026-10-02, and its Contents entry for that baseline did not
+  match the heading it pointed at.
+- **`README.md` listed four scripts out of twelve** in its layout tree, and
+  three `docs/` files out of twelve. Both lines point at the authoritative list
+  now instead of keeping a partial copy of it.
 - **Root `dev:api` started the wrong process.** It was
   `pnpm --filter @repopilot/api dev`, and that package's `dev` script is
   `REPOPILOT_API_MODE=combined`. So the root script named `dev:api` started the

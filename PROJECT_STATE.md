@@ -2,9 +2,9 @@
 
 **Project:** RepoPilot — GitHub Repository Launch-Readiness Audit
 **Repository:** https://github.com/azen07508-debug/repopilot
-**Current version:** 0.1.0-rc.2
+**Current version:** 0.1.0-rc.3
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-09-28 15:00 UTC
+**Last updated:** 2026-10-02 23:30 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-10-02)](#test-baseline-2026-10-02-2300-utc)
+- [Test baseline (2026-10-02 23:00 UTC)](#test-baseline-2026-10-02-2300-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -58,8 +58,8 @@ repopilot/
     core/        # analyzers + scoring + report + security + schemas + llm
     mcp-server/  # MCP server (stdio)
     okx-adapter/ # PaymentAdapter interface + mock + okx
-  fixtures/      # 6 sample repos
-  docs/          # Deployment / MCP / External actions
+  fixtures/      # <!-- docs-facts:fixture-count -->6<!-- docs-facts:end --> sample repos
+  docs/          # one file per topic; docs/INDEX.md is the list
   deploy/        # nginx edge config + security-header snippet (the real one
                  # the web image ships; the two examples under docs/deployment
                  # are illustrations, not the source of truth)
@@ -229,11 +229,12 @@ repopilot/
   schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm docs:check` (**exits non-zero** when a document disagrees with the code.
   Recomputes the generated blocks — MCP tool list and count, compose service
-  table, workspace package names and count — and asserts three invariants that
-  carry no block: the `BILLING` map against the `server.tool()` registrations,
-  `docs/INDEX.md` against the `docs/` directory, and every `pnpm <script>` a
-  document names against the root `package.json`. See D-033. Verified by
-  mutation: 12 mutations, 12 caught)
+  table, workspace package names and count, fixture count — and asserts four
+  invariants that carry no block: the `BILLING` map against the `server.tool()`
+  registrations, `docs/INDEX.md` against the `docs/` directory, every
+  `pnpm <script>` a document names against the root `package.json`, and that
+  every markdown file is classified as either generated or deliberately not.
+  See D-033 and D-034. Verified by mutation: 12 mutations, 12 caught)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff

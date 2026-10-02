@@ -104,7 +104,7 @@ The default build target is the API. It is multi-stage, runs as a non-root
 user, and embeds a `HEALTHCHECK` that calls `/health`.
 
 ```bash
-docker build -t repopilot:0.1.0-rc.2 .          # → the API image
+docker build -t repopilot:0.1.0-rc.3 .          # → the API image
 mkdir -p data                                   # the container runs as uid 1000
 
 # 1. Apply the schema. A fresh database has no tables and `/health` probes one
@@ -114,7 +114,7 @@ docker run --rm \
   -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -v $(pwd)/data:/data \
-  repopilot:0.1.0-rc.2 \
+  repopilot:0.1.0-rc.3 \
   node apps/api/dist/db/migrate.js
 
 # 2. Serve.
@@ -124,7 +124,7 @@ docker run --rm -p 127.0.0.1:4000:4000 \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
   -v $(pwd)/data:/data \
-  repopilot:0.1.0-rc.2
+  repopilot:0.1.0-rc.3
 
 # Verify
 curl http://127.0.0.1:4000/health
@@ -150,7 +150,7 @@ bypass (R-24).
 To build the UI image by hand:
 
 ```bash
-docker build --target web -t repopilot-web:0.1.0-rc.2 .
+docker build --target web -t repopilot-web:0.1.0-rc.3 .
 ```
 
 ## Docker Compose (db + migrate + api + worker + web)

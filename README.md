@@ -64,13 +64,13 @@ pnpm --filter @repopilot/api start
 Or with Docker:
 
 ```bash
-docker build -t repopilot:0.1.0-rc.2 .
+docker build -t repopilot:0.1.0-rc.3 .
 docker run --rm -p 4000:4000 \
   -e NODE_ENV=production -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
   -v $(pwd)/data:/data \
-  repopilot:0.1.0-rc.2
+  repopilot:0.1.0-rc.3
 ```
 
 A first audit takes 5–15 seconds for a typical `mode: 'quick'`:
@@ -142,9 +142,9 @@ repopilot/
                  + fixplan (report -> fix plan) + diff (report -> diff)
     mcp-server/  MCP server (stdio)
     okx-adapter/ PaymentAdapter interface, mock + OKX implementations
-  fixtures/      6 sample repos for tests
-  docs/          ARCHITECTURE / DEPLOYMENT / SECURITY / API / MCP / EXTERNAL
-  scripts/       env-check, verify-release, docker-check, lint
+  fixtures/      <!-- docs-facts:fixture-count -->6<!-- docs-facts:end --> sample repos for tests
+  docs/          one file per topic; see docs/INDEX.md for the list
+  scripts/       one check script per gate; see the Scripts table below
   .github/workflows/  ci.yml + docker.yml
 ```
 

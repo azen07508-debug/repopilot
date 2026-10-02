@@ -26,6 +26,22 @@
  *   workspace-count       "3 packages + 2 apps"
  *   compose-service-count the number of compose services
  *   compose-services      the compose service table
+ *   fixture-count         the number of fixture repositories
+ *
+ * Which documents are covered is itself a rule
+ * --------------------------------------------
+ * The first version of this script carried a hand-written list of four
+ * documents. `ROADMAP.md` was not on it, and it had drifted in exactly the way
+ * the fourteen had: "all 5 packages + 2 apps" (there have never been five
+ * packages) and "5 fixtures" directly above six fixture names. A check whose
+ * scope is a list nobody re-reads has the defect it was written to find, one
+ * level up (D-032).
+ *
+ * Every markdown file in the repository is therefore in exactly one of two
+ * lists: `BLOCK_DOCS`, which may carry generated blocks, or `BLOCK_FREE_DOCS`,
+ * which deliberately does not and says why. `checkBlockScope()` fails if a file
+ * is in neither or in both, so adding a document forces the question instead of
+ * defaulting to "unchecked".
  *
  * What is deliberately *not* generated
  * ------------------------------------
@@ -204,9 +220,23 @@ function readDocFiles(): string[] {
     .sort();
 }
 
+/**
+ * Fixture repositories, from `fixtures/`.
+ *
+ * A directory, not a list in a document: `README.md` and `PROJECT_STATE.md`
+ * both said "6 sample repos", which was right, and `ROADMAP.md` said "5
+ * fixtures" above six fixture names, which was not.
+ */
+function readFixtures(): string[] {
+  return readdirSync(join(ROOT, 'fixtures'))
+    .filter((name) => statSync(join(ROOT, 'fixtures', name)).isDirectory())
+    .sort();
+}
+
 const TOOLS = readMcpTools();
 const WORKSPACES = readWorkspaces();
 const SERVICES = readComposeServices();
+const FIXTURES = readFixtures();
 const SCRIPTS = readRootScripts();
 const DOC_FILES = readDocFiles();
 
@@ -265,6 +295,8 @@ const RENDERERS: Record<string, () => string> = {
 
   'compose-service-count': () => String(SERVICES.length),
 
+  'fixture-count': () => String(FIXTURES.length),
+
   'compose-services': () => {
     const rows = ['| Service | Kind | Published |', '| --- | --- | --- |'];
     for (const svc of SERVICES) {
@@ -283,9 +315,35 @@ const BLOCK_RE = /<!--\s*docs-facts:([a-z0-9-]+)\s*-->([\s\S]*?)<!--\s*docs-fact
 const BLOCK_DOCS = [
   'README.md',
   'PROJECT_STATE.md',
+  'ROADMAP.md',
   'docs/ARCHITECTURE.md',
+  'docs/INDEX.md',
+  'docs/MCP_CLIENT_SETUP.md',
   'docs/RELEASE_CHECKLIST.md',
 ];
+
+/**
+ * Every markdown file that deliberately carries no generated block, with the
+ * reason. The reason is the point: "it has no derivable facts" and "its facts
+ * are only knowable after a run" are different decisions, and the next person
+ * to add a count to one of these files needs to know which one it was.
+ */
+const BLOCK_FREE_DOCS: Record<string, string> = {
+  'BACKLOG.md': 'a prioritised TODO list; it names work, not counts',
+  'CHANGELOG.md': 'a historical record — every number in it was true when written',
+  'DECISIONS.md': 'dated decision records; a decision is a historical document',
+  'MARKETPLACE_LISTING.md': 'marketplace copy; the facts it states are not derivable',
+  'README_OKX.md': 'OKX integration notes; the flow, not the counts',
+  'RISKS.md': 'a risk register; the version labels record when a risk was mitigated',
+  'docs/API.md': 'the HTTP surface; endpoints and payloads, no derivable counts',
+  'docs/DEPLOYMENT.md': 'operator instructions',
+  'docs/EXTERNAL_ACTIONS.md': 'the user-side checklist',
+  'docs/HERO_IMAGE_BRIEF.md': 'a design brief',
+  'docs/OKX_LIVE_INTEGRATION.md': 'a runbook for an external service',
+  'docs/OKX_REQUIREMENTS_SNAPSHOT.md': "a dated snapshot of an external party's requirements",
+  'docs/REPOSITORY_INTELLIGENCE_PLAN.md': 'the phased plan; its tables are Phase-0 snapshots',
+  'docs/SECURITY.md': 'the threat model',
+};
 
 /** Every markdown file scanned for `pnpm <script>` references. */
 function allDocPaths(): string[] {
@@ -380,6 +438,43 @@ function checkBlocks(): Problem[] {
   return problems;
 }
 
+/**
+ * Every markdown file is in `BLOCK_DOCS` or `BLOCK_FREE_DOCS` — never both,
+ * never neither.
+ *
+ * Without this, the scope of the whole mechanism is a list, and a document
+ * added later is unchecked by default. That is how `ROADMAP.md` came to say
+ * "all 5 packages + 2 apps" in a repository that has always had three.
+ */
+function checkBlockScope(): Problem[] {
+  const problems: Problem[] = [];
+  const owned = new Set(BLOCK_DOCS);
+  const free = new Set(Object.keys(BLOCK_FREE_DOCS));
+
+  for (const path of allDocPaths()) {
+    const inOwned = owned.has(path);
+    const inFree = free.has(path);
+    if (inOwned && inFree) {
+      problems.push({ where: path, message: 'listed in both BLOCK_DOCS and BLOCK_FREE_DOCS' });
+    } else if (!inOwned && !inFree) {
+      problems.push({
+        where: path,
+        message:
+          'is in neither BLOCK_DOCS nor BLOCK_FREE_DOCS, so nothing checks it. ' +
+          'Add it to BLOCK_DOCS if it states a fact the code holds, or to ' +
+          'BLOCK_FREE_DOCS with the reason it does not.',
+      });
+    }
+  }
+
+  for (const path of [...owned, ...free]) {
+    if (!existsSync(join(ROOT, path))) {
+      problems.push({ where: path, message: 'listed in docs-facts but does not exist' });
+    }
+  }
+  return problems;
+}
+
 /** `docs/INDEX.md` must link every `docs/*.md`, and every link must resolve. */
 function checkIndex(): Problem[] {
   const problems: Problem[] = [];
@@ -469,7 +564,12 @@ if (mode === '--write') {
   process.exit(0);
 }
 
-const problems = [...checkBlocks(), ...checkIndex(), ...checkCommandReferences()];
+const problems = [
+  ...checkBlockScope(),
+  ...checkBlocks(),
+  ...checkIndex(),
+  ...checkCommandReferences(),
+];
 
 console.log('docs-facts: recompute and compare');
 console.log('──────────────────────────────────────────────');

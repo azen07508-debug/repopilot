@@ -322,7 +322,7 @@ Fastify 5，`/api/v1` 前缀。
 | `schemas/report.ts` 的 `reportVersion: '1.0'` 与已有字段语义 | 兼容性承诺，只能加可选字段 |
 | `security/**` 的检测逻辑 | 安全边界，改动需要安全评审 |
 | `scoring/score.ts` 的现有规则 | 分数必须可复现，改规则 = 改所有历史报告 |
-| 5 个 fixtures | 所有回归测试的基线 |
+| 6 个 fixtures | 所有回归测试的基线 |
 | `scripts/verify-release.ts` | 唯一的端到端门禁 |
 
 ---

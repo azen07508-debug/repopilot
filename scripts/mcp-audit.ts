@@ -16,13 +16,21 @@
  *   screenshots/mcp-audit-<repo>-<mode>-<timestamp>.html
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
 const OUT_DIR = join(REPO, 'screenshots');
+
+/**
+ * Read, not typed. This footer used to carry a literal version, so every report
+ * this script has ever produced states whichever release was current the day
+ * the literal was written (D-033: a document states no fact it can derive).
+ */
+const VERSION = (JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { version: string })
+  .version;
 
 const repoUrl = process.argv[2] ?? 'https://github.com/octocat/Hello-World';
 const mode = (process.argv[3] ?? 'quick') as 'quick' | 'full';
@@ -398,7 +406,7 @@ function renderHtml(md: string, ctx: { repoUrl: string; mode: string; durationMs
       <div>Repository: <code>${ctx.repoUrl.replace(/</g, '&lt;')}</code> · Mode: <code>${ctx.mode}</code> · Duration: <code>${(ctx.durationMs / 1000).toFixed(2)}s</code></div>
     </div>
     <pre>${escaped}</pre>
-    <div class="footer">RepoPilot v0.1.0-rc.2 · MCP stdio transport · real GitHub call</div>
+    <div class="footer">RepoPilot v${VERSION} · MCP stdio transport · real GitHub call</div>
   </div>
 </body>
 </html>`;

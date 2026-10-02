@@ -79,7 +79,9 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
 export function makeCapabilities(overrides: Partial<Capabilities> = {}): Capabilities {
   return {
     name: 'RepoPilot',
-    version: '0.1.0-rc.2',
+    // Deliberately not a real release string: a fixture that names the current
+    // version is a second copy of it, and it goes stale on every bump.
+    version: '0.0.0-fixture',
     inputs: {
       repoUrl: 'string',
       mode: 'quick | full',

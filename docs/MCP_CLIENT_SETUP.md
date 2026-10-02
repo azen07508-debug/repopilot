@@ -1,7 +1,7 @@
 # RepoPilot — MCP Client Setup
 
 RepoPilot ships an MCP (Model Context Protocol) server that exposes
-RepoPilot as thirteen tools to any MCP-compatible client.
+RepoPilot as <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end --> tools to any MCP-compatible client.
 
 ## Contents
 

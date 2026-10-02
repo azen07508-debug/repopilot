@@ -58,6 +58,8 @@ Architecture Decision Records (ADR-style, lightweight).
   — A rule's scope is part of the rule
 - [D-033](#d-033--a-document-states-no-fact-it-can-derive)
   — A document states no fact it can derive
+- [D-034](#d-034--the-scope-of-a-check-is-part-of-the-check)
+  — The scope of a check is part of the check
 
 ---
 
@@ -1503,3 +1505,81 @@ this, so the topology is checked in two places that do not need it:
     instance would vanish and the class would not: a target repository's
     `@scure/bip39` wordlist is the case that matters, and this repository is the
     one repository where the bug is harmless.
+
+
+## D-034 — The scope of a check is part of the check
+
+- **Date:** 2026-10-02
+- **Status:** Accepted
+- **Context:** D-033 replaced a document review that ran when someone remembered
+  to run it with `docs:check`, which runs on every push. The new check was total
+  over the documents it owned. The set of documents it owned was a hand-written
+  list of four — `README.md`, `PROJECT_STATE.md`, `docs/ARCHITECTURE.md`,
+  `docs/RELEASE_CHECKLIST.md` — and `ROADMAP.md` was not on it.
+
+  `ROADMAP.md` had drifted in exactly the way the fourteen had:
+  1. **"all 5 packages + 2 apps"** — `packages/` has held three directories
+     since the first commit. This was never true, not merely stale.
+  2. **"5 fixtures: complete / minimal / no-readme / prompt-injection /
+     secret-leak / web3-hackathon"** — a count of five above six names.
+  3. **The standalone worker process was listed as future work for 0.2.0**,
+     while `CHANGELOG.md`'s rc.3 section said it had shipped and
+     `apps/api/src/worker.ts` had been in the tree since the first commit.
+  4. **`docs/RELEASE_CHECKLIST.md` had a generated block whose markers had been
+     removed**, leaving the sentence "(every workspace: )". `docs:check` could
+     not see it: the check compares the blocks it *finds*, and there was nothing
+     to find.
+
+  This is D-032's defect one level up, and R-26's defect again. D-032 says a
+  rule's scope must not be decided by whatever list is at hand. D-033 then built
+  a mechanism whose scope was decided by exactly that.
+
+- **Decision:** **The set of things a check examines is part of the check, and a
+  thing outside the set is a failure rather than a silence.** Concretely:
+  1. **Every markdown file is in exactly one of two lists.** `BLOCK_DOCS` names
+     the documents that may carry generated blocks; `BLOCK_FREE_DOCS` names the
+     rest *and gives the reason*. `checkBlockScope()` fails if a file is in
+     neither or in both, so adding a document forces a decision instead of
+     defaulting to unchecked.
+  2. **The reason is the load-bearing part.** "It states no fact the code holds"
+     and "its facts are only knowable after a run" are different decisions, and
+     the next person to add a number to `RISKS.md` needs to know which one it
+     was. A bare list of exempt files would have recorded the exemption and lost
+     the argument.
+  3. **A deleted block is a defect, not an absence — and this check does not
+     catch it.** The `docs/RELEASE_CHECKLIST.md` case is the shape: the sentence
+     stayed, the markers went, and the document was still in `BLOCK_DOCS`. It is
+     recorded here as a known limitation rather than claimed as covered.
+
+- **Consequences:**
+  1. **The document set grew from four to seven, and the mechanism found more
+     drift on the way in.** `docs/INDEX.md` and `docs/MCP_CLIENT_SETUP.md` both
+     said "thirteen tools"; `README.md` and `PROJECT_STATE.md` both said "6
+     sample repos". Four correct numbers that nothing kept correct. All four are
+     generated now.
+  2. **`fixture-count` is the eighth block id**, reading `fixtures/` the way
+     `workspace-count` reads `pnpm-workspace.yaml`.
+  3. **Adding a document now has a cost, deliberately.** A new `.md` file fails
+     `pnpm docs:check` until it is classified. That is the friction
+     `docs/INDEX.md` already imposes — it must link every document — and it is
+     the point.
+  4. **A historical record may state a number that is no longer true, and this
+     is the distinction the classification forces.** `ROADMAP.md`'s rc.1 section
+     saying "MCP: stdio server, 3 tools" is a record of rc.1 and is correct;
+     `PROJECT_STATE.md`'s tool list saying three tools was a current-state claim
+     and was wrong. Both came out of the same re-read; only one was a defect.
+
+- **Alternatives rejected.**
+  - **Fix `ROADMAP.md` by hand and leave the list at four.** This is what the
+    plan called for, and it is what produced the problem: the next document
+    added would be unchecked by default, exactly as `ROADMAP.md` was.
+  - **Check every markdown file for every block id.** Most documents state none
+    of these facts, so the check would report dozens of absences and teach
+    everyone to ignore it. The classification is what makes the silence mean
+    something.
+  - **Derive the list from the directory instead of declaring it.** Then a new
+    document would be in `BLOCK_DOCS` by default, which is the failure mode with
+    extra steps: nothing would be recorded about whether it *should* be.
+  - **Make `docs:check` fail on any document not in `BLOCK_DOCS`.** It would
+    make `CHANGELOG.md` — a historical record that must not be generated — a
+    permanent failure.

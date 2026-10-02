@@ -1,7 +1,7 @@
 /**
  * /api/v1/audits — create and fetch audit jobs.
  *
- * Contract (v0.1.0-rc.2 — async):
+ * Contract (v0.1.0-rc.3 — async):
  *   1. Client POSTs { repoUrl, mode, target, outputLanguage, includeLaunchCopy }.
  *   2. Server validates input.
  *   3. Server checks for X-PAYMENT (or for an Idempotency-Key header) and

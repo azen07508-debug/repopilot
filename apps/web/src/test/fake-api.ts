@@ -101,7 +101,7 @@ export function installFakeApi(options: FakeApiOptions = {}): FakeApi {
     report = makeReport(),
     pollAfterMs = 5,
     capabilities = makeCapabilities(),
-    health = { status: 'ok', version: '0.1.0-rc.2', paymentMode: 'mock', database: 'ok' },
+    health = { status: 'ok', version: '0.0.0-fixture', paymentMode: 'mock', database: 'ok' },
     settlePost = 'ok',
     challengePost = 'ok',
     getNetworkErrorAt,
