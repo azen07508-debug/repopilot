@@ -43,6 +43,8 @@ Active risks the team is aware of and how they are mitigated.
   — The mnemonic rule fires on the dictionary of mnemonics
 - [R-30](#r-30--quick-and-full-are-the-same-analysis-at-two-prices)
   — `quick` and `full` are the same analysis at two prices
+- [R-31](#r-31--the-typecheck-gate-does-not-cover-scripts)
+  — The typecheck gate does not cover `scripts/`
 
 ---
 
@@ -938,3 +940,80 @@ Recorded here rather than fixed, because fixing the documents alone would
 erase the evidence that a real tiering was intended.
 
 
+
+## R-31 — The typecheck gate does not cover `scripts/`
+
+**Severity:** Medium
+**Likelihood:** Certain — measured on 2026-10-02
+
+**What happens.** `pnpm lint` step 1 runs `tsc --noEmit` and prints
+`Scope: 5 of 6 workspace projects` followed by `✓ tsc clean`. All five
+workspace tsconfigs `include` exactly one pattern — `src/**/*` — and no
+tsconfig anywhere in the repository includes `scripts/`.
+
+So the first of the six gates says nothing about the directory that holds
+`lint.ts` (the gate itself), `docs-facts.ts`, `audit-diff.ts`,
+`mcp-audit.ts`, `verify-release.ts`, `compose-check.ts` and the rest. Every
+checking mechanism this project has built since the 2026-10-01 review lives
+in a directory the typechecker has never been pointed at.
+
+**Measured.** A `tsconfig.scripts.json` extending `tsconfig.base.json` with
+`"include": ["scripts/**/*.ts"]` produces **51 errors**:
+
+| count | what |
+|---|---|
+| 4 | `TS1470` — `import.meta` not allowed, "files which will build into CommonJS output" |
+| 1 | `TS2307` — `env-check.ts` cannot resolve `zod` |
+| ~30 | `TS18048` / `TS2532` / `TS2345` — possibly-undefined, from `noUncheckedIndexedAccess`, mostly in `lint.ts` (13) and `verify-release.ts` (11) |
+| 1 | a real type mismatch in `okx-seller-smoke.ts`: its x402 `accepts[]` literal is missing `resource`, `description` and `mimeType` |
+
+The last row is not a config artefact. It is a genuine disagreement between
+the script and the payment schema, sitting in the smoke test that exists to
+prove the seller side is wired.
+
+**Part of the cause is a file that is not what it is named.** The root
+`tsconfig.json` contains:
+
+```json
+{ "name": "@repopilot/root", "version": "0.1.0", "private": true, "type": "module" }
+```
+
+That is the root `package.json`'s metadata header, not a tsconfig, and it has
+been there since the first commit (`f95ccb5`). Two consequences, both silent:
+
+1. **`"type": "module"` is in the wrong file.** TypeScript never reads it out
+   of `tsconfig.json`, and the root `package.json` does not have it — so every
+   `scripts/*.ts` is compiled as CommonJS, which is what the four `TS1470`s
+   are. At runtime there is no symptom, because `tsx` does not consult the
+   field and detects ESM from syntax. The only consumer of the setting is the
+   typechecker, and the typechecker never sees these files.
+2. **A `tsconfig.json` with no `compilerOptions`** sits at the root, so a bare
+   `tsc` in that directory would read it and include every `.ts` file under
+   the repository. Nobody runs that, which is why it has never mattered.
+
+**Why this is Medium and not Low.** It is the same defect as D-034, in a
+different gate: **the scope of the typecheck is part of the typecheck**, and
+its scope silently excludes the code that does the checking. Every script in
+that directory was written and reviewed under a green `✓ tsc clean` that was
+never about them. It is not High because nothing is *wrong* at runtime —
+`tsx` runs them correctly — but the gate is a green tick over an unexamined
+directory, which is R-26's shape and R-28's shape.
+
+**How it was found.** While adding the block-scope check in batch 1, the
+question "is `scripts/docs-facts.ts` typechecked at all" was asked about a
+change to that file. It is not.
+
+**Mitigation.** None yet, deliberately. It is a batch of its own, and doing
+half of it is worse than doing none: moving `"type": "module"` into
+`package.json` fixes four errors and produces no new coverage, while adding
+the tsconfig without moving the field produces four new failures. The batch
+is: a real `tsconfig.scripts.json`, `"type": "module"` moved to where it
+belongs, the root `tsconfig.json` replaced with something that is a tsconfig,
+`zod` declared at the root (or `env-check.ts` excluded with a reason), and
+the ~30 `noUncheckedIndexedAccess` sites worked through one at a time —
+starting with the `okx-seller-smoke.ts` mismatch, which is a finding in its
+own right.
+
+**Still open.** Until then, `scripts/` has no static checking, and the
+`✓ tsc clean` line should be read as covering five workspaces and nothing
+else.
