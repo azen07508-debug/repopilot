@@ -41,6 +41,8 @@ Active risks the team is aware of and how they are mitigated.
   — A green tick over a capability the repository does not have
 - [R-29](#r-29--the-mnemonic-rule-fires-on-the-dictionary-of-mnemonics)
   — The mnemonic rule fires on the dictionary of mnemonics
+- [R-30](#r-30--quick-and-full-are-the-same-analysis-at-two-prices)
+  — `quick` and `full` are the same analysis at two prices
 
 ---
 
@@ -818,5 +820,121 @@ right on its own:
 in the self-audit are not usable as a signal, and batch 2's acceptance
 criterion is `190 → 0` rather than the `22 → 0` the plan was written
 against.
+
+**The number moves.** Re-measured at `0b118b1` it is **194**, not 190 — the
+self-audit's target is this repository, so every commit we push changes the
+number the fix has to reach. The four extra findings are the same
+`SEC-SECRET-001` shape in files added after the first measurement. Batch 2's
+criterion should be written as "the wordlist contributes zero", not as a
+literal count, for the same reason the baseline carries a `historyScanned`
+column: a count is only comparable to another count taken the same way.
+
+
+## R-30 — `quick` and `full` are the same analysis at two prices
+
+**Severity:** High
+**Likelihood:** Certain — measured on the 2026-10-02 baseline
+
+**What happens.** `mode` is a required field on every audit request, and it
+decides the price: `priceFor(deps.payment, input.mode)` resolves to 0.02
+USDT for `quick` and 0.10 USDT for `full` (`DEFAULT_PRICING`, in
+`packages/core/src/utils/constants.ts`). It does not decide the analysis.
+Every analyzer runs in both modes, the archive is read the same way, and
+`scanHistory()` is called unconditionally in `pipeline.ts` — `auditMode` is
+stamped into `scan.mode` and then read by nothing in the pipeline.
+
+Grepping all of `packages/core/src` for a comparison against `mode` returns
+exactly three, all in `report/builder.ts`, all after the analysis is
+finished:
+
+| line | what `mode` changes |
+|---|---|
+| `builder.ts:365` | adds the `task-add-demo-url` recommended task in `full` only |
+| `builder.ts:419` | adds the "Configure reverse proxy + TLS" deployment step in `full` only |
+| `builder.ts:554` | adds the limitation sentence in `quick` only |
+
+So `full` buys three extra rows of advice. Everything a customer would use
+to decide whether the repository is good — the five dimension scores, the
+blocker list, the documentation gaps, the security findings, the detected
+stack — is computed identically.
+
+**Measured** (one repository, both modes, `GITHUB_TOKEN` set, 2026-10-02;
+these are the two `Hello-World` rows of `scripts/audit-baseline.json`):
+
+| | `octocat/Hello-World` quick | `octocat/Hello-World` full |
+|---|---|---|
+| `overall` | 53.1 | 53.1 |
+| `documentation` | 37.5 | 37.5 |
+| `reproducibility` | 28.5 | **28.5** |
+| `securityHygiene` | 95.0 | 95.0 |
+| `deploymentReadiness` | 63.5 | 63.5 |
+| `blockers` / `docGaps` | 4 / 8 | 4 / 8 |
+| `secFindings` / `fixtureFindings` | 1 / 0 | 1 / 0 |
+| `historyScanned` | yes | yes |
+
+Identical on every axis.
+
+**The `quick` limitation sentence is false.** A `quick` report says:
+
+> Quick scan skips some of the deeper reproducibility heuristics.
+
+Nothing is skipped. `reproducibility` is 28.5 in both modes, and no analyzer
+consults the mode. This is the same defect class as R-28 one level down:
+R-28 was a green tick over a capability the repository did not have; this is
+a stated limitation over an analysis that was never thinned. **No test pins
+the sentence** — it occurs in `builder.ts:555` and in generated audit
+artefacts, nowhere else — so it can be deleted or made true without breaking
+a gate, which is itself the finding.
+
+**The marketplace listing sells the difference.** `MARKETPLACE_LISTING.md`
+describes the 0.10 USDT tier as including "the deeper reproducibility and
+Web3 analyzers", in English (`:37-41`) and in Chinese (`:92-95`). The Web3
+analyzer runs in both modes and there is no deeper reproducibility pass. A
+buyer who pays 0.10 receives the same numbers as a buyer who pays 0.02, and
+nothing in the product stops the 0.02 buyer from getting them.
+
+**A third sighting, already committed.** `screenshots/README.md:34` labels
+the `full` artefacts "same content here, repo is too small to differ" — the
+same theory I reached first, written down months earlier and never checked.
+It is wrong twice: the two reports are not the same content (`full` carries
+two extra advice rows), and the repository being small is not why. Three
+independent places describe a difference that does not exist, and all three
+survived because no check compares a claim about `mode` against `mode`.
+
+**Why this is High rather than Low.** It is not a scoring bug. It is a
+statement to a paying customer that the code does not support, made in the
+document that exists to be read by a paying customer. The scores are right;
+the *tiering* is fictional. And the direction is the bad one: the cheap tier
+over-delivers and the expensive tier is mis-described, so the first person
+to notice is a customer comparing notes.
+
+**How it was found.** Not by reading the code and not by the test suite.
+While hardening `scripts/audit-diff.ts` (adding the `historyScanned` column),
+the four baseline audits were re-run and the two `Hello-World` rows came back
+identical on every field. The explanation offered first — "the 3-commit
+history adds nothing to a one-file repository" — was wrong, and checking it
+is what surfaced that the two modes are the same scan.
+
+**Mitigation.** None yet, deliberately. This is a product decision with two
+defensible answers and the repair plan did not anticipate it:
+
+1. **Implement the tiering.** Make `quick` actually skip the deeper
+   reproducibility heuristics and the Web3 analyzer, and make the limitation
+   sentence true. `DEFAULT_LIMITS` grows a per-mode variant, and
+   `audit-diff` gains something to compare.
+2. **Collapse to one tier.** Delete the mode, keep one price, delete the
+   sentence and the marketplace claim. Cheaper and honest; loses the
+   0.02/0.10 ladder.
+
+Both are larger than a document edit, and (1) changes what a paying customer
+receives, so neither is being chosen unilaterally.
+
+**Still open.** Until it is decided, the marketplace listing overstates the
+0.10 tier and the `quick` limitation sentence is false. `docs/API.md` is
+*not* wrong — it lists `mode` as a required parameter (`:208`) and never says
+what it selects — which is precisely why the doc check cannot see any of
+this: there is no derivable number and no cross-reference to disagree with.
+Recorded here rather than fixed, because fixing the documents alone would
+erase the evidence that a real tiering was intended.
 
 

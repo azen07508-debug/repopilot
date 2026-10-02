@@ -76,6 +76,21 @@ interface Metrics {
   secFindings: number;
   fixtureFindings: number;
   stack: string[];
+  /**
+   * Whether the commit-history scan produced anything for this run.
+   *
+   * Read from the report's own `historyScan.scannedCommits`, not from the
+   * `limitations` prose. The report already states this as a field; deriving
+   * it from a sentence is a second copy of a fact the code holds (D-033), and
+   * this one is ambiguous to boot: `buildLimitations` writes nothing when the
+   * scan completed, and nothing again when it was never attempted, so the
+   * absence of a sentence means two different things.
+   *
+   * A run that scanned no commits is a different measurement from one that
+   * scanned twenty: it loses every `SEC-HISTORY-*` finding, and the baseline
+   * was captured with the history available.
+   */
+  historyScanned: boolean;
 }
 
 /** Same slug rule as `mcp-audit.ts`, so the two agree on a filename. */
@@ -95,7 +110,20 @@ function newestOutput(slug: string, mode: string, notOlderThan?: number): string
 }
 
 function metricsOf(path: string): Metrics {
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+
+  // `mcp-audit.ts` writes whatever the audit returned. When the audit itself
+  // fails — a GitHub rate limit, say — that is the error *string*, and every
+  // metric below would read `null`/`0` and look like an audit that found
+  // nothing. A failed run must not read as a clean one (R-26's shape, inside
+  // the acceptance tool).
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `not a report — the file holds ${JSON.stringify(parsed).slice(0, 200)}`
+    );
+  }
+
+  const raw = parsed as {
     status?: string;
     scores?: number;
     scoreBreakdown?: Record<string, number>;
@@ -104,10 +132,19 @@ function metricsOf(path: string): Metrics {
     securityFindingCount?: number;
     fixtureFindingCount?: number;
     detectedStack?: string[];
-    report?: { auditMode?: string };
+    report?: {
+      auditMode?: string;
+      historyScan?: { scannedCommits: number; complete: boolean; mode: string };
+    };
   };
   const sb = raw.scoreBreakdown ?? {};
   const num = (v: number | undefined): number | null => (typeof v === 'number' ? v : null);
+  // `mcp-audit.ts` writes the tool's response envelope, which carries the
+  // summary counts at the top level and the full report — `historyScan` and
+  // `limitations` included — under `report`. Reading either from the top level
+  // silently yields nothing, which is how the first version of this reported
+  // "history not scanned" for every run.
+  const historyScanned = (raw.report?.historyScan?.scannedCommits ?? 0) > 0;
   return {
     mode: raw.report?.auditMode ?? 'unknown',
     status: raw.status ?? 'unknown',
@@ -121,6 +158,7 @@ function metricsOf(path: string): Metrics {
     secFindings: raw.securityFindingCount ?? 0,
     fixtureFindings: raw.fixtureFindingCount ?? 0,
     stack: raw.detectedStack ?? [],
+    historyScanned,
   };
 }
 
@@ -140,6 +178,10 @@ const COLUMNS: Array<{ head: string; width: number; of: (m: Metrics) => string }
   { head: 'docGaps', width: 8, of: (m) => String(m.docGaps) },
   { head: 'secFind', width: 8, of: (m) => String(m.secFindings) },
   { head: 'fixture', width: 8, of: (m) => String(m.fixtureFindings) },
+  // `NO` means this run has no history findings in it. Both modes scan the
+  // same way, so `NO` is not a quick/full distinction — it means the scan
+  // produced nothing, which is either a rate limit or a disabled scan.
+  { head: 'hist', width: 5, of: (m) => (m.historyScanned ? 'yes' : 'NO') },
 ];
 
 const LABEL_WIDTH = 26;
@@ -177,6 +219,17 @@ function tableProblems(): string[] {
 /** Every metric that moved, as `name  before → after  (delta)`. */
 function changes(before: Metrics, after: Metrics): string[] {
   const out: string[] = [];
+  // Stated before the counts, because it explains them. A run that scanned no
+  // commits loses every SEC-HISTORY-* finding, and those findings are counted
+  // in `securityFindings` and `fixtureFindings` — so the counts move without
+  // the tool changing at all.
+  if (before.historyScanned !== after.historyScanned) {
+    out.push(
+      `    historyScan          ${before.historyScanned ? 'ran' : 'did not run'} → ` +
+        `${after.historyScanned ? 'ran' : 'did not run'}` +
+        '   ← the counts below are not comparable unless both ran'
+    );
+  }
   const pairs: Array<[string, number | null, number | null]> = [
     ['overall', before.overall, after.overall],
     ['documentation', before.documentation, after.documentation],
@@ -235,6 +288,20 @@ if (doRun && !existsSync(MCP_CLI)) {
   process.exit(1);
 }
 
+// Not fatal, because three of the four targets are small and an anonymous run
+// often survives them. It is loud because the failure is quiet: the audit
+// still completes, the scores barely move, and the only sign is a line in
+// `limitations` and a lower count.
+if (doRun && !process.env.GITHUB_TOKEN) {
+  console.log(
+    '\naudit-diff: GITHUB_TOKEN is not set. Anonymous GitHub access allows 60\n' +
+      '  requests an hour, and four `full` audits exceed it. When the limit is\n' +
+      '  hit the history scan fails, the run loses every SEC-HISTORY-* finding,\n' +
+      '  and the diff below compares two different measurements.\n' +
+      '    export GITHUB_TOKEN=$(gh auth token)'
+  );
+}
+
 const current: Record<string, Metrics> = {};
 const failures: string[] = [];
 
@@ -265,7 +332,15 @@ for (const audit of selected) {
     failures.push(`${audit.label}: no mcp-audit output found in screenshots/`);
     continue;
   }
-  const m = metricsOf(path);
+  const m = (() => {
+    try {
+      return metricsOf(path);
+    } catch (err) {
+      failures.push(`${audit.label}: ${path.replace(ROOT + '/', '')} ${(err as Error).message}`);
+      return undefined;
+    }
+  })();
+  if (m === undefined) continue;
   // The output is located by filename, so the filename is not evidence that
   // the right audit was read. The report says which mode produced it.
   if (m.mode !== audit.mode) {
@@ -299,7 +374,10 @@ if (doUpdate) {
       'numbers moved, and someone has to say whether that was us. ' +
       'Three of the four targets are other people\'s repositories; the fourth ' +
       'audits this one, so its numbers move whenever we push, and a self-audit ' +
-      'diff is usually about us rather than about the tool.',
+      'diff is usually about us rather than about the tool. ' +
+      'Captured with GITHUB_TOKEN set, so the commit-history scan ran: ' +
+      '`historyScanned` records that per audit, and a run without it is not ' +
+      'comparable to this one.',
     audits: { ...existing, ...current },
   };
   writeFileSync(BASELINE, JSON.stringify(payload, null, 2) + '\n', 'utf8');

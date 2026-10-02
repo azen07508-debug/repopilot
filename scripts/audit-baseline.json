@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-10-02",
-  "note": "Reference audit metrics. Compared against by scripts/audit-diff.ts. This is a measurement record, not a gate — a non-zero diff means the numbers moved, and someone has to say whether that was us. Three of the four targets are other people's repositories; the fourth audits this one, so its numbers move whenever we push, and a self-audit diff is usually about us rather than about the tool.",
+  "note": "Reference audit metrics. Compared against by scripts/audit-diff.ts. This is a measurement record, not a gate — a non-zero diff means the numbers moved, and someone has to say whether that was us. Three of the four targets are other people's repositories; the fourth audits this one, so its numbers move whenever we push, and a self-audit diff is usually about us rather than about the tool. Captured with GITHUB_TOKEN set, so the commit-history scan ran: `historyScanned` records that per audit, and a run without it is not comparable to this one.",
   "audits": {
     "octocat/Hello-World quick": {
       "mode": "quick",
@@ -14,7 +14,8 @@
       "docGaps": 8,
       "secFindings": 1,
       "fixtureFindings": 0,
-      "stack": []
+      "stack": [],
+      "historyScanned": true
     },
     "octocat/Hello-World full": {
       "mode": "full",
@@ -28,7 +29,8 @@
       "docGaps": 8,
       "secFindings": 1,
       "fixtureFindings": 0,
-      "stack": []
+      "stack": [],
+      "historyScanned": true
     },
     "pinojs/pino full": {
       "mode": "full",
@@ -46,7 +48,8 @@
         "GitHub Actions",
         "Node.js",
         "TypeScript"
-      ]
+      ],
+      "historyScanned": true
     },
     "self (repopilot) full": {
       "mode": "full",
@@ -58,7 +61,7 @@
       "deploymentReadiness": 100,
       "blockers": 25,
       "docGaps": 4,
-      "secFindings": 190,
+      "secFindings": 194,
       "fixtureFindings": 33,
       "stack": [
         "GitHub Actions",
@@ -66,7 +69,8 @@
         "TypeScript",
         "Node.js",
         "Vite"
-      ]
+      ],
+      "historyScanned": true
     }
   }
 }
