@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guessed — the wordlist scores **0.956**, the next-highest of the 248 tracked
   files with at least 50 words scores **0.447**, and nothing measured lands
   between them, so the band is wide and 0.75 is its midpoint.
+  **The first version of this fix missed the history path**, and the audit
+  caught it: `securityFindings` stayed at 7 with a `critical` finding against
+  `bip39-english.ts` in commit `82a244c`, and the report's headline read "Top
+  blocker: Secret in commit history: Possible seed phrase". The history
+  scanner scans a patch one added line at a time, so a file-level question was
+  being asked of a single line — and twelve words is below the floor
+  `isWordlistFile` needs before it will judge anything, so the answer was
+  always no. `scanTextForSecrets` now takes the text a file-level judgement
+  should be made against (`fileContent`), separately from the text being
+  scanned, and the history scanner passes the whole patch. A patch is the
+  widest sample that path has, and for the commit that adds a file it *is* the
+  file. A test pins both directions: a commit that adds a wordlist reports
+  nothing, and a single phrase added to an ordinary file is still reported.
 - **Three more non-credential shapes, and the shapes module now holds the
   decomposition as well as the judgements.** `uuid` (a canonical UUID is an
   identifier), `evm-address` (a 20-byte contract address is public by

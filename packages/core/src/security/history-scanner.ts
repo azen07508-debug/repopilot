@@ -107,8 +107,20 @@ export function scanCommitsForSecrets(commits: ScannedCommit[]): HistorySecretHi
       if (!file.patch) continue;
       const allowlist = isAllowlistedPath(file.filename);
 
-      for (const added of addedLines(file.patch)) {
-        for (const hit of scanTextForSecrets(added.text, { allowlist, path: file.filename })) {
+      // The patch is passed as `fileContent` as well as scanned line by line.
+      // A file-level question asked of a single line answers wrongly: the
+      // BIP-39 wordlist's lines are twelve words each, which is below the
+      // floor `isWordlistFile` needs before it will judge a file at all, so
+      // the mnemonic rule reported the commit that introduced the wordlist.
+      // The whole patch is the widest sample available here, and for the
+      // commit that adds a file it *is* the file.
+      const patch = file.patch;
+      for (const added of addedLines(patch)) {
+        for (const hit of scanTextForSecrets(added.text, {
+          allowlist,
+          path: file.filename,
+          fileContent: patch,
+        })) {
           const key = `${hit.kind}::${file.filename}::${hit.reason}`;
           if (seen.has(key)) continue;
           seen.add(key);

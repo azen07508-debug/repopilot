@@ -844,6 +844,24 @@ The two surviving `mnemonic` findings are the deliberate positive fixtures in
 phrase" test. Suppressing those would be suppressing the test that proves the
 rule works, so a test now pins that a phrase in a document is still reported.
 
+**The tree scan was the easy half.** The first version of this fix left the
+history scan broken, and only the audit showed it: `securityFindings` stayed
+at 7, one of them `critical` against `bip39-english.ts` in commit `82a244c`,
+and the report's headline read "Top blocker: Secret in commit history:
+Possible seed phrase". The history scanner scans a patch one added line at a
+time, so the file-level question was being asked of a single line — twelve
+words, below the floor `isWordlistFile` needs before it will judge a file at
+all, so the answer was always no. `scanTextForSecrets` now takes the text a
+file-level judgement should be made against, separately from the text being
+scanned, and the history scanner passes the whole patch.
+
+**Two lessons, both about where a check is asked.** A file-level predicate
+applied to a fragment is not a weaker version of itself, it is a different
+question. And **an acceptance tool that reads a published repository can only
+measure what has been pushed** — the first re-run of `audit-diff` after the
+tree fix measured the *old* code, because the fix was still uncommitted, and
+it reported no movement for a change that had already worked.
+
 ### The acceptance criterion this risk was written against was wrong
 
 `190 → 0`, later `194 → 0`, cannot be reached and was never the right target.

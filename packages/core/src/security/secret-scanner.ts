@@ -293,10 +293,15 @@ export interface SecretLineHit {
  *   because two shapes need it and a caller without one should not have to
  *   invent it — but a caller that has it should pass it, or the file-level
  *   shapes cannot fire.
+ * @param fileContent the text a *file-level* judgement should be made
+ *   against, when that is not `content` itself. The history scanner has only
+ *   a patch, and it scans that patch one added line at a time — so without
+ *   this, a question about the whole file gets asked of a single line and
+ *   answers wrongly. Defaults to `content`.
  */
 export function scanTextForSecrets(
   content: string,
-  opts: { allowlist?: boolean; path?: string } = {}
+  opts: { allowlist?: boolean; path?: string; fileContent?: string } = {}
 ): SecretLineHit[] {
   const isAllowlist = opts.allowlist ?? false;
   const hits: SecretLineHit[] = [];
@@ -304,7 +309,7 @@ export function scanTextForSecrets(
   // Decided once per file, not once per line: the question is about the
   // whole content, and a pattern that is inapplicable is inapplicable on
   // every line of it.
-  const file = { path: opts.path ?? '', content };
+  const file = { path: opts.path ?? '', content: opts.fileContent ?? content };
   const applicable = PATTERNS.filter((p) => !p.skipFile?.(file));
 
   for (let i = 0; i < lines.length; i++) {

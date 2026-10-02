@@ -164,6 +164,46 @@ describe('scanCommitsForSecrets', () => {
     ]);
     expect(hits[0]?.kind).toBe('github_pat');
   });
+
+  /**
+   * R-29, in the path where it survived the first fix.
+   *
+   * The history scanner scans a patch one added line at a time, so a
+   * file-level question — "is this file the wordlist?" — was being asked of a
+   * single line. Twelve words is below the floor `isWordlistFile` needs before
+   * it will judge anything, so the answer was always no and the mnemonic rule
+   * reported the commit that introduced the wordlist. The patch is now passed
+   * as the sample for file-level judgements.
+   */
+  describe('a wordlist added in a commit is not a mnemonic dump', () => {
+    const PHRASE =
+      'abandon ability able about above absent absorb abstract absurd abuse access accident';
+
+    /** A patch that adds `n` twelve-word lines, i.e. what a wordlist looks like. */
+    function wordlistPatch(n: number): string {
+      const lines = [`@@ -0,0 +1,${n} @@`];
+      for (let i = 0; i < n; i++) lines.push(`+${PHRASE}`);
+      return lines.join('\n');
+    }
+
+    it('reports nothing from a commit that adds the wordlist', () => {
+      const hits = scanCommitsForSecrets([
+        commit({
+          subject: 'add the BIP-39 wordlist',
+          files: [{ filename: 'packages/core/src/security/bip39-english.ts', patch: wordlistPatch(20) }],
+        }),
+      ]);
+      expect(hits.filter((h) => h.kind === 'mnemonic')).toEqual([]);
+    });
+
+    it('still reports a single phrase added to an ordinary file', () => {
+      // One phrase is not a dictionary, and the guard must not eat it.
+      const hits = scanCommitsForSecrets([
+        commit({ files: [{ filename: 'notes.md', patch: patchFor(PHRASE) }] }),
+      ]);
+      expect(hits.map((h) => h.kind)).toContain('mnemonic');
+    });
+  });
 });
 
 describe('toHistoryFindings', () => {
