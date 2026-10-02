@@ -8,6 +8,7 @@
  */
 import type { FileEntry } from '../git/files.js';
 import type { Finding } from '../schemas/report.js';
+import { isSampleMaterialPath } from '../utils/paths.js';
 
 export interface Web3Analysis {
   findings: Finding[];
@@ -52,7 +53,11 @@ export function analyzeWeb3(
   const chains = new Set<string>();
   const contractAddresses = new Set<string>();
 
-  const lowerPaths = entries.map((e) => e.path);
+  // Fixture trees are stand-in material for a different project. Reading
+  // `fixtures/web3-hackathon/` as evidence made the self-audit report
+  // contracts and contract tests for a repository that has neither, and
+  // the launch checklist printed "contract tests found".
+  const lowerPaths = entries.map((e) => e.path).filter((p) => !isSampleMaterialPath(p));
 
   for (const p of lowerPaths) {
     if (/(^|\/)contracts?\//i.test(p) && /\.(sol|vy|cairo|move)$/i.test(p)) {

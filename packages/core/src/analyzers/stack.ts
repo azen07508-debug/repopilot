@@ -8,6 +8,7 @@
  */
 import type { FileEntry } from '../git/files.js';
 import { detectLanguage } from '../git/files.js';
+import { isSampleMaterialPath } from '../utils/paths.js';
 
 export type StackKey =
   | 'node'
@@ -65,7 +66,17 @@ export function detectStack(entries: FileEntry[], fileContents: Map<string, stri
     }
   }
 
-  for (const entry of entries) {
+  // Fixture trees describe a different project.
+  //
+  // `fixtures/web3-hackathon/` is a Solidity sample this repository audits
+  // in its own test suite. Counting it as evidence made RepoPilot report
+  // itself as a Solidity/Foundry project, which then ticked the "Contracts
+  // covered by tests" checklist item — a green light over a capability the
+  // repository does not have. `test/` is not excluded; a project's own
+  // tests are evidence about the project.
+  const projectEntries = entries.filter((e) => !isSampleMaterialPath(e.path));
+
+  for (const entry of projectEntries) {
     for (const p of PATH_PATTERNS) {
       if (p.match.test(entry.path)) {
         bump(p.key, p.label, p.confidence, {
@@ -157,7 +168,7 @@ export function detectStack(entries: FileEntry[], fileContents: Map<string, stri
   }
 
   // Deployment platform detection via known config files.
-  const fileNames = new Set(entries.map((e) => e.path.split('/').pop() ?? ''));
+  const fileNames = new Set(projectEntries.map((e) => e.path.split('/').pop() ?? ''));
   if (fileNames.has('railway.toml') || fileNames.has('railway.json')) {
     bump('railway', 'Railway', 0.95, { file: 'railway.toml', line: null, reason: 'Railway config present' });
   }
