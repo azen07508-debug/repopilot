@@ -800,36 +800,77 @@ audits against a recorded baseline. The self-audit's target is this
 repository, so the tool noticed that our own commits had moved our own
 score. The baseline being stale is what made the 166 visible.
 
-**Mitigation.** None yet, deliberately. The fix is a *shape* decision —
-"this file is a wordlist, not a mnemonic dump" — and the shapes belong in
-one place (`packages/core/src/security/shapes.ts`, batch 2 of the repair
-plan), with a false-positive sample and a same-shape true-positive test
-pair for each. Three candidate fixes were considered and none is obviously
-right on its own:
+**Fixed — batch 2, 2026-10-02.** Option 2, the file-level predicate, as
+`isWordlistFile()` in `packages/core/src/security/shapes.ts`, consulted
+through a new `skipFile` gate on the pattern.
 
-1. **Exclude the path.** Cheap, and it fixes only our copy of the file —
-   a target repository's `english.txt` is the case that matters.
-2. **Exclude when the file is mostly BIP-39 words.** A file-level
-   predicate. Needs a threshold, and a threshold needs a measurement on
-   real repositories, not on ours.
-3. **Require the phrase to be *used*** — assigned, passed, or committed
-   as a value — rather than merely present. The most principled of the
-   three, and the largest change: it turns the rule from a presence check
-   into a context check, and the existing 12/15/18/21/24-word window
-   logic has to survive it.
+**Why option 2 and not option 1.** A path exclusion (`**/bip39-english.ts`)
+would have fixed our copy and nothing else. The class is "a file that is a
+dictionary of BIP-39 words", and a path does not name that class — a wordlist
+fetched into a temporary directory, renamed, or vendored under a different
+name all have the shape and none has the path. Option 3 was not needed: the
+rule's per-match validator is correct, and the file-level question is the one
+it was missing.
 
-**Still open.** Until it is fixed, `securityHygiene` and `securityFindings`
-in the self-audit are not usable as a signal, and batch 2's acceptance
-criterion is `190 → 0` rather than the `22 → 0` the plan was written
-against.
+**The threshold was measured, not chosen.** Word tokens (`[a-z]{3,12}`, the
+same shape the mnemonic candidate regex uses) were counted for every tracked
+file with at least 50 of them — 248 files:
 
-**The number moves.** Re-measured at `0b118b1` it is **194**, not 190 — the
-self-audit's target is this repository, so every commit we push changes the
-number the fix has to reach. The four extra findings are the same
-`SEC-SECRET-001` shape in files added after the first measurement. Batch 2's
-criterion should be written as "the wordlist contributes zero", not as a
-literal count, for the same reason the baseline carries a `historyScanned`
-column: a count is only comparable to another count taken the same way.
+| file | BIP-39 fraction | words |
+|---|---|---|
+| `packages/core/src/security/bip39-english.ts` | **0.956** | 2181 |
+| `packages/core/src/findings/rule-registry.ts` | 0.447 | 944 |
+| `screenshots/okx-seller-smoke.html` | 0.419 | 186 |
+| `packages/core/src/intelligence/limits.ts` | 0.416 | 77 |
+
+Nothing measured lands between 0.447 and 0.956, so the band is wide and the
+exact digit does not carry the decision. `WORDLIST_SHARE = 0.75` is the
+midpoint. There is also a floor, `WORDLIST_MIN_WORDS = 50`: without it a
+twelve-word test fixture made entirely of BIP-39 words scores 1.0 and would
+be read as the dictionary.
+
+**Verified.** `scanForSecrets` on this repository's tracked tree, with the
+file set held fixed:
+
+| | old scanner | new scanner |
+|---|---|---|
+| `mnemonic` | 167 | **2** |
+| of which in `bip39-english.ts` | 165 | **0** |
+| `generic_high_entropy` | 33 | **4** |
+| total findings | **210** | **16** |
+
+The two surviving `mnemonic` findings are the deliberate positive fixtures in
+`secret-scanner.test.ts:187` and `:195` — the rule's own "does it detect a
+phrase" test. Suppressing those would be suppressing the test that proves the
+rule works, so a test now pins that a phrase in a document is still reported.
+
+### The acceptance criterion this risk was written against was wrong
+
+`190 → 0`, later `194 → 0`, cannot be reached and was never the right target.
+
+1. **The floor is not zero.** Of the 16 remaining secret findings on the
+   tracked tree, **15 are deliberate fixtures** in `secret-scanner.test.ts`
+   and `history-scanner.test.ts` — a scanner's test suite has to hold
+   realistic-looking keys to prove it detects them — and the 16th is the
+   Telegram example in `CHANGELOG.md:1177`, already recorded as an accepted
+   residual of the unknown-format catch-all.
+2. **`securityFindings` is not the secret scan.** `report/builder.ts:141`
+   builds it as `secretFindings + injectionFindings + historyFindings +
+   security-category hygiene findings`, then removes anything in a fixture
+   path. So a number read out of that field cannot be compared to a
+   secret-scan count, and the criterion compared one to the other. Measured
+   now: on the tracked tree the secret scan is 210 → 16, while the tree-side
+   non-fixture contribution to `securityFindings` is 1 secret finding plus 4
+   injection findings — the injection four being our own `CHANGELOG.md`,
+   `DECISIONS.md` and `RISKS.md` quoting the instruction phrase the injection
+   rule keys on while explaining why it fires on that phrase. That is this
+   same risk, one rule over: the rule reporting the sentence that documents
+   the rule.
+
+**The criterion, restated: the wordlist contributes zero.** That is what the
+change delivers and what a test pins. A literal total is not a criterion for a
+field whose scope is four merged sources and whose target is this repository —
+every commit we push moves it. See D-032.
 
 
 ## R-30 — `quick` and `full` are the same analysis at two prices

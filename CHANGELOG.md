@@ -16,6 +16,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The entropy heuristic no longer fires on the wordlist that defines the
+  mnemonic rule (R-29).** The rule's candidate regex is "twelve lowercase
+  words" and `bip39-english.ts` is a file of twelve-word lines, so the rule
+  reported its own dictionary: **165 critical findings**, and in this
+  repository's self-audit that was the single largest contributor to
+  `securityHygiene: 0`. No per-match check can separate the two — the match is
+  identical — so the distinguishing fact is about the *file*: a seed phrase is
+  a line in a document, a wordlist is a file whose every word is a BIP-39 word.
+  `isWordlistFile()` asks that, and a new `skipFile` gate on the pattern makes
+  it inapplicable to such a file. Deliberately a property of the content
+  rather than of the path: a path exclusion would miss a wordlist fetched to a
+  temporary directory, renamed, or vendored. Threshold measured rather than
+  guessed — the wordlist scores **0.956**, the next-highest of the 248 tracked
+  files with at least 50 words scores **0.447**, and nothing measured lands
+  between them, so the band is wide and 0.75 is its midpoint.
+- **Three more non-credential shapes, and the shapes module now holds the
+  decomposition as well as the judgements.** `uuid` (a canonical UUID is an
+  identifier), `evm-address` (a 20-byte contract address is public by
+  construction; the shape is anchored so that a 32-byte private key — `0x`
+  plus 64 hex — does not match), and `path-or-name-run` (a run followed by a
+  known file extension, or three-plus separator-joined segments of which two
+  are purely alphabetic). Each carries its `why` and a test pair: a real false
+  positive from a live audit, and a same-shape true positive that a lazily
+  written shape would swallow — a 66-character private key, a 40-character
+  opaque token, a 32-hex run, Telegram's documented `botToken` example.
+  **Measured on this repository's tracked tree: `generic_high_entropy` 33 → 4**,
+  and all four survivors are in a document or a test file, so the severity
+  downgrade in `severityForPath` applies to every one of them.
+
+### Changed
+
+- **The entropy heuristic measures the value of an assignment, not the
+  variable name.** `=` is in the candidate character class because base64
+  padding ends in it, so `NAME=value` arrived as a single run and the heuristic
+  then measured the name as if it were part of the secret. A real audit
+  reported `POSTGRES_PASSWORD=repopilot_test` — a throwaway password in a
+  developer's `docker run` command — as a 33-character possible API key, of
+  which 18 characters were the name. `assignmentValue()` splits the run first,
+  and both the length test and the entropy test then run against the value, so
+  the reported length is the length of the thing that could be a secret.
+  Trailing `=` is stripped before the split so base64 padding is not read as an
+  assignment, and the left side must look like a name rather than like data —
+  otherwise an opaque token containing an `=` would be split and half of it
+  silently discarded. The two thresholds the rule is built from
+  (`MIN_TOKEN_LENGTH`, `ENTROPY_FLOOR`) are now named constants, because the
+  length floor is read twice: once to build the candidate regex and once to
+  re-check the value.
+- **`shapes.ts` documents each shape with a run the shape itself suppresses.**
+  The module's own prose is scanned like any other source, so citing a bare
+  run that the shape does not cover puts a finding *in the file that defines
+  the rule* — two of them, both in `shapes.ts`, until this change. The
+  citations now read `docs/REPOSITORY_INTELLIGENCE_PLAN.md` rather than the
+  bare stem, which is both the accurate filename and a live example.
+  `shapes.test.ts` scans `shapes.ts` and fails if that slips.
+
 - **The doc-facts check now declares which blocks each document carries, so a
   deleted block is a failure rather than a silence.** `BLOCK_DOCS` named the
   documents but left the block set implicit, and `checkBlocks()` can only

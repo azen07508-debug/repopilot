@@ -13,7 +13,9 @@ import { BIP39_ENGLISH, BIP39_VALID_LENGTHS } from './bip39-english.js';
 import { slugify } from './security-slug.js';
 import { severityForPath } from './severity.js';
 import {
+  assignmentValue,
   isAllowlistedPath,
+  isWordlistFile,
   looksLikePlaceholderDbUrl,
   looksLikeSample,
   nonCredentialShape,
@@ -55,6 +57,16 @@ interface SecretPattern {
    * before it is allowed to become a finding.
    */
   validate?: (match: string) => boolean;
+  /**
+   * Optional gate on the whole file, for a pattern that a *document* can
+   * satisfy but that a *file* cannot.
+   *
+   * `mnemonic` is the only user. Its candidate regex is "twelve lowercase
+   * words", which a line of the BIP-39 wordlist satisfies exactly — the rule
+   * fires on the dictionary that defines it. No per-match check can separate
+   * them, because the match is identical; the difference is what the file is.
+   */
+  skipFile?: (file: { path: string; content: string }) => boolean;
 }
 
 const PATTERNS: SecretPattern[] = [
@@ -73,6 +85,9 @@ const PATTERNS: SecretPattern[] = [
     severity: 'critical',
     reason: 'Possible BIP-39 mnemonic phrase (every word is in the BIP-39 list)',
     validate: isBip39Phrase,
+    // The wordlist is a file of twelve-word lines. Without this the rule
+    // reports its own dictionary — 165 findings, all critical.
+    skipFile: (file) => isWordlistFile(file.content),
   },
   {
     kind: 'aws_access_key',
@@ -227,6 +242,22 @@ function shannonEntropy(s: string): number {
   return h;
 }
 
+/**
+ * The entropy heuristic's contract, in two numbers.
+ *
+ * Both are named rather than inlined because both are read twice: the length
+ * floor builds the candidate regex *and* is re-checked on the value half of
+ * an assignment (see `assignmentValue`), and the entropy floor is quoted in
+ * the reason string. A literal in two places is a fact in two places.
+ */
+const MIN_TOKEN_LENGTH = 32;
+const ENTROPY_FLOOR = 4.0;
+
+const ENTROPY_CANDIDATE = new RegExp(
+  `['"]?([A-Za-z0-9_\\-+/=]{${MIN_TOKEN_LENGTH},})['"]?`,
+  'g'
+);
+
 export interface SecretScanInput {
   path: string;
   content: string;
@@ -270,12 +301,17 @@ export function scanTextForSecrets(
   const isAllowlist = opts.allowlist ?? false;
   const hits: SecretLineHit[] = [];
   const lines = content.split(/\r?\n/);
+  // Decided once per file, not once per line: the question is about the
+  // whole content, and a pattern that is inapplicable is inapplicable on
+  // every line of it.
+  const file = { path: opts.path ?? '', content };
+  const applicable = PATTERNS.filter((p) => !p.skipFile?.(file));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
     const ctx: ShapeContext = { line, filePath: opts.path ?? '', fileContent: content };
 
-    for (const pat of PATTERNS) {
+    for (const pat of applicable) {
       const m = pat.pattern.exec(line);
       if (!m) continue;
       if (pat.validate && !pat.validate(m[0])) continue;
@@ -291,23 +327,28 @@ export function scanTextForSecrets(
     // credential, and it is the single largest source of false positives
     // this heuristic has.
     if (isAllowlist) continue;
-    const entropyMatches =
-      withoutUrls(line).match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
+    const entropyMatches = withoutUrls(line).match(ENTROPY_CANDIDATE) ?? [];
     for (const token of entropyMatches) {
       const cleaned = token.replace(/^['"]|['"]$/g, '');
+      // `NAME=value` arrives as one run, because `=` is in the candidate
+      // class for base64 padding. The value is the only part that could be
+      // a secret, so both tests below run against it — otherwise a long
+      // variable name lends a short password the length to be reported.
+      const subject = assignmentValue(cleaned) ?? cleaned;
       // Every "this is high-entropy but it is not a credential" judgement
       // lives in shapes.ts, so the next one is a predicate plus a test pair
       // rather than another `if` in this loop. See that module's header.
-      if (nonCredentialShape(cleaned, ctx) !== undefined) continue;
-      if (shannonEntropy(cleaned) < 4.0) continue;
+      if (nonCredentialShape(subject, ctx) !== undefined) continue;
+      if (subject.length < MIN_TOKEN_LENGTH) continue;
+      if (shannonEntropy(subject) < ENTROPY_FLOOR) continue;
       // Avoid double-reporting when a more specific pattern already matched
       // on this line.
       if (hits.some((h) => h.line === i + 1)) continue;
       hits.push({
         kind: 'generic_high_entropy',
         severity: 'medium',
-        reason: `High-entropy string (${cleaned.length} chars, H=${shannonEntropy(
-          cleaned
+        reason: `High-entropy string (${subject.length} chars, H=${shannonEntropy(
+          subject
         ).toFixed(2)}) — possible API key, token or signing material`,
         line: i + 1,
       });
