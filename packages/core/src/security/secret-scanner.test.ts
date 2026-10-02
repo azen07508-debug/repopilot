@@ -151,3 +151,131 @@ describe('generated files', () => {
     expect(drafts.some((d) => d.severity === 'critical')).toBe(true);
   });
 });
+
+/**
+ * Regression guards from the Phase 18 real audits (2026-10-01).
+ *
+ * Every string below is quoted from an actual finding the scanner produced
+ * against a real repository. They are here so that the next change to the
+ * heuristics has to argue with them.
+ *
+ * The pattern for each pair is: the false positive must stay dead, and a
+ * true positive of the same kind must stay alive. A test that only asserts
+ * the false positive is gone would pass just as well if the rule had been
+ * deleted outright.
+ */
+describe('real-world false positives (Phase 18)', () => {
+  function kindsIn(path: string, content: string): string[] {
+    return scanForSecrets([{ path, content }]).map((d) => d.kind);
+  }
+
+  describe('mnemonic must consult the BIP-39 wordlist', () => {
+    // Reported as [critical] "Possible seed phrase" against pinojs/pino.
+    const prose = [
+      "If there's a chance that objects being logged have properties that conflict with those from pino itself (`level`, `timestamp`, `pid`, etc)",
+      'This means that even with `logger.flush()`, your formatted logs may not appear immediately. The flush only guarantees that the main thread buffer was written and that the worker drained the shared buffer, not that `pino-pretty` has written its formatted output.',
+      '// exporting and consuming the prototype object using factory pattern fixes scoping issues with getters when serializing',
+      'As an array, the redact option specifies paths that should have their values redacted from any log output.',
+    ];
+
+    it.each(prose)('does not flag English prose: %s', (line) => {
+      expect(kindsIn('docs/api.md', line)).not.toContain('mnemonic');
+    });
+
+    it('still flags a real 12-word BIP-39 phrase', () => {
+      const phrase =
+        'abandon ability able about above absent absorb abstract absurd abuse access accident';
+      expect(kindsIn('wallet.ts', `const seed = "${phrase}";`)).toContain('mnemonic');
+    });
+
+    it('still finds a phrase embedded in a longer run of words', () => {
+      // The candidate regex is greedy; a 12-word phrase inside a longer run
+      // must still be found by the window scan.
+      const line =
+        'note that abandon ability able about above absent absorb abstract absurd abuse access accident here';
+      expect(kindsIn('notes.md', line)).toContain('mnemonic');
+    });
+
+    it('does not flag a run whose words are merely lowercase', () => {
+      const line = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima';
+      expect(kindsIn('notes.md', line)).not.toContain('mnemonic');
+    });
+  });
+
+  describe('entropy heuristic must ignore URL paths', () => {
+    // Each of these was reported as a suspected API key against pinojs/pino.
+    const urls = [
+      'See the [CONTRIBUTING.md](https://github.com/pinojs/pino/blob/main/CONTRIBUTING.md) file for more details.',
+      '[Node.js threat model](https://github.com/nodejs/node/blob/main/SECURITY.md#the-nodejs-threat-model).',
+      '* `options`: An options object which is serialized (see [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm))',
+      '- uses: fastify/github-action-merge-dependabot@v3',
+    ];
+
+    it.each(urls)('does not flag a URL or action reference: %s', (line) => {
+      expect(kindsIn('README.md', line)).not.toContain('generic_high_entropy');
+    });
+
+    it('still flags an opaque high-entropy token', () => {
+      const kinds = kindsIn('config.ts', 'const t = "asdfqwerzxcvplmnbvcmxzqwertyuiopasdfghjkl";');
+      expect(kinds).toContain('generic_high_entropy');
+    });
+
+    it('still reports a credential that lives inside a URL', () => {
+      // Stripping URLs is scoped to the entropy heuristic only. The vendor
+      // patterns still see the raw line, and this is a real token.
+      const kinds = kindsIn(
+        '.env',
+        `REGISTRY=https://svc:ghp_${'a1b2c3d4'.repeat(5)}@npm.example.com/x.tgz`
+      );
+      expect(kinds).toContain('github_pat');
+    });
+  });
+
+  describe('integrity digests are not credentials', () => {
+    it('does not flag a sha512 integrity digest', () => {
+      // 557 of these came out of one pnpm-lock.yaml in the self-audit.
+      const kinds = kindsIn('pnpm-lock.yaml', `integrity: sha512-${'A'.repeat(64)}`);
+      expect(kinds).not.toContain('generic_high_entropy');
+    });
+
+    it('does not flag a quoted integrity digest', () => {
+      const kinds = kindsIn('package-lock.json', `"integrity": "sha512-${'B'.repeat(64)}"`);
+      expect(kinds).not.toContain('generic_high_entropy');
+    });
+
+    it('does not flag sha256 / md5 digests either', () => {
+      expect(kindsIn('yarn.lock', `checksum: sha256-${'C'.repeat(44)}`)).not.toContain(
+        'generic_high_entropy'
+      );
+    });
+
+    it('still reports a real credential in a lockfile', () => {
+      const kinds = kindsIn(
+        'pnpm-lock.yaml',
+        `resolved: https://svc:ghp_${'a1b2c3d4'.repeat(5)}@npm.example.com/x.tgz`
+      );
+      expect(kinds).toContain('github_pat');
+    });
+  });
+
+  describe('placeholder shapes are patterns, not a list', () => {
+    it('does not flag your-password', () => {
+      // pino docs/transports.md:695 — reported as a hardcoded credential.
+      expect(kindsIn('docs/transports.md', `password: 'your-password',`)).not.toContain(
+        'hardcoded_password'
+      );
+    });
+
+    it('does not flag the rest of the your-* family', () => {
+      for (const value of ['your-token', 'your_secret', 'your-api-key']) {
+        expect(kindsIn('docs/x.md', `password: '${value}-value'`)).not.toContain(
+          'hardcoded_password'
+        );
+      }
+    });
+
+    it('still flags a real hardcoded password', () => {
+      expect(kindsIn('src/db.ts', `password: 'Xk9mQ2pLr7Tn4Yb'`)).toContain('hardcoded_password');
+    });
+  });
+});

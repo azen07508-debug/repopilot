@@ -9,6 +9,7 @@
  *   - short, low-entropy reason string (NOT the secret itself).
  */
 import type { Evidence, Finding, Severity } from '../schemas/report.js';
+import { BIP39_ENGLISH, BIP39_VALID_LENGTHS } from './bip39-english.js';
 import { slugify } from './security-slug.js';
 import { severityForPath } from './severity.js';
 
@@ -35,6 +36,16 @@ interface SecretPattern {
   pattern: RegExp;
   severity: Severity;
   reason: string;
+  /**
+   * Optional second gate.
+   *
+   * A regex can only assert "this shape looks like a credential". For the
+   * vendor patterns that is enough — `ghp_` followed by 36 base62 chars is
+   * not anything else. For a *heuristic* it is not enough: the shape is
+   * shared with ordinary text, so the match has to survive a content check
+   * before it is allowed to become a finding.
+   */
+  validate?: (match: string) => boolean;
 }
 
 const PATTERNS: SecretPattern[] = [
@@ -46,9 +57,13 @@ const PATTERNS: SecretPattern[] = [
   },
   {
     kind: 'mnemonic',
+    // Candidate shape only: a run of 12-24 lowercase words. This regex
+    // cannot tell a seed phrase from a sentence, so it must never be the
+    // last word — `validate` decides.
     pattern: /\b(?:[a-z]{3,12}\s){11,23}[a-z]{3,12}\b/,
     severity: 'critical',
-    reason: 'Possible BIP-39 mnemonic phrase (12+ lowercase words)',
+    reason: 'Possible BIP-39 mnemonic phrase (every word is in the BIP-39 list)',
+    validate: isBip39Phrase,
   },
   {
     kind: 'aws_access_key',
@@ -181,15 +196,20 @@ function looksLikePlaceholderDbUrl(match: string): boolean {
   );
 }
 
-const SAMPLE_KEYWORDS = [
+/**
+ * Substrings that mark a value as a deliberate placeholder.
+ *
+ * Kept as substrings rather than whole-word matches on purpose: a sample
+ * token is usually embedded in something longer (`your-key-here`,
+ * `EXAMPLE_TOKEN_123`).
+ */
+const SAMPLE_SUBSTRINGS = [
   'example',
   'sample',
   'placeholder',
   'changeme',
   'change-me',
   'change_me',
-  'your-key',
-  'your_key',
   'xxxxx',
   '00000',
   '11111',
@@ -202,10 +222,111 @@ const SAMPLE_KEYWORDS = [
   'env.get',
 ];
 
+/**
+ * Placeholder shapes that an enumeration always misses one of.
+ *
+ * `SAMPLE_SUBSTRINGS` carried `your-key` and `your_key` but not
+ * `your-password`, so a real audit reported pino's documented
+ * `password: 'your-password'` as a hardcoded credential. A pattern covers
+ * the family; a list only covers the members someone happened to think of.
+ */
+const SAMPLE_PATTERNS = [
+  /your[-_]?(?:key|token|password|passwd|secret|api|user|name|host|domain|email|account|project|bucket)/i,
+  /^<[^>]*>$/,
+  /^(?:x{5,}|0{5,}|1{5,})$/i,
+];
+
 function looksLikeSample(value: string): boolean {
   const lower = value.toLowerCase();
-  return SAMPLE_KEYWORDS.some((k) => lower.includes(k));
+  if (SAMPLE_SUBSTRINGS.some((k) => lower.includes(k))) return true;
+  return SAMPLE_PATTERNS.some((re) => re.test(value));
 }
+
+/**
+ * True when some run of 12/15/18/21/24 consecutive words is entirely made
+ * of BIP-39 words.
+ *
+ * Checking the whole match is not enough: the regex is greedy, so a real
+ * 12-word phrase sitting inside a longer sentence is handed over as a
+ * 20-word run and would be rejected. Scanning windows of the valid lengths
+ * finds the phrase inside the run.
+ *
+ * The wordlist is what makes this a detector rather than a filter. Without
+ * it the rule was just "twelve lowercase words", and English prose cleared
+ * that bar constantly — a real audit of pinojs/pino reported the sentence
+ * "chance that objects being logged have properties that conflict with
+ * those from pino itself" as a critical seed phrase.
+ */
+function isBip39Phrase(match: string): boolean {
+  const words = match.trim().split(/\s+/);
+  for (const len of BIP39_VALID_LENGTHS) {
+    if (len > words.length) continue;
+    for (let start = 0; start + len <= words.length; start++) {
+      let allKnown = true;
+      for (let i = start; i < start + len; i++) {
+        if (!BIP39_ENGLISH.has(words[i] ?? '')) {
+          allKnown = false;
+          break;
+        }
+      }
+      if (allKnown) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A URL, so it can be moved out of the entropy heuristic's way.
+ *
+ * URL paths mix case, digits and separators, which pushes Shannon entropy
+ * over any threshold worth naming. A real audit of pinojs/pino turned
+ * `com/nodejs/node/blob/main/SECURITY` and
+ * `fastify/github-action-merge-dependabot` into suspected API keys.
+ *
+ * Only the entropy heuristic strips these. The vendor patterns still see
+ * the raw line, because a token can genuinely live inside a URL — a
+ * lockfile registry entry like `https://svc:ghp_…@npm.example.com` is a
+ * real credential and must stay visible.
+ */
+const URL_RE = /\bhttps?:\/\/[^\s)>\]}"'`]+/gi;
+
+function withoutUrls(line: string): string {
+  return line.replace(URL_RE, ' ');
+}
+
+/**
+ * Integrity digests are not credentials.
+ *
+ * Lockfiles are mostly `sha512-<base64>` lines. A checksum is *designed*
+ * to look random, so every entropy heuristic ever written flags it — one
+ * real audit produced 557 findings from a single `pnpm-lock.yaml`, 87% of
+ * the whole report. The digests are also public by construction: they are
+ * in the lockfile precisely so that anyone can verify them.
+ *
+ * This stays narrow on purpose. A real credential in a lockfile — a
+ * registry token inside a `resolved:` URL — is still reported; it is just
+ * not reported as a checksum.
+ */
+const CHECKSUM_RE = /^(?:sha\d{3}|md5|blake\d?|integrity)[-:]/i;
+
+/**
+ * Identifiers and paths are not tokens.
+ *
+ * `fastify/github-action-merge-dependabot` is a GitHub Actions reference.
+ * The entropy heuristic saw a 38-character mixed-case run and called it a
+ * suspected API key. Stripping URLs does not help here — there is no
+ * scheme — so the candidate itself has to be judged.
+ *
+ * The discriminator is word structure. A real opaque token is random and
+ * does not contain separator-joined dictionary words. Three or more
+ * lowercase letters, a `/` or `-`, then three more lowercase letters is
+ * the signature of a path segment or a kebab-case name.
+ *
+ * The cost is bounded: for a 40-character base64url token the chance of
+ * containing this shape anywhere is well under 1%, so this trades a
+ * negligible number of true positives for the whole class.
+ */
+const IDENTIFIER_LIKE_RE = /[a-z]{3,}[-/][a-z]{3,}/;
 
 function shannonEntropy(s: string): number {
   if (!s) return 0;
@@ -271,6 +392,7 @@ export function scanTextForSecrets(
     for (const pat of PATTERNS) {
       const m = pat.pattern.exec(line);
       if (!m) continue;
+      if (pat.validate && !pat.validate(m[0])) continue;
       if (looksLikeSample(m[0])) continue;
       if (isAllowlist && TEMPLATE_ONLY_KINDS.has(pat.kind)) continue;
       if (pat.kind === 'db_url' && looksLikePlaceholderDbUrl(m[0])) continue;
@@ -278,11 +400,18 @@ export function scanTextForSecrets(
     }
 
     // Generic high-entropy token heuristic (catch-all for unknown formats).
+    //
+    // Runs against the line with URLs removed. A URL path is not a
+    // credential, and it is the single largest source of false positives
+    // this heuristic has.
     if (isAllowlist) continue;
-    const entropyMatches = line.match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
+    const entropyMatches =
+      withoutUrls(line).match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
     for (const token of entropyMatches) {
       const cleaned = token.replace(/^['"]|['"]$/g, '');
       if (looksLikeSample(cleaned)) continue;
+      if (CHECKSUM_RE.test(cleaned)) continue;
+      if (IDENTIFIER_LIKE_RE.test(cleaned)) continue;
       if (shannonEntropy(cleaned) < 4.0) continue;
       // Avoid double-reporting when a more specific pattern already matched
       // on this line.
