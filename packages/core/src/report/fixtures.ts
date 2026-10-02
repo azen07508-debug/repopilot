@@ -1,5 +1,5 @@
 /**
- * Fixture findings, grouped for reading.
+ * Findings grouped by (file, rule), for reading.
  *
  * The split in `builder.ts` keeps fixture findings out of the release
  * gate. It does not make them readable. A real run against a repository
@@ -22,6 +22,12 @@
  * which must never reach the browser, which is why `apps/web` imports
  * core type-only. Data is the only channel that reaches a browser and an
  * MCP client alike without a second copy of the rule.
+ *
+ * The grouping itself is not fixture-specific: the launch checklist
+ * needs the same fold to turn 639 finding titles into five lines (see
+ * `report/evidence-lines.ts`). It lives here, named for what it does
+ * rather than for its first caller, so the two consumers cannot drift
+ * into two answers.
  */
 import type { FixtureGroup, Finding, Severity } from '../schemas/report.js';
 
@@ -77,7 +83,7 @@ interface GroupBuilder {
  * keeps the output stable across runs — the same input must produce the
  * same report, or a stored report stops being comparable to a fresh one.
  */
-export function summarizeFixtures(findings: Finding[]): FixtureGroup[] {
+export function groupFindings(findings: Finding[]): FixtureGroup[] {
   const groups = new Map<string, GroupBuilder>();
 
   for (const finding of findings) {

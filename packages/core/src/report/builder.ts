@@ -15,7 +15,8 @@ import { analyzeAiPatterns } from '../analyzers/ai-patterns.js';
 import { analyzeHygiene } from '../analyzers/hygiene.js';
 import { enrichFindings } from '../findings/enrich.js';
 import { isFixturePath } from '../security/severity.js';
-import { summarizeFixtures } from './fixtures.js';
+import { groupFindings } from './fixtures.js';
+import { condenseEvidence } from './evidence-lines.js';
 import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
 import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
 import { scoreAll, type ScoringInput } from '../scoring/score.js';
@@ -169,7 +170,7 @@ export class ReportBuilder {
     // Every split has run by now, so `fixtureFindings` is complete.
     // Grouped here rather than at render time because the web bundle
     // cannot call into core — see report/fixtures.ts.
-    const fixtureSummary = summarizeFixtures(fixtureFindings);
+    const fixtureSummary = groupFindings(fixtureFindings);
 
     const blockers = collectBlockers(
       docFindings,
@@ -485,7 +486,9 @@ function buildLaunchChecklist(
       id: 'check-secrets',
       title: 'No committed credentials',
       done: security.length === 0,
-      evidence: security.length === 0 ? [] : security.map((s) => s.title),
+      // Condensed, not enumerated: a real self-audit put 639 titles on
+      // this one line. The full list is still in `securityFindings`.
+      evidence: condenseEvidence(security),
     },
   ];
   if (web3.hasContracts) {
@@ -508,7 +511,7 @@ function buildLaunchChecklist(
     id: 'check-blockers',
     title: 'Zero critical/high blockers',
     done: blockers.length === 0,
-    evidence: blockers.length === 0 ? [] : blockers.map((b) => b.title),
+    evidence: condenseEvidence(blockers),
   });
   return list;
 }

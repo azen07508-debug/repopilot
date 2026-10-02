@@ -9,7 +9,7 @@
  * input.
  */
 import { describe, expect, it } from 'vitest';
-import { MAX_GROUP_LINES, summarizeFixtures } from './fixtures.js';
+import { MAX_GROUP_LINES, groupFindings } from './fixtures.js';
 import { makeFinding } from '../test-utils/report-factory.js';
 import type { Finding } from '../schemas/report.js';
 
@@ -28,13 +28,13 @@ function hit(
   });
 }
 
-describe('summarizeFixtures', () => {
+describe('groupFindings', () => {
   it('returns nothing for nothing', () => {
-    expect(summarizeFixtures([])).toEqual([]);
+    expect(groupFindings([])).toEqual([]);
   });
 
   it('folds findings that share a file and a rule into one group', () => {
-    const groups = summarizeFixtures([hit('tests/a.test.ts', 3), hit('tests/a.test.ts', 9)]);
+    const groups = groupFindings([hit('tests/a.test.ts', 3), hit('tests/a.test.ts', 9)]);
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.file).toBe('tests/a.test.ts');
@@ -44,7 +44,7 @@ describe('summarizeFixtures', () => {
   });
 
   it('keeps the same file under two rules apart', () => {
-    const groups = summarizeFixtures([
+    const groups = groupFindings([
       hit('tests/a.test.ts', 3),
       hit('tests/a.test.ts', 4, { ruleId: 'AI-CATCH-001', title: 'Empty catch block' }),
     ]);
@@ -54,7 +54,7 @@ describe('summarizeFixtures', () => {
   });
 
   it('keeps the same rule in two files apart', () => {
-    const groups = summarizeFixtures([hit('tests/a.test.ts', 3), hit('tests/b.test.ts', 3)]);
+    const groups = groupFindings([hit('tests/a.test.ts', 3), hit('tests/b.test.ts', 3)]);
 
     expect(groups).toHaveLength(2);
     expect(groups.map((g) => g.file).sort()).toEqual(['tests/a.test.ts', 'tests/b.test.ts']);
@@ -62,7 +62,7 @@ describe('summarizeFixtures', () => {
 
   it('counts every finding even when the line list is capped', () => {
     const many = Array.from({ length: 500 }, (_, i) => hit('pnpm-lock.yaml', i + 1));
-    const groups = summarizeFixtures(many);
+    const groups = groupFindings(many);
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.count).toBe(500);
@@ -72,20 +72,20 @@ describe('summarizeFixtures', () => {
   });
 
   it('deduplicates repeated lines but still counts the hits', () => {
-    const groups = summarizeFixtures([hit('tests/a.test.ts', 7), hit('tests/a.test.ts', 7)]);
+    const groups = groupFindings([hit('tests/a.test.ts', 7), hit('tests/a.test.ts', 7)]);
 
     expect(groups[0]?.lines).toEqual([7]);
     expect(groups[0]?.count).toBe(2);
   });
 
   it('sorts the lines ascending even when the findings are not', () => {
-    const groups = summarizeFixtures([hit('tests/a.test.ts', 40), hit('tests/a.test.ts', 2)]);
+    const groups = groupFindings([hit('tests/a.test.ts', 40), hit('tests/a.test.ts', 2)]);
 
     expect(groups[0]?.lines).toEqual([2, 40]);
   });
 
   it('reports a finding with no line in the count and not in the lines', () => {
-    const groups = summarizeFixtures([
+    const groups = groupFindings([
       hit('tests/a.test.ts', 1, { evidence: [{ file: 'tests/a.test.ts', line: null, reason: 'file-level' }] }),
     ]);
 
@@ -94,7 +94,7 @@ describe('summarizeFixtures', () => {
   });
 
   it('takes the worst severity in the group, not the first', () => {
-    const groups = summarizeFixtures([
+    const groups = groupFindings([
       hit('tests/a.test.ts', 1, { severity: 'low' }),
       hit('tests/a.test.ts', 2, { severity: 'critical' }),
       hit('tests/a.test.ts', 3, { severity: 'medium' }),
@@ -104,13 +104,13 @@ describe('summarizeFixtures', () => {
   });
 
   it('groups findings that enrichment never named under an empty rule', () => {
-    const groups = summarizeFixtures([hit('tests/a.test.ts', 1, { ruleId: undefined })]);
+    const groups = groupFindings([hit('tests/a.test.ts', 1, { ruleId: undefined })]);
 
     expect(groups[0]?.ruleId).toBe('');
   });
 
   it('takes the group title from its first finding', () => {
-    const groups = summarizeFixtures([
+    const groups = groupFindings([
       hit('tests/a.test.ts', 1, { title: 'Possible credential' }),
       hit('tests/a.test.ts', 2, { title: 'Another title' }),
     ]);
@@ -119,7 +119,7 @@ describe('summarizeFixtures', () => {
   });
 
   it('leads with the worst group, then sorts by file and rule', () => {
-    const groups = summarizeFixtures([
+    const groups = groupFindings([
       hit('tests/b.test.ts', 1, { severity: 'low' }),
       hit('tests/a.test.ts', 1, { severity: 'critical' }),
       hit('tests/a.test.ts', 2, { severity: 'critical', ruleId: 'AI-CATCH-001' }),
@@ -140,8 +140,8 @@ describe('summarizeFixtures', () => {
       hit('pnpm-lock.yaml', 100, { severity: 'low' }),
     ];
 
-    const forward = summarizeFixtures(findings);
-    const backward = summarizeFixtures([...findings].reverse());
+    const forward = groupFindings(findings);
+    const backward = groupFindings([...findings].reverse());
 
     expect(backward).toEqual(forward);
   });
@@ -150,7 +150,7 @@ describe('summarizeFixtures', () => {
     const findings = [hit('tests/a.test.ts', 3)];
     const before = structuredClone(findings);
 
-    summarizeFixtures(findings);
+    groupFindings(findings);
 
     expect(findings).toEqual(before);
   });

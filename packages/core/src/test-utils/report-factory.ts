@@ -6,7 +6,7 @@
  */
 import type { Finding, Report } from '../schemas/report.js';
 import { ReportSchema } from '../schemas/report.js';
-import { summarizeFixtures } from '../report/fixtures.js';
+import { groupFindings } from '../report/fixtures.js';
 
 export function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -74,7 +74,7 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
   // that needs them to disagree.
   return ReportSchema.parse({
     ...base,
-    fixtureSummary: summarizeFixtures(overrides.fixtureFindings ?? base.fixtureFindings),
+    fixtureSummary: groupFindings(overrides.fixtureFindings ?? base.fixtureFindings),
     ...overrides,
   });
 }
