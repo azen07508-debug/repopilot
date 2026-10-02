@@ -12,6 +12,15 @@ import type { Evidence, Finding, Severity } from '../schemas/report.js';
 import { BIP39_ENGLISH, BIP39_VALID_LENGTHS } from './bip39-english.js';
 import { slugify } from './security-slug.js';
 import { severityForPath } from './severity.js';
+import {
+  isAllowlistedPath,
+  looksLikePlaceholderDbUrl,
+  looksLikeSample,
+  nonCredentialShape,
+  TEMPLATE_ONLY_KINDS,
+  withoutUrls,
+  type ShapeContext,
+} from './shapes.js';
 
 export type SecretKind =
   | 'private_key'
@@ -145,8 +154,6 @@ const PATTERNS: SecretPattern[] = [
   },
 ];
 
-const ALLOWLIST_FILES = new Set(['.env.example', 'example.env', 'sample.env']);
-
 /**
  * Kinds that are always the template inside an allowlisted placeholder
  * file.
@@ -158,7 +165,6 @@ const ALLOWLIST_FILES = new Set(['.env.example', 'example.env', 'sample.env']);
  * useless. Token-shaped patterns still apply here, because a private key
  * or a cloud key is never a template.
  */
-const TEMPLATE_ONLY_KINDS = new Set<SecretKind>(['db_url', 'hardcoded_password']);
 
 /**
  * Paths whose job is to contain fake credentials.
@@ -172,75 +178,8 @@ const TEMPLATE_ONLY_KINDS = new Set<SecretKind>(['db_url', 'hardcoded_password']
 // contract can reach it without importing the secret scanner.
 export { isFixturePath, severityForPath } from './severity.js';
 
-/**
- * A connection string aimed at localhost, or one whose password is
- * literally the word "password", is documentation rather than a
- * credential. A leaked URL points at a real host and carries a password
- * that does not spell itself out.
- */
-function looksLikePlaceholderDbUrl(match: string): boolean {
-  const lower = match.toLowerCase();
-  if (lower.includes('localhost') || lower.includes('127.0.0.1')) return true;
-
-  // Docker Compose and Compose-style local stacks address each other by
-  // service name, so `@db:5432` is a container link rather than a public
-  // host. A real leaked URL does not point at a service called `db`.
-  if (
-    /@(?:db|database|postgres|postgresql|mysql|mariadb|mongo|mongodb|redis|host):\d+/i.test(match)
-  ) {
-    return true;
-  }
-
-  return /:\/\/[^:@/]*:(?:password|passwd|pass|secret|changeme|change[_-]me|your[-_]?password)@/i.test(
-    match
-  );
-}
-
-/**
- * Substrings that mark a value as a deliberate placeholder.
- *
- * Kept as substrings rather than whole-word matches on purpose: a sample
- * token is usually embedded in something longer (`your-key-here`,
- * `EXAMPLE_TOKEN_123`).
- */
-const SAMPLE_SUBSTRINGS = [
-  'example',
-  'sample',
-  'placeholder',
-  'changeme',
-  'change-me',
-  'change_me',
-  'xxxxx',
-  '00000',
-  '11111',
-  'foo',
-  'bar',
-  'baz',
-  '<your',
-  '${',
-  'process.env',
-  'env.get',
-];
-
-/**
- * Placeholder shapes that an enumeration always misses one of.
- *
- * `SAMPLE_SUBSTRINGS` carried `your-key` and `your_key` but not
- * `your-password`, so a real audit reported pino's documented
- * `password: 'your-password'` as a hardcoded credential. A pattern covers
- * the family; a list only covers the members someone happened to think of.
- */
-const SAMPLE_PATTERNS = [
-  /your[-_]?(?:key|token|password|passwd|secret|api|user|name|host|domain|email|account|project|bucket)/i,
-  /^<[^>]*>$/,
-  /^(?:x{5,}|0{5,}|1{5,})$/i,
-];
-
-function looksLikeSample(value: string): boolean {
-  const lower = value.toLowerCase();
-  if (SAMPLE_SUBSTRINGS.some((k) => lower.includes(k))) return true;
-  return SAMPLE_PATTERNS.some((re) => re.test(value));
-}
+// Moved to security/shapes.ts, which is where the rest of the
+// "is this run actually a credential?" judgements live.
 
 /**
  * True when some run of 12/15/18/21/24 consecutive words is entirely made
@@ -275,59 +214,6 @@ function isBip39Phrase(match: string): boolean {
   return false;
 }
 
-/**
- * A URL, so it can be moved out of the entropy heuristic's way.
- *
- * URL paths mix case, digits and separators, which pushes Shannon entropy
- * over any threshold worth naming. A real audit of pinojs/pino turned
- * `com/nodejs/node/blob/main/SECURITY` and
- * `fastify/github-action-merge-dependabot` into suspected API keys.
- *
- * Only the entropy heuristic strips these. The vendor patterns still see
- * the raw line, because a token can genuinely live inside a URL — a
- * lockfile registry entry like `https://svc:ghp_…@npm.example.com` is a
- * real credential and must stay visible.
- */
-const URL_RE = /\bhttps?:\/\/[^\s)>\]}"'`]+/gi;
-
-function withoutUrls(line: string): string {
-  return line.replace(URL_RE, ' ');
-}
-
-/**
- * Integrity digests are not credentials.
- *
- * Lockfiles are mostly `sha512-<base64>` lines. A checksum is *designed*
- * to look random, so every entropy heuristic ever written flags it — one
- * real audit produced 557 findings from a single `pnpm-lock.yaml`, 87% of
- * the whole report. The digests are also public by construction: they are
- * in the lockfile precisely so that anyone can verify them.
- *
- * This stays narrow on purpose. A real credential in a lockfile — a
- * registry token inside a `resolved:` URL — is still reported; it is just
- * not reported as a checksum.
- */
-const CHECKSUM_RE = /^(?:sha\d{3}|md5|blake\d?|integrity)[-:]/i;
-
-/**
- * Identifiers and paths are not tokens.
- *
- * `fastify/github-action-merge-dependabot` is a GitHub Actions reference.
- * The entropy heuristic saw a 38-character mixed-case run and called it a
- * suspected API key. Stripping URLs does not help here — there is no
- * scheme — so the candidate itself has to be judged.
- *
- * The discriminator is word structure. A real opaque token is random and
- * does not contain separator-joined dictionary words. Three or more
- * lowercase letters, a `/` or `-`, then three more lowercase letters is
- * the signature of a path segment or a kebab-case name.
- *
- * The cost is bounded: for a 40-character base64url token the chance of
- * containing this shape anywhere is well under 1%, so this trades a
- * negligible number of true positives for the whole class.
- */
-const IDENTIFIER_LIKE_RE = /[a-z]{3,}[-/][a-z]{3,}/;
-
 function shannonEntropy(s: string): number {
   if (!s) return 0;
   const counts = new Map<string, number>();
@@ -339,11 +225,6 @@ function shannonEntropy(s: string): number {
     h -= p * Math.log2(p);
   }
   return h;
-}
-
-/** True when a path's basename is a known placeholder file. */
-export function isAllowlistedPath(filePath: string): boolean {
-  return ALLOWLIST_FILES.has(filePath.split('/').pop() ?? '');
 }
 
 export interface SecretScanInput {
@@ -377,10 +258,14 @@ export interface SecretLineHit {
  * @param allowlist true for files whose contents are expected to hold
  *   placeholders (`.env.example`, fixtures); skips the entropy heuristic
  *   but still applies the explicit patterns.
+ * @param path repo-relative path, or a path from a commit patch. Optional
+ *   because two shapes need it and a caller without one should not have to
+ *   invent it — but a caller that has it should pass it, or the file-level
+ *   shapes cannot fire.
  */
 export function scanTextForSecrets(
   content: string,
-  opts: { allowlist?: boolean } = {}
+  opts: { allowlist?: boolean; path?: string } = {}
 ): SecretLineHit[] {
   const isAllowlist = opts.allowlist ?? false;
   const hits: SecretLineHit[] = [];
@@ -388,6 +273,7 @@ export function scanTextForSecrets(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
+    const ctx: ShapeContext = { line, filePath: opts.path ?? '', fileContent: content };
 
     for (const pat of PATTERNS) {
       const m = pat.pattern.exec(line);
@@ -409,9 +295,10 @@ export function scanTextForSecrets(
       withoutUrls(line).match(/['"]?([A-Za-z0-9_\-+/=]{32,})['"]?/g) ?? [];
     for (const token of entropyMatches) {
       const cleaned = token.replace(/^['"]|['"]$/g, '');
-      if (looksLikeSample(cleaned)) continue;
-      if (CHECKSUM_RE.test(cleaned)) continue;
-      if (IDENTIFIER_LIKE_RE.test(cleaned)) continue;
+      // Every "this is high-entropy but it is not a credential" judgement
+      // lives in shapes.ts, so the next one is a predicate plus a test pair
+      // rather than another `if` in this loop. See that module's header.
+      if (nonCredentialShape(cleaned, ctx) !== undefined) continue;
       if (shannonEntropy(cleaned) < 4.0) continue;
       // Avoid double-reporting when a more specific pattern already matched
       // on this line.
@@ -433,8 +320,8 @@ export function scanTextForSecrets(
 export function scanForSecrets(inputs: SecretScanInput[]): SecretFindingDraft[] {
   const drafts: SecretFindingDraft[] = [];
   for (const { path: filePath, content } of inputs) {
-    const allowlist = ALLOWLIST_FILES.has(filePath.split('/').pop() ?? '');
-    for (const hit of scanTextForSecrets(content, { allowlist })) {
+    const allowlist = isAllowlistedPath(filePath);
+    for (const hit of scanTextForSecrets(content, { allowlist, path: filePath })) {
       drafts.push({
         kind: hit.kind,
         severity: severityForPath(filePath, hit.severity),

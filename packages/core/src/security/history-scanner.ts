@@ -14,8 +14,8 @@
  * low-entropy reason.
  */
 import type { Finding, Severity } from '../schemas/report.js';
+import { isAllowlistedPath } from './shapes.js';
 import {
-  isAllowlistedPath,
   scanTextForSecrets,
   severityForPath,
   slugify,
@@ -108,7 +108,7 @@ export function scanCommitsForSecrets(commits: ScannedCommit[]): HistorySecretHi
       const allowlist = isAllowlistedPath(file.filename);
 
       for (const added of addedLines(file.patch)) {
-        for (const hit of scanTextForSecrets(added.text, { allowlist })) {
+        for (const hit of scanTextForSecrets(added.text, { allowlist, path: file.filename })) {
           const key = `${hit.kind}::${file.filename}::${hit.reason}`;
           if (seen.has(key)) continue;
           seen.add(key);
