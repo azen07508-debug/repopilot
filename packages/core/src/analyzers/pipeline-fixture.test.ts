@@ -14,9 +14,8 @@ import { analyzeDocumentation } from '../analyzers/documentation.js';
 import { analyzeReproducibility } from '../analyzers/reproducibility.js';
 import { analyzeHackathon } from '../analyzers/hackathon.js';
 import { analyzeWeb3 } from '../analyzers/web3.js';
-import { scanForSecrets, toSecretFindings } from '../security/secret-scanner.js';
-import type { ScoringInput } from '../scoring/score.js';
-import { detectPromptInjection, injectionFindingsToReport } from '../security/injection.js';
+import { scanForSecrets } from '../security/secret-scanner.js';
+import { detectPromptInjection } from '../security/injection.js';
 import { ReportBuilder } from '../report/builder.js';
 import { ReportSchema } from '../schemas/report.js';
 import type { FileEntry } from '../git/files.js';
@@ -74,10 +73,6 @@ const repo: RepoMetadata = {
   primaryLanguage: 'TypeScript',
 };
 
-function hasFile(entries: FileEntry[], re: RegExp): boolean {
-  return entries.some((e) => re.test(e.path));
-}
-
 describe('Pipeline on complete-project fixture', () => {
   it('runs all analyzers and produces a complete, evidence-backed report', () => {
     const fetched = loadFixture();
@@ -113,51 +108,24 @@ describe('Pipeline on complete-project fixture', () => {
     expect(secretDrafts.length).toBe(0);
     expect(injection.length).toBe(0);
 
-    const findings = [
-      ...docs.findings,
-      ...repro.findings,
-      ...hackathon.findings,
-      ...web3.findings,
-      ...toSecretFindings(secretDrafts),
-      ...injectionFindingsToReport(injection),
-    ];
-
-    // Derive scoring input from the fixture contents
-    const scoringInput: ScoringInput = {
-      hasReadme: hasFile(fetched.entries, /(^|\/)README(\.md)?$/i),
-      hasLicense: hasFile(fetched.entries, /(^|\/)(LICENSE|LICENSE\.md|LICENSE\.txt|COPYING)$/i),
-      hasContributing: hasFile(fetched.entries, /(^|\/)CONTRIBUTING(\.md)?$/i),
-      hasSecurityPolicy: hasFile(fetched.entries, /(^|\/)(SECURITY|SECURITY\.md)$/i),
-      hasEnvExample: hasFile(fetched.entries, /(^|\/)\.env\.example$/i),
-      hasApiDocs: hasFile(fetched.entries, /\/(api|openapi|swagger)/i),
-      hasScreenshots: hasFile(fetched.entries, /\.(png|jpe?g|gif|webp|svg)$/i),
-      hasDemoUrl: false,
-      hasLockfile: hasFile(fetched.entries, /package-lock\.json$|pnpm-lock\.yaml$|yarn\.lock$/),
-      hasCI: hasFile(fetched.entries, /\.github\/(workflows|actions)/),
-      hasDocker: hasFile(fetched.entries, /(^|\/)(Dockerfile|docker-compose\.ya?ml)$/i),
-      hasTestCommand: false,
-      hasRunCommand: false,
-      hasContracts: web3.findings.some((f) => /contract/i.test(f.title)),
-      hasDeployScripts: web3.findings.some((f) => /deploy/i.test(f.title)),
-      hasContractTests: web3.findings.some((f) => /test/i.test(f.title)),
-      hasAuditNote: false,
-      hasContractAddresses: web3.contractAddresses.length > 0,
-      hasHackathonDemoUrl: hackathon.findings.some((f) => /demo url/i.test(f.title)),
-      hasHackathonDemoVideo: hackathon.findings.some((f) => /video/i.test(f.title)),
-      hasHackathonArchitecture: hackathon.findings.some((f) => /architecture/i.test(f.title)),
-      hasHackathonLicense: hasFile(fetched.entries, /(^|\/)(LICENSE|LICENSE\.md)$/i),
-      hasHackathonNetwork: web3.chains.length > 0,
-      documentationFindings: docs.findings,
-      reproducibilityFindings: repro.findings,
-      securityFindings: toSecretFindings(secretDrafts),
-      web3Findings: web3.findings,
-      hackathonFindings: hackathon.findings,
-      deploymentFindings: [
-        ...repro.findings,
-        ...web3.findings,
-        ...hackathon.findings,
-      ],
-    };
+    // Assert on the analyzers' own outputs, not only on the report. This
+    // file used to build a full `ScoringInput` here by hand — thirty-five
+    // lines of predicates that nothing ever read. One of them asked
+    // `filterFiles`' output whether a `.png` existed, which is the defect
+    // that made the screenshot check unable to pass; the copy outlived the
+    // fix because a second copy of a rule is not covered by fixing the
+    // first. It is deleted rather than updated.
+    expect(docs.hasReadme).toBe(true);
+    expect(docs.hasLicense).toBe(true);
+    expect(docs.hasEnvExample).toBe(true);
+    expect(repro.hasCI).toBe(true);
+    expect(repro.hasLockfile).toBe(false);
+    expect(web3.hasContracts).toBe(false);
+    // No images in this fixture, and asked of the whole tree rather than
+    // the filtered set, so `false` here is an answer rather than a
+    // foregone conclusion.
+    expect(docs.hasScreenshots).toBe(false);
+    expect(hackathon.hasScreenshots).toBe(false);
 
     const result = new ReportBuilder().build({
       metadata: repo,
