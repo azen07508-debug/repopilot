@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import type { PaymentConfig } from '@repopilot/okx-adapter';
 import type { RepoMetadata } from '@repopilot/core';
-import { buildMcpServer } from './index.js';
+import { buildMcpServer, BILLING } from './index.js';
 import {
   MAX_CONTEXT_DEPENDENCIES,
   type RepositorySnapshot,
@@ -24,13 +24,20 @@ beforeAll(() => {
 });
 
 /**
- * Every tool the server registers, as advertised by
- * `get_repopilot_capabilities`.
+ * The MCP tool surface, written out by hand and deliberately not derived from
+ * the code it checks.
  *
  * One list, not two. It used to be copied into both the "registers every
  * advertised tool" test and the "registers nothing unadvertised" test, and two
  * copies of a list that must stay in step with a third place (the header) is
  * one copy too many — a tool added to one and not the other would have passed.
+ *
+ * Keeping it hand-written is the point: it is the only place in the suite that
+ * says what the product *should* expose, so a tool that is deleted by accident
+ * fails here and makes someone decide, instead of every assertion being
+ * computed from the same wrong value. The other two statements of this list —
+ * the `server.tool()` registrations and the `BILLING` map — are compared
+ * against it, and against each other, in the tests below.
  */
 const ADVERTISED_TOOLS = [
   'audit_github_repository',
@@ -165,9 +172,11 @@ describe('MCP server', () => {
     expect(names).toContain('release_check');
   });
 
-  it('registers every tool the billing map advertises', () => {
-    // An agent decides what it can afford from get_repopilot_capabilities,
-    // so the advertised list and the registered list must not drift.
+  it('registers every tool in the frozen list', () => {
+    // `ADVERTISED_TOOLS` is the public surface, pinned by hand on purpose: a
+    // tool that disappears should fail a test and make someone decide,
+    // rather than quietly disappear from the product. It is the *oracle*
+    // here, so it is deliberately not derived from the code it checks.
     const { server } = buildMcpServer({ payment, allowedHosts: ALLOWED_HOSTS });
     const names = toolNames(server);
     for (const tool of ADVERTISED_TOOLS) {
@@ -175,12 +184,23 @@ describe('MCP server', () => {
     }
   });
 
-  it('registers nothing that is not advertised', () => {
+  it('registers nothing outside the frozen list', () => {
     const { server } = buildMcpServer({ payment, allowedHosts: ALLOWED_HOSTS });
     const advertised = new Set(ADVERTISED_TOOLS);
     for (const name of toolNames(server)) {
       expect(advertised, `undocumented tool: ${name}`).toContain(name);
     }
+  });
+
+  it('bills exactly the tools it registers', () => {
+    // The two checks above compare the registrations against a hand-written
+    // list. Neither of them ever looked at `BILLING`, which is the other
+    // place the same list is written down — so the map an agent reads to
+    // decide what it can afford was asserted by nothing. This is the check
+    // the old test's name claimed to be.
+    const { server } = buildMcpServer({ payment, allowedHosts: ALLOWED_HOSTS });
+    expect([...Object.keys(BILLING)].sort()).toEqual([...toolNames(server)].sort());
+    expect([...Object.keys(BILLING)].sort()).toEqual([...ADVERTISED_TOOLS].sort());
   });
 });
 

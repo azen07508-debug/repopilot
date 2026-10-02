@@ -84,8 +84,18 @@ export interface McpServerOptions {
   snapshotLoader?: SnapshotLoader;
 }
 
-/** Which tools cost money. Surfaced by `get_repopilot_capabilities`. */
-const BILLING = {
+/**
+ * Which tools cost money. Surfaced by `get_repopilot_capabilities`.
+ *
+ * Exported so the test suite can hold it against the registrations below. It
+ * used to be module-private, and nothing asserted it: the test named
+ * "registers every tool the billing map advertises" checked a hand-copied
+ * list in the test file instead, so a tool added to `server.tool()` and
+ * forgotten here would have shipped — the capabilities response would omit it
+ * and every test would still be green. Two statements of one list need a
+ * check that compares them, not a third list.
+ */
+export const BILLING = {
   audit_github_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
   reaudit_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
   get_fix_plan: { paid: false, reason: 'Derived from an existing report.' },
