@@ -91,3 +91,70 @@ export const ENV_EXAMPLE_FILENAMES: readonly string[] = [
   'sample.env',
   'env.example',
 ];
+
+/**
+ * Extensions whose content a human reads as prose.
+ *
+ * Used by the prompt-injection detector to decide what it is even talking
+ * about. An instruction aimed at the reader of an audit report has to
+ * live somewhere a reader of that report would look, and that is prose:
+ * README, CONTRIBUTING, SECURITY, `docs/**`, issue and PR templates.
+ *
+ * Code is not prose, and scanning it as if it were is not a conservative
+ * default — it is a rule that fires hardest on the repositories that
+ * build language-model features. A real self-audit flagged eleven files,
+ * ten of them false: RepoPilot's own `security/injection.ts` (its keyword
+ * table, matched against itself), its own test suite, its own
+ * `llm/prompts.ts` (`{ system: string; user: string }` — a TypeScript
+ * type annotation), and `contract as the parent`, where the phrase "act
+ * as" is a substring of "contract as".
+ *
+ * Note what this predicate does NOT gate: the invisible-character check
+ * in the same detector. A bidirectional override in a `.ts` file is the
+ * Trojan Source attack, and that one has to be looked for everywhere.
+ */
+const PROSE_EXTENSIONS = new Set([
+  '.md',
+  '.markdown',
+  '.mdx',
+  '.rst',
+  '.txt',
+  '.adoc',
+  '.asciidoc',
+]);
+
+/**
+ * Prose files that carry no extension at all.
+ *
+ * `octocat/Hello-World` — the repository this project's own MCP script
+ * audits by default — has exactly one file, called `README`. A rule that
+ * only recognises `.md` would skip the one document in the repository
+ * most likely to be read.
+ */
+const PROSE_BASENAMES: ReadonlySet<string> = new Set(
+  [
+    ...README_FILENAMES,
+    ...LICENSE_FILENAMES,
+    'CHANGELOG',
+    'NOTICE',
+    'AUTHORS',
+    'CONTRIBUTORS',
+    'INSTALL',
+    'SECURITY',
+    'CODE_OF_CONDUCT',
+  ].map((name) => name.toLowerCase())
+);
+
+/**
+ * True when the file's content is prose rather than code or data.
+ *
+ * Takes the whole path so callers can pass a repo-relative path without
+ * splitting it first. The basename is what matters: `docs/README` is the
+ * same kind of document as `README`.
+ */
+export function isProseDocument(path: string): boolean {
+  const base = path.slice(path.lastIndexOf('/') + 1);
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return PROSE_BASENAMES.has(base.toLowerCase());
+  return PROSE_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
