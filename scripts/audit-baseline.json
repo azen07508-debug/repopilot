@@ -1,0 +1,72 @@
+{
+  "capturedAt": "2026-10-02",
+  "note": "Reference audit metrics. Compared against by scripts/audit-diff.ts. This is a measurement record, not a gate — a non-zero diff means the numbers moved, and someone has to say whether that was us. Three of the four targets are other people's repositories; the fourth audits this one, so its numbers move whenever we push, and a self-audit diff is usually about us rather than about the tool.",
+  "audits": {
+    "octocat/Hello-World quick": {
+      "mode": "quick",
+      "status": "completed",
+      "overall": 53.1,
+      "documentation": 37.5,
+      "reproducibility": 28.5,
+      "securityHygiene": 95,
+      "deploymentReadiness": 63.5,
+      "blockers": 4,
+      "docGaps": 8,
+      "secFindings": 1,
+      "fixtureFindings": 0,
+      "stack": []
+    },
+    "octocat/Hello-World full": {
+      "mode": "full",
+      "status": "completed",
+      "overall": 53.1,
+      "documentation": 37.5,
+      "reproducibility": 28.5,
+      "securityHygiene": 95,
+      "deploymentReadiness": 63.5,
+      "blockers": 4,
+      "docGaps": 8,
+      "secFindings": 1,
+      "fixtureFindings": 0,
+      "stack": []
+    },
+    "pinojs/pino full": {
+      "mode": "full",
+      "status": "completed",
+      "overall": 74,
+      "documentation": 84,
+      "reproducibility": 52,
+      "securityHygiene": 83.5,
+      "deploymentReadiness": 82,
+      "blockers": 1,
+      "docGaps": 5,
+      "secFindings": 4,
+      "fixtureFindings": 57,
+      "stack": [
+        "GitHub Actions",
+        "Node.js",
+        "TypeScript"
+      ]
+    },
+    "self (repopilot) full": {
+      "mode": "full",
+      "status": "completed",
+      "overall": 70.1,
+      "documentation": 83.5,
+      "reproducibility": 100,
+      "securityHygiene": 0,
+      "deploymentReadiness": 100,
+      "blockers": 25,
+      "docGaps": 4,
+      "secFindings": 190,
+      "fixtureFindings": 33,
+      "stack": [
+        "GitHub Actions",
+        "Docker",
+        "TypeScript",
+        "Node.js",
+        "Vite"
+      ]
+    }
+  }
+}

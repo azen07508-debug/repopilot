@@ -50,13 +50,12 @@ the `audit_github_repository` tool.
                    │  │  GitFetcher (allowlist, no exec)     │    │
                    │  └──────────────────────────────────────┘    │
                    │  ┌──────────────────────────────────────┐    │
-                   │  │  Analyzers                           │    │
-                   │  │   - metadata  - stack                │    │
-                   │  │   - documentation                    │    │
-                   │  │   - reproducibility                   │    │
-                   │  │   - secrets (redacted)                │    │
-                   │  │   - web3                              │    │
-                   │  │   - hackathon                         │    │
+                   │  │  Analyzers (sequential)              │    │
+                   │  │   - stack           - documentation  │    │
+                   │  │   - reproducibility - secrets        │    │
+                   │  │   - web3            - hackathon      │    │
+                   │  │   - hygiene         - ai-patterns    │    │
+                   │  │   - prompt-injection                 │    │
                    │  └──────────────────────────────────────┘    │
                    │  ┌──────────────────────────────────────┐    │
                    │  │  Scoring (rule-based, configurable)  │    │
@@ -68,20 +67,32 @@ the `audit_github_repository` tool.
                    │  │  LLM (optional, noop default)        │    │
                    │  └──────────────────────────────────────┘    │
                    └──────────────────────────────────────────────┘
-
-                   ┌──────────────────────────────────────────────┐
-                   │  packages/mcp-server (stdio), 13 tools        │
-                   │  paid:  audit_github_repository               │
-                   │         reaudit_repository                    │
-                   │  free:  quality_status, release_check,        │
-                   │         get_fix_plan, compare_audits,         │
-                   │         list_audit_history, get_audit_status, │
-                   │         get_repopilot_capabilities            │
-                   │  reads: get_repository_context,               │
-                   │         get_repository_map, get_symbol_map,   │
-                   │         get_dependency_graph                  │
-                   └──────────────────────────────────────────────┘
 ```
+
+`packages/mcp-server` is the other consumer of `packages/core`, and it is the
+whole MCP surface: a stdio server whose tool list is read out of the code
+rather than typed here. `pnpm docs:check` fails if the two disagree.
+
+<!-- docs-facts:mcp-tools-box -->
+```text
+┌─────────────────────────────────────────┐
+│  packages/mcp-server (stdio), 13 tools  │
+│    paid: audit_github_repository        │
+│          reaudit_repository             │
+│    free: get_audit_status               │
+│          quality_status                 │
+│          release_check                  │
+│          get_fix_plan                   │
+│          compare_audits                 │
+│          list_audit_history             │
+│          get_repository_context         │
+│          get_repository_map             │
+│          get_symbol_map                 │
+│          get_dependency_graph           │
+│          get_repopilot_capabilities     │
+└─────────────────────────────────────────┘
+```
+<!-- docs-facts:end -->
 
 ## Layering rules
 
@@ -112,7 +123,13 @@ the `audit_github_repository` tool.
    adapter, so the mock and OKX paths share the same rule.
 5. **Pipeline** — `AuditPipeline.run()` (in `packages/core`):
    - `GitFetcher.fetch(repoUrl)` returns `{ entries, contents, totalBytes }`
-   - All seven analyzers run in parallel
+   - The analyzers run **in sequence, synchronously**, in this order:
+     `detectStack`, `analyzeDocumentation`, `analyzeReproducibility`,
+     `analyzeWeb3`, `analyzeHackathon`, `scanForSecrets`, `analyzeHygiene`,
+     `analyzeAiPatterns`, `detectPromptInjection`. The order is load-bearing:
+     `analyzeHackathon` reads the chains and contract addresses `analyzeWeb3`
+     produced, so the two cannot be reordered. They are not parallel and
+     cannot be made parallel without a dependency graph between them.
    - `Scoring.scoreAll()` produces the 5-dimension score
    - `ReportBuilder.build()` assembles the `Report` and validates it
      against `ReportSchema` (Zod)
@@ -184,13 +201,32 @@ See `docs/SECURITY.md` for the threat model around payments.
 
 ## Deployment topology
 
-A typical production deploy is two long-running services and one
-optional worker:
+The pipeline is asynchronous, so there are two shapes and the split one is
+the production default:
 
-- `apps/api` (Fastify) — the HTTP / MCP frontend
-- `postgres:16` (Docker) — the audit job table
-- (Future) `apps/api` worker mode — runs the pipeline outside the
-  request thread for `mode: full`
+- **Combined** — one process runs the HTTP server and consumes the queue.
+  This is what `pnpm dev`, `pnpm start` and `verify:release` do.
+- **Split** — the API process enqueues (`REPOPILOT_API_MODE=http`) and a
+  separate worker process is the sole consumer. Both share one
+  Postgres-backed pg-boss queue. `apps/api/src/worker.ts` is the worker
+  entry point; `pnpm start:api` and `pnpm start:worker` run the two halves.
+  The inline queue driver is refused at boot in `http` mode, because an
+  in-process queue is invisible to the worker.
 
-A reverse proxy (nginx or Caddy) terminates HTTPS in front. See
+`docker-compose.yml` is the split shape plus the database and the edge:
+
+<!-- docs-facts:compose-services -->
+| Service | Kind | Published |
+| --- | --- | --- |
+| `migrate` | one-shot job | — |
+| `api` | long-running | `127.0.0.1:4000:4000` |
+| `web` | long-running | `${WEB_PORT:-8080}:80` |
+| `worker` | long-running | — |
+| `db` | long-running | — |
+<!-- docs-facts:end -->
+
+`web` is the only service that publishes a public port. `api` binds to
+loopback on purpose: it runs with `trustProxy: true`, so anything that can
+reach it directly can forge the header its rate limiter keys on (R-24).
+A reverse proxy (nginx or Caddy) terminates HTTPS in front of `web`. See
 `docs/DEPLOYMENT.md` for the templates.

@@ -1,7 +1,7 @@
 # PROJECT_STATE.md
 
 **Project:** RepoPilot — GitHub Repository Launch-Readiness Audit
-**Repository:** `/home/gem/workspace/agent/workspace/repopilot`
+**Repository:** https://github.com/azen07508-debug/repopilot
 **Current version:** 0.1.0-rc.2
 **Current stage:** Release Candidate preparation
 **Last updated:** 2026-09-28 15:00 UTC
@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-09-28)](#test-baseline-2026-09-29-0947-utc)
+- [Test baseline (2026-10-02)](#test-baseline-2026-10-02-2300-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -43,6 +43,11 @@ analysis only; never executes the audited repository's code.
 - Docker (multi-stage) + docker-compose
 
 ## Layout
+
+<!-- docs-facts:workspace-layout -->
+- packages (3): `@repopilot/core`, `@repopilot/mcp-server`, `@repopilot/okx-adapter`
+- apps (2): `@repopilot/api`, `@repopilot/web`
+<!-- docs-facts:end -->
 
 ```text
 repopilot/
@@ -95,7 +100,8 @@ repopilot/
     `consume: true` in the worker).
 - The inline driver is refused in `http` mode at boot time to
   prevent silent job loss.
-- **Container topology** (`docker-compose.yml`, five services on one network):
+- **Container topology** (`docker-compose.yml`,
+  <!-- docs-facts:compose-service-count -->5<!-- docs-facts:end --> services on one network):
   `db` (Postgres, no published port) → `migrate` (a one-shot job that applies the
   schema and then exits) → `api` and `worker` (both `depends_on: migrate:
   service_completed_successfully`) → `web` (nginx, the only published service
@@ -107,11 +113,41 @@ repopilot/
   because it runs with `trustProxy: true` and its rate-limit allow-list is matched
   against the forwarded key, not `req.ip` (R-24).
 
+  <!-- docs-facts:compose-services -->
+| Service | Kind | Published |
+| --- | --- | --- |
+| `migrate` | one-shot job | — |
+| `api` | long-running | `127.0.0.1:4000:4000` |
+| `web` | long-running | `${WEB_PORT:-8080}:80` |
+| `worker` | long-running | — |
+| `db` | long-running | — |
+<!-- docs-facts:end -->
+
 ## MCP server
 
 - Transport: stdio
-- Tools: `audit_github_repository`, `get_audit_status`, `get_repopilot_capabilities`
+- Tools: <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end --> registered.
+  `get_repopilot_capabilities` returns the same list with a `billing` map, so an
+  agent can tell free from paid before it calls anything.
 - Bin: `packages/mcp-server/dist/cli.js` (also `repopilot-mcp`)
+
+<!-- docs-facts:mcp-tools -->
+| Tool | Cost |
+| --- | --- |
+| `audit_github_repository` | paid |
+| `reaudit_repository` | paid |
+| `get_audit_status` | free |
+| `quality_status` | free |
+| `release_check` | free |
+| `get_fix_plan` | free |
+| `compare_audits` | free |
+| `list_audit_history` | free |
+| `get_repository_context` | free |
+| `get_repository_map` | free |
+| `get_symbol_map` | free |
+| `get_dependency_graph` | free |
+| `get_repopilot_capabilities` | free |
+<!-- docs-facts:end -->
 
 ## Payment model
 
@@ -124,14 +160,23 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-10-02 19:06 UTC)
+## Test baseline (2026-10-02 23:00 UTC)
 
 - @repopilot/core: 833/833
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
-- @repopilot/mcp-server: 37/37
+- @repopilot/mcp-server: 38/38
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 966 passed + 2 skipped (968 with the Postgres tests when CI is green)**
+- **Total: 967 passed + 2 skipped (969 with the Postgres tests when CI is green)**
+
+> The 966 → 967 step is one test, and it closes a hole rather than covering
+> new code. `BILLING` is the map `get_repopilot_capabilities` returns, so it is
+> what an agent reads to decide what it can afford — and nothing asserted it.
+> The test named "registers every tool the billing map advertises" checked a
+> hand-copied list in the test file instead, so a tool added to `server.tool()`
+> and forgotten in `BILLING` would have shipped with every test green. The map
+> is exported now and three assertions tie the registrations, the map and the
+> frozen public list together (D-033).
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
@@ -168,8 +213,10 @@ repopilot/
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (964 passed, 2 skipped — the Postgres integration test runs in CI)
-- `pnpm build` (all 5 packages + 2 apps)
+- `pnpm -r test` (all workspaces green; the count and the per-package split live
+  in **Test baseline** above, which is the one place they are written down. The 2
+  skipped tests are the Postgres integration tests, which run in CI)
+- `pnpm build` (every workspace: <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end -->)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
 - `pnpm docker:check` (static review of the Dockerfile and the compose file;
@@ -180,6 +227,19 @@ repopilot/
   too. The build half is skipped where there is no Docker CLI)
 - `pnpm compose:check` (compose + edge topology: build targets, port exposure,
   schema-bootstrap ordering, nginx routing; 0 issues)
+- `pnpm docs:check` (**exits non-zero** when a document disagrees with the code.
+  Recomputes the generated blocks — MCP tool list and count, compose service
+  table, workspace package names and count — and asserts three invariants that
+  carry no block: the `BILLING` map against the `server.tool()` registrations,
+  `docs/INDEX.md` against the `docs/` directory, and every `pnpm <script>` a
+  document names against the root `package.json`. See D-033. Verified by
+  mutation: 12 mutations, 12 caught)
+- `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
+  change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
+  three of the four targets are other people's repositories, so a non-zero diff
+  is information rather than a failure. Use `--no-run` to compare the outputs
+  already in `screenshots/` without hitting GitHub, and `--only <substring>` to
+  run one audit)
 - `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
   Retry-After, cache miss/hit, cache disabled, free-check 200)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit

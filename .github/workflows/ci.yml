@@ -145,6 +145,21 @@ jobs:
       - name: Deploy topology (compose + edge routing)
         run: pnpm compose:check
 
+      # The documents state facts about the code — how many MCP tools exist,
+      # which compose services there are, how many workspace packages. Those
+      # facts are generated into the documents between `docs-facts` markers and
+      # recomputed here. A hand-written number that drifts is the defect class
+      # the 2026-10-01 review found fourteen of, and this is the check that
+      # makes the next one impossible rather than merely unlikely.
+      #
+      # It also asserts three things that carry no generated block: that the
+      # `BILLING` map matches the registered tools, that `docs/INDEX.md` links
+      # every document, and that every `pnpm <script>` a document names exists.
+      # That last one had already caught `pnpm start:api` and
+      # `pnpm start:worker` being documented before they existed.
+      - name: Documentation facts (docs vs code)
+        run: pnpm docs:check
+
       # Static review of the Dockerfile itself: the Node base image against
       # `engines.node`, agreement between the install and build filter lists,
       # and that every file which changes how `pnpm install` resolves

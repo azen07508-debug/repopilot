@@ -34,7 +34,7 @@ audit. It does not custody funds or read private keys.
   that changed, and which findings were resolved, appeared or persist.
 - **Built for AI agents.** The report is a single JSON document with a
   stable schema (`reportVersion: "1.1"`; `"1.0"` still parses). The MCP
-  server exposes seven
+  server exposes <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end -->
   tools and marks which of them are free, so any MCP-compatible client
   can drive the whole loop.
 - **No surprise charges.** Reading a fix plan or a comparison is free;
@@ -140,7 +140,7 @@ repopilot/
   packages/
     core/        analyzers + scoring + report + security + schemas + llm
                  + fixplan (report -> fix plan) + diff (report -> diff)
-    mcp-server/  MCP server (stdio), thirteen tools
+    mcp-server/  MCP server (stdio)
     okx-adapter/ PaymentAdapter interface, mock + OKX implementations
   fixtures/      6 sample repos for tests
   docs/          ARCHITECTURE / DEPLOYMENT / SECURITY / API / MCP / EXTERNAL
@@ -163,6 +163,7 @@ diagram.
 | `pnpm env:check`            | Validate env (no secret values printed)                   |
 | `pnpm docker:check`         | Static Docker check (or full build if Docker is present)  |
 | `pnpm compose:check`        | Static docker-compose review                              |
+| `pnpm docs:check`           | Recompute the facts the docs state, and fail on divergence|
 | `pnpm verify:release`       | End-to-end smoke (env → lint → test → build → API → MCP)  |
 | `pnpm db:migrate`           | Apply DB migrations (SQLite + Postgres)                   |
 | `pnpm mcp`                  | Start the MCP server over stdio                           |
@@ -187,9 +188,13 @@ diagram.
   [docs/EXTERNAL_ACTIONS.md](docs/EXTERNAL_ACTIONS.md) item 2). The product
   still ships with `PAYMENT_MODE=mock` as the default so the full audit
   flow works without external services.
-- `mode: 'full'` runs synchronously inside the HTTP request. Very
-  large repos (> 50 MiB / 2000 files) may time out. A background
-  worker is on the P1 backlog.
+- `mode: 'full'` takes longer than `quick`: it reads commit history and
+  scans more files, so a very large repository (> 50 MiB / 2000 files)
+  can exceed the audit timeout. The audit is queued, not synchronous —
+  `POST /api/v1/audits` answers **202** and a worker process runs the
+  pipeline. In the default combined shape that worker lives in the API
+  process; the split production shape runs it as its own service (see
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 - The LLM is optional. With `LLM_PROVIDER=noop` the `summary` and
   `launchCopy` are template-generated; scores are always
   rule-based.

@@ -7,12 +7,15 @@ or a file you can point at.
 
 - [ ] **Lint clean** — `pnpm lint` (0 issues)
 - [ ] **Typecheck clean** — `pnpm -r typecheck`
-- [ ] **Unit + integration tests pass** — `pnpm -r test` (104/104 in dev;
-      106/106 in CI once the Postgres service container is up; includes
-      12 cache-service unit tests, 11 API integration tests, 3 SQLite
-      repository tests, plus 61 core + 16 okx-adapter + 1 mcp-server)
+- [ ] **Unit + integration tests pass** — `pnpm -r test`. The dev run skips
+      the 2 Postgres integration tests; CI runs them against a service
+      container. The count and the per-package split are recorded in
+      `PROJECT_STATE.md` (section *Test baseline*) — that is the one place
+      they are written down, so this checklist deliberately repeats neither.
 - [ ] **End-to-end smoke pass** — `pnpm verify:release`
-- [ ] **Build succeeds** — `pnpm build` (all 5 packages + 2 apps)
+- [ ] **Build succeeds** — `pnpm build` (every workspace: )
+- [ ] **Generated docs are current** — `pnpm docs:check` (recomputes the
+      facts the docs state about the code and fails on any divergence)
 
 ## Environment and config
 
