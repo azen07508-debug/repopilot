@@ -124,14 +124,14 @@ repopilot/
     The factory must never silently fall back to mock.
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-09-29 09:47 UTC)
+## Test baseline (2026-10-02 19:06 UTC)
 
-- @repopilot/core: 766/766
+- @repopilot/core: 833/833
 - @repopilot/okx-adapter: 16/16
 - @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
 - @repopilot/mcp-server: 37/37
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 899 passed + 2 skipped (901 with the Postgres tests when CI is green)**
+- **Total: 966 passed + 2 skipped (968 with the Postgres tests when CI is green)**
 
 > The core count is dominated by the Repository Intelligence work: it was
 > 61 at the 0.1.0-rc.2 baseline, 143 after the Launch Readiness layer,
@@ -141,6 +141,19 @@ repopilot/
 > The MCP server went 4 → 37 in V0.2-g, where the three artifacts finally
 > got a surface. None of them is wired into the audit path — they are
 > additive, and every pre-existing test still passes unchanged.
+>
+> The 766 → 833 step is the 2026-10-01 real-repository audit, not a
+> feature. All 67 new core tests pin something that audit produced:
+> 20 in `security/secret-scanner.test.ts` (now 36) and 14 in
+> `security/injection.test.ts` (now 18) pin a false positive that the
+> three real repositories generated, 13 in `report/evidence-lines.test.ts`
+> pin the checklist evidence fold, 12 in `analyzers/documentation.test.ts`
+> cover the existence-vs-content split and the shared document-name lists,
+> 6 more (3 in `stack.test.ts`, 3 in `analyzers/web3.test.ts`) cover
+> fixture exclusion from stack and web3 detection, and 2 in
+> `scoring/score.test.ts` pin the breakdown to the rules that fired. Each
+> of the false-positive tests is paired with the true positive of the same
+> shape, so a detector tuned into silence fails rather than passes.
 >
 > `@repopilot/web` reported **0** for the whole life of the project because
 > its `test` script was `echo "no web tests yet" && exit 0` — a package that
@@ -155,7 +168,7 @@ repopilot/
 
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
-- `pnpm -r test` (899 passed, 2 skipped — the Postgres integration test runs in CI)
+- `pnpm -r test` (964 passed, 2 skipped — the Postgres integration test runs in CI)
 - `pnpm build` (all 5 packages + 2 apps)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)

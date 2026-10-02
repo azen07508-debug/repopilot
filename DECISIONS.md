@@ -54,6 +54,8 @@ Architecture Decision Records (ADR-style, lightweight).
   — The edge owns the origin, and the API stops being the public root
 - [D-031](#d-031--schema-bootstrap-is-a-job-that-runs-before-the-api)
   — Schema bootstrap is a job that runs before the API
+- [D-032](#d-032--a-rules-scope-is-part-of-the-rule)
+  — A rule's scope is part of the rule
 
 ---
 
@@ -1321,3 +1323,83 @@ this, so the topology is checked in two places that do not need it:
   apps/api/dist/db/migrate.js && exec node apps/api/dist/server.js` — so a
   regression surfaces as a failing smoke test rather than as a `degraded`
   `/health` that nobody reads.
+
+## D-032 — A rule's scope is part of the rule
+
+- **Date:** 2026-10-02
+- **Status:** Accepted
+- **Context:** Three real repositories were audited on 2026-10-01
+  (`octocat/Hello-World`, `pinojs/pino`, and this one) and every finding was
+  read by hand. 676 findings, not one a real credential. The causes were not
+  bugs in what the rules *matched*; they were bugs in what the rules *looked
+  at*:
+  1. The screenshot check asked `filterFiles`' output whether a `.png`
+     existed. `filterFiles` removes binaries, and a screenshot is a binary, so
+     the answer was "no" before the question was asked (R-27).
+  2. Stack and web3 detection read `fixtures/web3-hackathon/` — a fake
+     Solidity project inside this repository's own test suite — and reported
+     RepoPilot as `Solidity, Foundry`, then ticked "Contracts covered by
+     tests" (R-28).
+  3. The prompt-injection detector matched keywords against every line of
+     every file, so it flagged its own keyword table, its own test suite, and
+     `contract as the parent` (where "act as" is a substring of "contract as").
+  4. The generic secret heuristic's match class included `/`, so URL path
+     segments cleared the entropy threshold, and `sha512-` digests cleared it
+     by construction.
+  In each case the fix was to change the scope, not the pattern — and in
+  cases 1, 2 and 4 the scope had been decided implicitly, by whatever list
+  happened to be at hand.
+- **Decision:** **What a rule looks at is a decision, and it is recorded
+  where the rule is defined.** Concretely:
+  1. **Existence questions are asked of the whole tree; content questions are
+     asked of what was read.** `ReportBuilderInput` carries `allPaths` beside
+     `entries`; `analyzeDocumentation` and `analyzeHackathon` take
+     `readonly string[]` rather than `FileEntry[]`, so the filtered set is not
+     the convenient argument.
+  2. **A predicate that more than one entry point needs lives in one place.**
+     `utils/paths.ts` holds `isSampleMaterialPath`, `isProseDocument`, and the
+     document-name lists. The free check and the full audit read the same
+     constants.
+  3. **A rule that folds a list into a reading uses the same fold as every
+     other rule that does.** `report/fixtures.ts`'s grouping is named
+     `groupFindings` for that reason; the fixture summary and the launch
+     checklist's evidence lines are two consumers of one function.
+  4. **Where a rule's scope is narrowed, the narrowing is stated at the rule,
+     not at the call site.** `security/injection.ts` says prose-only in its
+     header, and says why invisible-character detection is exempt.
+- **Consequences:**
+  1. **A narrowed scope is a claim, and it has to be checked in both
+     directions.** Every narrowing here is pinned by a pair of tests: the
+     false positive that motivated it, and the true positive of the same shape
+     that it must not lose. `secret-scanner.test.ts` has twenty such pairs.
+     A detector tuned only against its false positives has stopped detecting.
+  2. **Narrowing can hide a defect rather than fix it, so the scope is
+     recorded as a gap where that is what happened.** The injection detector
+     now looks at prose; the surface that can actually reach a model is the
+     repository's GitHub description, and that is not scanned. R-08 says so
+     instead of implying full coverage.
+  3. **`utils/paths.ts` is a shared vocabulary, and it will drift if it is
+     not treated as one.** `isSampleMaterialPath` is deliberately narrower
+     than `isFixturePath` — different question, different answer, same
+     directory — and both are documented with the case that distinguishes
+     them.
+  4. **The three-repository audit is the acceptance test for this class.**
+     None of the four causes above is visible from reading the code. All four
+     appeared within minutes of pointing the tool at real repositories.
+- **Alternatives rejected.**
+  - **Keep scanning everything and lower the severity.** This is what the
+    injection detector already did: it was `low` with a comment admitting
+    seven hits out of seven were false. A rule with a 0% hit rate that is
+    reported on every audit is not a conservative default; it is noise that
+    trains readers to skip the section. Lowering severity treats the symptom.
+  - **Suppress findings whose file is the detector's own source.** It would
+    have removed the most embarrassing instance and left the class intact —
+    and it would have made the rule unable to report a genuine attempt in any
+    repository that implements prompt handling.
+  - **Truncate the checklist evidence instead of counting it.** Truncation
+    drops the two facts that make the row actionable — which file, and how
+    many hits — and leaves "and 634 more", which is strictly less informative
+    than `×557 in pnpm-lock.yaml`.
+  - **Ask each caller to pass the right list.** Four call sites, one of which
+    is a test that already carried a stale copy of the wrong one. The input
+    shape has to make the wrong argument unavailable, not discouraged.

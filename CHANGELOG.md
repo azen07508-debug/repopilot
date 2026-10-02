@@ -995,6 +995,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     directions: the cap holds, and breadth still scores. Reverting the
     cap fails 7 of its 8 tests.
 
+- **The secret heuristics were precise enough to be worth reading.**
+  Auditing three real repositories (`octocat/Hello-World`, `pinojs/pino`,
+  and this one) produced 676 findings, of which every hand-checked one was
+  false. Not one was a credential. Five separate causes:
+  - The mnemonic rule was "twelve to twenty-four lowercase words", which
+    is a description of English. It is now a BIP-39 lookup
+    (`security/bip39-english.ts`, 2048 words) over sliding windows of the
+    valid lengths, so `chance` and `properties` are not seed phrases.
+    `abandon ability able …` still is.
+  - The generic high-entropy rule included `/` in its match class, so URL
+    path segments cleared any threshold: `com/nodejs/node/blob/main/SECURITY`
+    and `fastify/github-action-merge-dependabot`. URLs are now stripped
+    before the entropy pass.
+  - `sha512-<base64>` integrity digests are high-entropy by construction;
+    557 of the self-audit's 639 findings came from one `pnpm-lock.yaml`.
+    Digests are now skipped **by name** (`sha512-`, `md5:`, `integrity:`)
+    rather than by dropping lockfiles from the scan — the existing rule
+    deliberately *downgrades* rather than hides a credential in a
+    lockfile, and that is preserved.
+  - Placeholder detection was an enumeration (`your-key`, `your_key`) and
+    always missed the next member of the family. `password: 'your-password'`
+    in pino's own docs was reported as a hardcoded credential. It is now a
+    pattern (`/your[-_]?(?:key|token|password|…)/`).
+  - Identifier-shaped runs (`fastify/github-action-merge-dependabot@v3`)
+    are now excluded from the entropy path.
+  - Verified against real pino files: `README.md` 1 → 0,
+    `docs/transports.md` 13 → 1, `docs/asynchronous.md` 2 → 0,
+    `.github/workflows/ci.yml` 1 → 0. The survivor is
+    `botToken: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"` in
+    `pino-telegram-webhook`, which is the string Telegram's own
+    documentation uses — an inherent residual of the unknown-format
+    catch-all, not a miss.
+
+- **Two existence questions were being asked of the wrong list.** The
+  screenshot check could never pass:
+  `entries.some(e => /\.(png|jpe?g|gif|webp|svg)$/i.test(e.path))`, where
+  `entries` came from `filterFiles`, which drops every extension in
+  `BINARY_EXTENSIONS` — including all five of those. The self-audit
+  reported "no image files in repo" about a repository with four. The only
+  branch that could ever succeed was a `.svg` under 4 KB, since `.svg` is
+  not in the binary list. `analyzeDocumentation` and `analyzeHackathon`
+  now take the whole tree for existence questions and `fileContents` for
+  content questions, and `ReportBuilderInput` carries both. The split
+  needs one guard: a README that exists but was skipped — oversized, or
+  dropped by a total-bytes cap — must not be reported as "0 characters
+  long", so the content check requires the content and not merely the
+  path.
+
+- **Fixture trees were being read as evidence about the project.**
+  RepoPilot audited itself as `Solidity, Foundry` and then ticked
+  `[x] Contracts covered by tests (Foundry / Hardhat)` — a green tick over
+  a capability that does not exist, taken from `fixtures/web3-hackathon/`,
+  a fake Solidity project inside its own test suite. A false tick is worse
+  than a false alarm: a reader questions an alarm, and nobody questions a
+  green tick. Stack and web3 detection now skip
+  `fixtures?` / `__fixtures__` / `test-data` directories, using a
+  predicate deliberately narrower than `isFixturePath` — that one includes
+  `test/`, and a repository's own `test/Counter.sol` really does mean the
+  project is Solidity.
+
+- **Two entry points disagreed about what a README is called.**
+  `free-check` accepted a bare `README`; the full audit did not. That is
+  not hypothetical: `octocat/Hello-World` — the repository this project's
+  own MCP script audits by default — has exactly one file, called
+  `README`. The free check said `has-readme: PASS` while the paid audit
+  reported `[high] README.md is missing or empty` as its top blocker and
+  dropped the documentation score to 5.5. The license lists differed too
+  (`COPYING` against `LICENCE`). Both now read one set of constants in
+  `utils/paths.ts`, which are the unions, so unifying made neither entry
+  point stricter than it already was.
+
+- **The launch checklist inlined every finding title.** Its two
+  finding-backed rows mapped findings to titles one for one, so the
+  self-audit printed a single line holding 639 of them — roughly forty
+  wrapped rows in a terminal, from which only the row's own verdict
+  ("no committed credentials: failed") survived. Evidence is now folded by
+  (file, rule), worst severity first, capped at five groups with the
+  remainder reported as counts of groups and of findings:
+  `High-entropy string ×557 in pnpm-lock.yaml`. On the 2026-10-01
+  self-audit data, 639 findings and 41 groups become six lines.
+
+- **The prompt-injection detector fired on its own source.** The
+  self-audit flagged eleven files and ten were false: `security/injection.ts`
+  (the keyword table, matched against itself), its own test suite,
+  `llm/prompts.ts` (`{ system: string; user: string }` — a TypeScript type
+  annotation), and `contract as the parent`, where "act as" is a substring
+  of "contract as". pino's one hit was a benchmark script printing
+  `` `System: ${type()}/${platform()}` ``. Three changes, with two
+  different scopes on purpose:
+  - Instruction phrases are looked for in **prose documents only**. An
+    instruction aimed at the reader of a report has to live where a reader
+    looks, and scanning code made the rule fire hardest on the repositories
+    that build language-model features — which is the audience.
+  - Phrases match on **word boundaries**, so `act as` no longer reads out
+    of `contract as`. Role markers (`system:`, `assistant:`) must **open a
+    line** and be followed by content; as substrings they are a JSON key, a
+    type annotation, a log label.
+  - Invisible and bidirectional characters are still looked for in **every
+    file, source included**. A bidi override in source is Trojan Source,
+    and that is a source-level problem rather than a prose one.
+  - Replayed over this repository: 736 files, 4 findings, all four in the
+    deliberately planted `fixtures/prompt-injection/README.md`. Eleven
+    files and about thirty findings before.
+  - Recorded, not fixed: the audit prompt carries repository metadata and
+    no file content, so the only repository text that can reach a model
+    today is its GitHub description, and that is not scanned (R-08).
+
+- **A test carried a thirty-five-line second copy of the scoring rules
+  that nothing read.** `pipeline-fixture.test.ts` built a whole
+  `ScoringInput` by hand and never used it; one of its predicates asked
+  `filterFiles`' output whether a `.png` existed, which is precisely the
+  defect the screenshot fix was about. The copy outlived the fix because
+  fixing one copy of a rule does not fix the other. The dead block is
+  deleted rather than updated, and the test now asserts on the analyzers'
+  own outputs so those calls stay live.
+
+- **The score breakdown asserted things that were not true.** It emitted
+  every rule with `delta: 0` for the ones that did not fire, keeping the
+  rule's penalty-shaped text — so a real report contained
+  `{ rule: 'no-readme', delta: 0, reason: 'README.md is missing' }` about
+  repositories whose README exists and contributes nothing. The reason
+  asserts a falsehood, and `delta: 0` beside a rule named `no-readme`
+  reads as "this problem is free". The breakdown now lists only the rules
+  that fired, which is what `computeRuleDeltas` already assumed when it
+  reads `b?.delta ?? 0`, and what the test's own name — "breakdown records
+  every applied rule" — already claimed. Found by reading a real audit's
+  JSON, not by reading the code.
+
 ## [0.1.0-rc.3] - 2026-07-19
 
 ### Added

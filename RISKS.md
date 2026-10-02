@@ -35,6 +35,10 @@ Active risks the team is aware of and how they are mitigated.
   — A healthy container can be serving an unmigrated database
 - [R-26](#r-26--a-check-that-never-runs-is-indistinguishable-from-one-that-passes)
   — A check that never runs is indistinguishable from one that passes
+- [R-27](#r-27--a-check-that-can-never-pass-is-indistinguishable-from-one-that-found-nothing)
+  — A check that can never pass is indistinguishable from one that found nothing
+- [R-28](#r-28--a-green-tick-over-a-capability-the-repository-does-not-have)
+  — A green tick over a capability the repository does not have
 
 ---
 
@@ -124,9 +128,39 @@ only. `env:check` fails if `*` is present in production.
 
 **Severity:** Medium
 **Likelihood:** High (the public web is full of these)
-**Mitigation:** `injection.ts` detector has 11 patterns. Findings are
-reported, not executed. The system never takes instructions from
-target-repo content.
+**Status:** Mitigated in 0.1.0-rc.2 by scoping. See below for what is still
+not covered.
+**Mitigation:** `security/injection.ts` reports; it never executes. The
+system never takes instructions from target-repo content.
+
+The detector has two scopes, deliberately different, and the difference
+is what the 2026-10-01 audit taught it:
+
+- **Instruction phrases** (22 of them) are looked for in prose documents
+  only — `.md`, `.rst`, `.txt`, `.adoc`, and extension-less names like
+  `README`. They match on word boundaries. Both halves matter: as
+  substrings, `act as` read out of `contract as`, and a repository that
+  audits smart contracts writes that constantly.
+- **Role markers** (`system:`, `assistant:`) must open a line and be
+  followed by content. As substrings they are a JSON key, a TypeScript
+  type annotation, a log label — the self-audit flagged its own
+  `llm/prompts.ts` over `{ system: string; user: string }`.
+- **Invisible / bidi characters** are looked for in every file, source
+  included. A bidi override in source is Trojan Source, and that is a
+  source-level problem, not a prose one.
+
+Before the scoping, the self-audit flagged eleven files and ten were
+false. After it, four findings, all in the deliberately planted
+`fixtures/prompt-injection/README.md`.
+
+**Still open.** The audit prompt built in `llm/prompts.ts` carries
+repository metadata (name, description) and no file content, so the only
+text from a repository that can actually reach a model today is its
+GitHub description — and that is not scanned. The detector is pointed at
+prose, which is where a *reader* of the report looks, not at the surface
+that reaches the model. Closing that gap means scanning metadata, which
+is a feature rather than a scope correction; it is recorded here so the
+next reader does not mistake the current state for full coverage.
 
 ## R-09 — Database file locked / migration crash
 
@@ -579,3 +613,136 @@ still checks nothing, and the real lint is the root `pnpm lint`, which only
 runs because `ci.yml` names it explicitly. The same question should be asked of
 every script in `package.json` before the next release: *what runs this, and
 what would it take for it to fail?*
+
+## R-27 — A check that can never pass is indistinguishable from one that found nothing
+
+**Severity:** High
+**Likelihood:** Certain — two instances in one session, both found by
+auditing real repositories rather than by reading the code
+
+**What happens.** R-26 is about a check that never runs. This is its
+mirror: the check runs on every audit, and its answer is fixed before it
+starts. Both are invisible for the same reason — the instrument is present
+and reports something — and this one is worse, because what it reports
+reads as a clean bill of health.
+
+**Instance 1 — the screenshot check.** It read:
+
+```ts
+hasScreenshots = entries.some((e) => /\.(png|jpe?g|gif|webp|svg)$/i.test(e.path));
+```
+
+and `entries` was the output of `filterFiles`, which drops every extension
+in `BINARY_EXTENSIONS` — a list containing `.png`, `.jpg`, `.jpeg`, `.gif`
+and `.webp`. The question "is there a `.png`" was asked of a list with the
+`.png` files already removed. The self-audit reported "no image files in
+repo" about a repository with four of them.
+
+The only branch that could ever have succeeded was a `.svg` under 4 KB:
+`.svg` is not in the binary list, so it falls through to "unknown
+extension, small, treat as text" and survives. A check that passes only on
+a rare branch is *harder* to notice than one that never passes at all,
+because it produces a yes often enough to look alive.
+
+**Instance 2 — the same predicate, in a test.** `pipeline-fixture.test.ts`
+built a thirty-five-line `ScoringInput` by hand, including a copy of the
+same `hasScreenshots` line, and never read the result. Fixing the analyzer
+did not fix the copy, and the copy would have gone on asserting the old
+shape of the bug to anyone who trusted it. Dead code is not inert when it
+is a second copy of a rule.
+
+**Why this is High rather than Low.** The failure mode is a *false tick*,
+and a false tick is worse than a false alarm. A reader questions an alarm;
+nobody questions a green tick. The same class produced `[x] Contracts
+covered by tests (Foundry / Hardhat)` on a repository with no contracts
+(see R-28) — three green ticks in one report, over capabilities that did
+not exist.
+
+**Mitigation.**
+
+1. Existence questions are asked of the whole tree; content questions are
+   asked of `fileContents`. `ReportBuilderInput` carries `allPaths` beside
+   `entries` for exactly this, and `analyzeDocumentation` /
+   `analyzeHackathon` take paths rather than `FileEntry[]` so the wrong
+   input is not the convenient one.
+2. `documentation.test.ts` runs classify → filter → analyze over the real
+   self-audit tree, so the two halves cannot drift apart again: a check
+   that asks the filtered list about a binary file fails there.
+3. The dead copy in `pipeline-fixture.test.ts` is deleted, and the test
+   asserts on the analyzers' own outputs so those calls stay live.
+
+**The rule.** R-26 asked *what runs this, and what would it take for it to
+fail?* The question for this class is one step earlier: **what input could
+make this check answer "yes", and is that input reachable?** If no reachable
+input can produce a yes, the check is not a check. That question is now
+the third one in the `mutation-check` skill, alongside the two it already
+asked.
+
+**Still open.** Nothing enforces rule 3 mechanically. It is a question a
+reviewer has to ask, and the two instances here were both found by running
+the tool against real repositories — not by reading it. That is an argument
+for keeping the three-repository audit as a repeatable exercise rather than
+a one-off.
+
+## R-28 — A green tick over a capability the repository does not have
+
+**Severity:** High
+**Likelihood:** Certain — measured on a real self-audit
+
+**What happens.** A checklist row is a claim. When the claim is false in
+the *passing* direction, nothing in the report contradicts it: the row is
+green, the score is fine, and there is no second signal. An alarm invites
+scrutiny; a tick does not. So a false tick survives review, while the same
+error in the other direction gets caught within a minute.
+
+**Instance 1 — `[x] Contracts covered by tests (Foundry / Hardhat)`, on a
+repository with no contracts.** RepoPilot self-audited as
+`Solidity, Foundry`. It is neither. `detectStack` and `analyzeWeb3` were
+reading `fixtures/web3-hackathon/`, a fake Solidity project that lives
+inside RepoPilot's own test suite, and reporting it as evidence about
+RepoPilot. `web3.hasContracts` was therefore true, which emitted the
+contract-tests row, and `hasContractTests` was also true, which ticked it.
+
+Two green ticks and a detected stack, all from material that belongs to a
+different project.
+
+**Instance 2 — `has-readme: PASS` against `[high] README.md is missing or
+empty`.** Here the tick was right and the blocker was wrong, which is the
+mirror of the same asymmetry: one fact, two verdicts, and the two entry
+points carried their own lists of what a README may be called.
+`octocat/Hello-World` has exactly one file, called `README`. The free
+check's list accepted it; the audit's did not, so the paid audit led with a
+blocker over a file that was present and dropped the documentation score to
+5.5.
+
+**Why this is High rather than Low.** Both instances were found only by
+auditing real repositories and reading the output closely. Neither is
+visible from the code, and both make the product's headline claim —
+"grounded in the actual repository contents" — false in the direction that
+flatters it.
+
+**Mitigation.**
+
+1. Stack and web3 detection skip stand-in material
+   (`fixtures?`, `__fixtures__`, `test-data`, `test-fixtures`) via
+   `isSampleMaterialPath` in `utils/paths.ts`. The predicate is
+   deliberately narrower than `isFixturePath`: that one includes `test/`,
+   and a repository's own `test/Counter.sol` really does mean the project
+   is Solidity. `stack.test.ts` pins both directions — the fixture is
+   ignored, and `test/Counter.t.sol` is still detected.
+2. Both entry points read one set of document-name constants
+   (`README_FILENAMES`, `LICENSE_FILENAMES`, `ENV_EXAMPLE_FILENAMES`),
+   which are the unions of what the two previously accepted, so unifying
+   made neither stricter than it already was.
+3. The checklist's evidence now carries counts per (file, rule) rather
+   than a list of titles, so the row that says "no committed credentials:
+   failed" also says *which file* and *how many* — the information that
+   lets a reader check the claim instead of trusting it.
+
+**Still open.** Nothing tests the *whole report* against a repository whose
+correct answer is known. The three-repository audit is that test, run by
+hand. The self-audit is the hardest case of the three and it is the one
+that found all of this; it should be run before every release, and its
+score compared against the previous run rather than merely inspected.
+
+
