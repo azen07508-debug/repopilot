@@ -111,15 +111,39 @@ const TARGET = process.env['SCORING_TARGET'] as
   | 'production'
   | undefined;
 
+/**
+ * Apply the rules and record the ones that cost points.
+ *
+ * Only fired rules reach the breakdown. This used to emit every rule with
+ * `delta: 0` for the ones that did not fire, keeping the rule's
+ * penalty-shaped text — so a real report said
+ *
+ *     { rule: 'no-readme', delta: 0, reason: 'README.md is missing' }
+ *
+ * about repositories whose README exists and contributes nothing. Two
+ * readings of that line are both wrong: the reason asserts a falsehood,
+ * and `delta: 0` beside a rule named `no-readme` reads as "this problem
+ * is free". The JSON is the artifact an MCP client reads, so an agent
+ * could source a false claim about a repository from a report that never
+ * made it.
+ *
+ * Absence is the honest encoding of "this rule did not fire", and it is
+ * what the rest of the code already assumes: `computeRuleDeltas` in
+ * `diff/reports.ts` documents that "a rule that did not fire in one
+ * report contributes 0 there, so a rule disappearing from the breakdown
+ * shows up as a real delta". That only works if the rule can disappear.
+ */
 function applyRules(
   base: number,
   rules: { when: boolean; delta: number; rule: string; reason: string }[]
 ): ScoreBreakdown {
   let score = base;
-  const applied = rules.map((r) => {
-    if (r.when) score += r.delta;
-    return { rule: r.rule, delta: r.when ? r.delta : 0, reason: r.reason };
-  });
+  const applied = rules
+    .filter((r) => r.when)
+    .map((r) => {
+      score += r.delta;
+      return { rule: r.rule, delta: r.delta, reason: r.reason };
+    });
   return { raw: base, rules: applied, final: clamp(score, 0, 100) };
 }
 
