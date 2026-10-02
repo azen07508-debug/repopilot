@@ -43,6 +43,12 @@
  * is in neither or in both, so adding a document forces the question instead of
  * defaulting to "unchecked".
  *
+ * `BLOCK_DOCS` also names the blocks each document carries, because the
+ * comparison in `checkBlocks()` can only see a block that is present. A
+ * document that loses one entirely has nothing left to be stale, and
+ * `docs/RELEASE_CHECKLIST.md` spent an unknown length of time in exactly that
+ * state with a green tick.
+ *
  * What is deliberately *not* generated
  * ------------------------------------
  * Test baseline numbers (they are only knowable after the suite runs, so a
@@ -311,16 +317,37 @@ const RENDERERS: Record<string, () => string> = {
 
 const BLOCK_RE = /<!--\s*docs-facts:([a-z0-9-]+)\s*-->([\s\S]*?)<!--\s*docs-facts:end\s*-->/g;
 
-/** Every markdown file a block may appear in. */
-const BLOCK_DOCS = [
-  'README.md',
-  'PROJECT_STATE.md',
-  'ROADMAP.md',
-  'docs/ARCHITECTURE.md',
-  'docs/INDEX.md',
-  'docs/MCP_CLIENT_SETUP.md',
-  'docs/RELEASE_CHECKLIST.md',
-];
+/**
+ * Every markdown file a block may appear in, and *which* blocks it carries.
+ *
+ * The list of ids is the load-bearing part. `checkBlocks()` can only compare a
+ * block it finds, so a document that loses a block entirely — markers, body,
+ * the lot — passes: there is nothing to be stale. `docs/RELEASE_CHECKLIST.md`
+ * was in exactly that state when this map was written, reading
+ * "(every workspace: )" with no block at all, and `pnpm docs:check` was green.
+ * A check whose scope is "whatever I happen to find" cannot see a deletion.
+ *
+ * Declaring the ids makes the block set a fact the code holds rather than a
+ * fact the document happens to have, which is D-034 applied to the last part
+ * of the mechanism that was still implicit.
+ */
+const BLOCK_DOCS: Record<string, string[]> = {
+  'README.md': ['fixture-count', 'mcp-tool-count'],
+  'PROJECT_STATE.md': [
+    'compose-service-count',
+    'compose-services',
+    'fixture-count',
+    'mcp-tool-count',
+    'mcp-tools',
+    'workspace-count',
+    'workspace-layout',
+  ],
+  'ROADMAP.md': ['workspace-count'],
+  'docs/ARCHITECTURE.md': ['compose-services', 'mcp-tools-box'],
+  'docs/INDEX.md': ['mcp-tool-count'],
+  'docs/MCP_CLIENT_SETUP.md': ['mcp-tool-count'],
+  'docs/RELEASE_CHECKLIST.md': ['workspace-count'],
+};
 
 /**
  * Every markdown file that deliberately carries no generated block, with the
@@ -409,17 +436,47 @@ function checkBlocks(): Problem[] {
   const problems: Problem[] = [];
   let total = 0;
 
-  for (const path of BLOCK_DOCS) {
+  for (const path of Object.keys(BLOCK_DOCS)) {
     const text = read(path);
+    const found: string[] = [];
     for (const m of text.matchAll(BLOCK_RE)) {
       total += 1;
       const id = m[1];
+      found.push(id);
       const actual = m[2].trim();
       const expected = render(id).trim();
       if (actual !== expected) {
         problems.push({
           where: `${path} (docs-facts:${id})`,
           message: `generated block is stale\n${describeDiff(actual, expected)}`,
+        });
+      }
+    }
+
+    // The blocks this document declares, against the blocks it has. A missing
+    // one is the case `checkBlocks()` alone cannot see, because a block that is
+    // not there cannot be stale.
+    const declared = BLOCK_DOCS[path];
+    for (const id of declared) {
+      if (!found.includes(id)) {
+        problems.push({
+          where: path,
+          message:
+            `declares the block "docs-facts:${id}" and does not contain it. ` +
+            'Either the markers were deleted — in which case the number it ' +
+            'guarded is now unchecked, which is how RELEASE_CHECKLIST came to ' +
+            'read "(every workspace: )" with a green tick — or the document ' +
+            'should no longer declare it, and BLOCK_DOCS is the thing to edit.',
+        });
+      }
+    }
+    for (const id of found) {
+      if (!declared.includes(id)) {
+        problems.push({
+          where: path,
+          message:
+            `contains a "docs-facts:${id}" block that BLOCK_DOCS does not ` +
+            'declare for it. Add it there, so a deletion is detectable.',
         });
       }
     }
@@ -448,7 +505,7 @@ function checkBlocks(): Problem[] {
  */
 function checkBlockScope(): Problem[] {
   const problems: Problem[] = [];
-  const owned = new Set(BLOCK_DOCS);
+  const owned = new Set(Object.keys(BLOCK_DOCS));
   const free = new Set(Object.keys(BLOCK_FREE_DOCS));
 
   for (const path of allDocPaths()) {
@@ -551,7 +608,7 @@ if (mode !== '--check' && mode !== '--write') {
 
 if (mode === '--write') {
   let touched = 0;
-  for (const path of BLOCK_DOCS) {
+  for (const path of Object.keys(BLOCK_DOCS)) {
     const before = read(path);
     const after = replaceBlocks(before);
     if (before !== after) {

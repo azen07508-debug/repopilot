@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The doc-facts check now declares which blocks each document carries, so a
+  deleted block is a failure rather than a silence.** `BLOCK_DOCS` named the
+  documents but left the block set implicit, and `checkBlocks()` can only
+  compare a block it *finds* — so a document that lost one entirely had nothing
+  left to be stale. `docs/RELEASE_CHECKLIST.md` was in exactly that state when
+  the scope check was written: reading "(every workspace: )" with no block at
+  all, and `pnpm docs:check` green. `BLOCK_DOCS` is now a map from document to
+  the block ids it must contain; a declared block that is absent fails, and so
+  does a block no document declares. **Verified by mutation: 8 mutations, 8
+  caught** — including the `RELEASE_CHECKLIST` case itself. Two of the eight
+  passed on the first attempt for the wrong reason (a body that was both
+  undeclared *and* stale, so the staleness rule fired instead) and were re-run
+  with a correct body so that only the intended rule could fire.
 - **The doc-facts check now knows which documents it owns.** Its scope was a
   hand-written list of four files, and `ROADMAP.md` was not on it — so it had
   drifted in exactly the way the fourteen had: "all 5 packages + 2 apps" in a

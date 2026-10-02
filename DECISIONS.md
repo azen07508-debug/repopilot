@@ -1546,10 +1546,20 @@ this, so the topology is checked in two places that do not need it:
      the next person to add a number to `RISKS.md` needs to know which one it
      was. A bare list of exempt files would have recorded the exemption and lost
      the argument.
-  3. **A deleted block is a defect, not an absence — and this check does not
-     catch it.** The `docs/RELEASE_CHECKLIST.md` case is the shape: the sentence
-     stayed, the markers went, and the document was still in `BLOCK_DOCS`. It is
-     recorded here as a known limitation rather than claimed as covered.
+  3. **A deleted block is a defect, not an absence.** `BLOCK_DOCS` therefore
+     names not only *which documents* may carry blocks but *which blocks each
+     one carries*, and `checkBlocks()` fails on a declared block that is not
+     present and on a block that no document declares. This closes a gap that
+     the first version of this decision recorded as open, and it was open in a
+     way worth naming: the check compared the blocks it *found*, so a block that
+     had been deleted had nothing left to be stale, and the
+     `docs/RELEASE_CHECKLIST.md` case — markers gone, sentence left behind,
+     document still in `BLOCK_DOCS` — passed with a green tick for an unknown
+     length of time. **A check whose scope is "whatever I happen to find" cannot
+     see a deletion.** Eight mutations against the new rule, eight caught; two
+     of the eight passed on the first attempt for the *wrong* reason (a body
+     that was both undeclared and stale), and were re-run with a correct body so
+     that only the intended rule could fire.
 
 - **Consequences:**
   1. **The document set grew from four to seven, and the mechanism found more
@@ -1568,6 +1578,13 @@ this, so the topology is checked in two places that do not need it:
      saying "MCP: stdio server, 3 tools" is a record of rc.1 and is correct;
      `PROJECT_STATE.md`'s tool list saying three tools was a current-state claim
      and was wrong. Both came out of the same re-read; only one was a defect.
+  5. **Declaring the block ids turned out to be the same decision applied once
+     more, not a separate mechanism.** The first version declared the document
+     set and left the block set implicit; the second declares both, and the two
+     failures they prevent have the same shape — a thing that is absent from the
+     record is indistinguishable from a thing that was never meant to be there.
+     The generalisation is worth carrying to the next check: **for every set a
+     check iterates, ask what an *empty* member of that set looks like.**
 
 - **Alternatives rejected.**
   - **Fix `ROADMAP.md` by hand and leave the list at four.** This is what the
