@@ -4,8 +4,13 @@
  * Scans a repository for the artefacts judges and other hackers expect:
  * demo URL, demo video, contract address, network, architecture, screenshots,
  * social post, license, test results, etc.
+ *
+ * Takes PATHS, not `FileEntry[]`. Two of its signals — screenshots and
+ * license — are pure existence questions, and existence has to be asked of
+ * the full tree. The pipeline's `filterFiles` drops binaries, so a `.png`
+ * is never in the filtered set; asking that set for a screenshot is a
+ * question with no possible "yes".
  */
-import type { FileEntry } from '../git/files.js';
 import type { Finding } from '../schemas/report.js';
 import { extractSectionsFromMd } from '../utils/markdown.js';
 
@@ -47,7 +52,7 @@ const NETWORK_KEYWORDS: Record<string, RegExp> = {
 };
 
 export function analyzeHackathon(
-  entries: FileEntry[],
+  allPaths: readonly string[],
   fileContents: Map<string, string>,
   web3Chains: string[],
   web3Addresses: string[]
@@ -58,9 +63,9 @@ export function analyzeHackathon(
   let hasContractAddress = false;
   let hasNetwork = false;
   let hasArchitecture = false;
-  let hasScreenshots = entries.some((e) => /\.(png|jpe?g|gif|webp|svg)$/i.test(e.path));
+  let hasScreenshots = allPaths.some((p) => /\.(png|jpe?g|gif|webp|svg)$/i.test(p));
   let hasSocialPost = false;
-  let hasLicense = entries.some((e) => /(^|\/)(LICENSE|LICENSE\.md|LICENSE\.txt|COPYING)$/i.test(e.path));
+  let hasLicense = allPaths.some((p) => /(^|\/)(LICENSE|LICENSE\.md|LICENSE\.txt|COPYING)$/i.test(p));
   let hasTestResults = false;
   let hasSubmissionDescription = false;
 

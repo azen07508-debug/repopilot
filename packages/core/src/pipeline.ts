@@ -114,6 +114,9 @@ export class AuditPipeline {
     const { report, truncated: reportTruncated } = builder.build({
       metadata,
       entries: included as FileEntry[],
+      // The unfiltered tree. `included` has had binaries removed, so any
+      // "does this exist" check that reads it cannot see an image.
+      allPaths: entries.map((e) => e.path),
       contents,
       truncated,
       auditMode: input.mode,

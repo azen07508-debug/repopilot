@@ -3,8 +3,17 @@
  *
  * Scans the repository for required documentation artefacts. Findings include
  * a per-file evidence entry so the user can see *exactly* what is missing.
+ *
+ * Takes PATHS, not `FileEntry[]`, and that distinction is the whole point.
+ * The pipeline hands this function every path in the tree, including the
+ * ones `filterFiles` dropped for being binary or oversized — because this
+ * analyzer only ever asks "is there a file called X". Passing the filtered
+ * set instead is how the screenshot check became unable to ever pass: it
+ * asked a list with no `.png` in it whether a `.png` existed.
+ *
+ * Content questions are answered from `fileContents`, which only holds the
+ * files that were actually read.
  */
-import type { FileEntry } from '../git/files.js';
 import type { Finding } from '../schemas/report.js';
 
 export interface DocAnalysis {
@@ -35,11 +44,11 @@ const REQUIRED_DOCS: { id: string; title: string; files: string[]; severity: 'cr
 const SCREENSHOT_EXT_RE = /\.(png|jpe?g|gif|webp|svg)$/i;
 
 export function analyzeDocumentation(
-  entries: FileEntry[],
+  allPaths: readonly string[],
   fileContents: Map<string, string>
 ): DocAnalysis {
   const findings: Finding[] = [];
-  const fileSet = new Set(entries.map((e) => e.path.replace(/^\.\//, '')));
+  const fileSet = new Set(allPaths.map((p) => p.replace(/^\.\//, '')));
 
   function findFirstFile(paths: string[]): string | null {
     for (const p of paths) {
@@ -56,7 +65,7 @@ export function analyzeDocumentation(
   let hasCodeOfConduct = false;
   let hasChangelog = false;
   let hasApiDocs = false;
-  let hasScreenshots = entries.some((e) => SCREENSHOT_EXT_RE.test(e.path));
+  let hasScreenshots = allPaths.some((p) => SCREENSHOT_EXT_RE.test(p));
   let hasDemoUrl = false;
 
   for (const req of REQUIRED_DOCS) {
@@ -109,10 +118,16 @@ export function analyzeDocumentation(
     }
   }
 
-  // README content checks
+  // README content checks.
+  //
+  // Existence is answered from the full tree, but the content has to
+  // actually be in hand. A README that exists and was skipped — over the
+  // per-file cap, or dropped by a total-bytes cap — must not be reported as
+  // "0 characters long"; that would trade one wrong answer for another.
   const readmePath = findFirstFile(['README.md', 'README.rst', 'README.txt']);
-  if (readmePath) {
-    const content = (fileContents.get(readmePath) ?? '').trim();
+  const readmeContent = readmePath ? fileContents.get(readmePath) : undefined;
+  if (readmePath && readmeContent !== undefined) {
+    const content = readmeContent.trim();
     if (content.length < 200) {
       findings.push({
         id: 'doc-readme-short',

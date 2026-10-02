@@ -35,6 +35,20 @@ import { REPORT_VERSION } from '../utils/constants.js';
 export interface ReportBuilderInput {
   metadata: RepoMetadata;
   entries: FileEntry[];
+  /**
+   * Every path in the tree, including the ones `filterFiles` dropped.
+   *
+   * `entries` is the filtered set: text files, under the size caps. That is
+   * the right input for anything that reads content and the wrong input for
+   * "does a file called X exist", because `filterFiles` removes binaries —
+   * and a screenshot is a binary. Feeding existence checks the filtered set
+   * is how the screenshot check became a question that could only ever be
+   * answered "no".
+   *
+   * Defaults to `entries` when absent, so a caller that has no fuller list
+   * still behaves as it did before.
+   */
+  allPaths?: string[];
   contents: Map<string, string>;
   truncated: boolean;
   auditMode: 'quick' | 'full';
@@ -69,10 +83,18 @@ export class ReportBuilder {
   build(input: ReportBuilderInput): ReportBuilderResult {
     const stackSignals = detectStack(input.entries, input.contents);
     const labels = stackLabels(stackSignals);
-    const doc = analyzeDocumentation(input.entries, input.contents);
+    // Existence checks get the unfiltered tree; content checks get
+    // `contents`. See `ReportBuilderInput.allPaths`.
+    const allPaths = input.allPaths ?? input.entries.map((e) => e.path);
+    const doc = analyzeDocumentation(allPaths, input.contents);
     const repro = analyzeReproducibility(input.entries, input.contents);
     const web3 = analyzeWeb3(input.entries, input.contents);
-    const hackathon = analyzeHackathon(input.entries, input.contents, web3.chains, web3.contractAddresses);
+    const hackathon = analyzeHackathon(
+      allPaths,
+      input.contents,
+      web3.chains,
+      web3.contractAddresses
+    );
     const secretDrafts = scanForSecrets(
       [...input.contents.entries()].map(([p, c]) => ({ path: p, content: c }))
     );

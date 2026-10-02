@@ -90,11 +90,14 @@ describe('Pipeline on complete-project fixture', () => {
     expect(stackSignals.length).toBeGreaterThan(0);
     const stack = stackLabels(stackSignals);
 
-    const docs = analyzeDocumentation(fetched.entries, fetched.contents);
+    const docs = analyzeDocumentation(
+      fetched.entries.map((e) => e.path),
+      fetched.contents
+    );
     const repro = analyzeReproducibility(fetched.entries, fetched.contents);
     const web3 = analyzeWeb3(fetched.entries, fetched.contents);
     const hackathon = analyzeHackathon(
-      fetched.entries,
+      fetched.entries.map((e) => e.path),
       fetched.contents,
       Array.from(web3.chains),
       Array.from(web3.contractAddresses)
