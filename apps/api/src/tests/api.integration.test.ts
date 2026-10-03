@@ -113,11 +113,14 @@ function fakeReport(): Report {
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],
-    launchCopy: {
-      oneSentencePitch: 'Pitch',
-      shortDescription: 'Short',
-      xPost: 'X post',
-    },
+    // A `quick` report declares both full-only sections omitted, and carries
+    // no launch copy — the state the real builder produces. Without the
+    // declaration a reader cannot tell "this tier does not carry a deployment
+    // plan" from "this repository needs none"; the two look identical on the
+    // wire. An empty `launchCopy` alongside an omission claim is the same
+    // contradiction the builder used to emit.
+    omittedSections: ['deploymentPlan', 'launchCopy'],
+    launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
     limitations: [],
     generatedAt: new Date().toISOString(),
     auditMode: 'quick',

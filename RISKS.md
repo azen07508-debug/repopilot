@@ -47,6 +47,8 @@ Active risks the team is aware of and how they are mitigated.
   — The typecheck gate does not cover `scripts/`
 - [R-32](#r-32--the-injection-rule-reports-the-sentence-that-documents-the-injection-rule)
   — The injection rule reports the sentence that documents the injection rule
+- [R-33](#r-33--the-local-lint-gate-checks-downstream-packages-against-a-stale-dist)
+  — The local lint gate checks downstream packages against a stale `dist`
 
 ---
 
@@ -1195,3 +1197,74 @@ not the sentences.
 
 **Related.** R-29 (the same shape, fixed), R-28 (a tick that means something
 other than what it looks like).
+
+
+## R-33 — The local lint gate checks downstream packages against a stale `dist`
+
+**Severity:** Medium
+**Likelihood:** Certain — measured on 2026-10-03
+
+**What happens.** `apps/web` and `apps/api` import `@repopilot/core` through
+its `exports` field, which points at `./dist`. So when their `tsc --noEmit`
+runs, it reads `packages/core/dist/*.d.ts` **from disk** — not
+`packages/core/src`. `scripts/lint.ts` runs `pnpm -r typecheck` as its first
+step and never builds. Therefore, whenever core's source changes and its dist
+is not rebuilt, the downstream typecheck validates the apps against the
+**previous** contract and reports a clean tick.
+
+**Measured.** Adding the required `Report.omittedSections` field to core made
+`pnpm lint` print `✓ tsc clean` locally, while CI failed with
+
+```
+apps/web typecheck: src/test/fixtures.ts(31,9): error TS2741:
+Property 'omittedSections' is missing
+```
+
+After running `pnpm --filter "./packages/*" build` first, the *same* local
+command failed — and failed in **two** files. The second,
+`apps/api/src/tests/api.integration.test.ts`, had been hidden by the same
+staleness: fixing only the one CI reported would have produced a second red
+run. One stale artefact masked two independent contract violations.
+
+**Why CI and the local gate disagree.** CI builds before linting, and its
+comment says why (`.github/workflows/ci.yml:118-127`):
+
+> It has to run before lint, because the root lint also type-checks every package.
+
+The order is load-bearing and documented in one place and enforced in only
+that one. Nothing in `scripts/lint.ts` states the same requirement, so the
+local gate is the weaker of the two and does not say so.
+
+**Why this is Medium and not Low.** It is D-034 again, in the gate the team
+runs most: **the scope of the check is part of the check.** The `✓ tsc clean`
+line silently means "the source of five workspaces, plus the last build of
+their dependencies", and no reader can tell which build that was.
+
+It is worse than R-31 in one specific way. R-31 is a directory nothing looks
+at — a green tick over an unexamined area. This is a green tick that is
+**actively wrong about files it does read**, and it fails precisely when a
+cross-package contract changes, which is the change most likely to break a
+consumer. The gate is at its weakest exactly where it matters most.
+
+**How it was found.** Not by a check. By pushing R-30 and reading a red CI run
+that the local gate had already approved. This is the second time a CI-only
+failure has been traced to a local gate that was not the gate the reader
+thought it was.
+
+**Mitigation.** None yet, deliberately. The fix is small — build the workspace
+packages before the typecheck in `scripts/lint.ts`, or make the local gate run
+CI's order — but it is a change *to a gate*, and landing it inside the R-30
+batch would have made the next CI failure ambiguous between "the fix was
+wrong" and "the gate was still wrong". It gets its own batch, with a test that
+proves the order is enforced rather than merely written down.
+
+**Still open.** Until then, `pnpm lint` is not the gate CI runs, and a local
+green is not evidence about `apps/*` after any change to `packages/core`'s
+public types. Build first:
+
+```
+pnpm --filter "./packages/*" build && pnpm lint
+```
+
+**Related.** R-31 (a gate whose scope is narrower than it looks), D-034 (the
+scope of a check is part of the check), R-26 (a check that never runs).

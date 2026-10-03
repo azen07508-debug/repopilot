@@ -64,6 +64,11 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],
+    // Mirror of the core factory's default: this is a `quick` report with no
+    // deployment plan and no launch copy, so it declares both omitted.
+    // `omittedSections` is the only way to tell "the tier does not include
+    // one" from "this repository has none".
+    omittedSections: ['deploymentPlan', 'launchCopy'],
     launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
     limitations: [],
     generatedAt: '2026-01-01T00:00:00Z',
@@ -73,7 +78,16 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     analyzerProvenance: {},
   };
 
-  return { ...base, ...overrides };
+  return {
+    ...base,
+    // Derived, like the core factory: asking for a `full` report should not
+    // also require remembering to clear the list.
+    omittedSections:
+      (overrides.auditMode ?? base.auditMode) === 'full'
+        ? []
+        : ['deploymentPlan', 'launchCopy'],
+    ...overrides,
+  };
 }
 
 export function makeCapabilities(overrides: Partial<Capabilities> = {}): Capabilities {
