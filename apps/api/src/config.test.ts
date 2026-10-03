@@ -30,7 +30,7 @@ function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     OKX_PAYMENT_ADDRESS: '',
     OKX_PAYMENT_NETWORK: 'xlayer',
     PRICE_QUICK_SCAN: '0.02',
-    PRICE_FULL_AUDIT: '0.10',
+    PRICE_FULL_AUDIT: '0.05',
     AUDIT_QUEUE_DRIVER: 'inline',
     AUDIT_QUEUE_CONCURRENCY: 1,
     AUDIT_QUEUE_RETRY_LIMIT: 3,

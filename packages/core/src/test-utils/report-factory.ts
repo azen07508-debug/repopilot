@@ -59,6 +59,10 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
     deploymentPlan: [],
     recommendedTasks: [],
     launchChecklist: [],
+    // Truthful for this default: the factory builds a `quick` report with
+    // no deployment plan and no launch copy, so it declares both omitted.
+    // The parse below re-derives it from the mode the caller ended up with.
+    omittedSections: ['deploymentPlan', 'launchCopy'],
     launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
     limitations: [],
     generatedAt: '2026-01-01T00:00:00Z',
@@ -72,9 +76,16 @@ export function makeReport(overrides: Partial<Report> = {}): Report {
   // summary silently disagrees with its list by setting only one of the
   // two. An explicit `fixtureSummary` override still wins, for the test
   // that needs them to disagree.
+  //
+  // `omittedSections` is derived for the same reason: a test that asks for
+  // a `full` report should not also have to remember to clear the list.
   return ReportSchema.parse({
     ...base,
     fixtureSummary: groupFindings(overrides.fixtureFindings ?? base.fixtureFindings),
+    omittedSections:
+      (overrides.auditMode ?? base.auditMode) === 'full'
+        ? []
+        : ['deploymentPlan', 'launchCopy'],
     ...overrides,
   });
 }

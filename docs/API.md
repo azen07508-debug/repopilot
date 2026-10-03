@@ -61,7 +61,7 @@ Service metadata, inputs/outputs, limits, pricing.
     "outputLanguage": "en | zh-CN"
   },
   "outputs": {
-    "report": "JSON document conforming to the RepoPilot Report schema (1.0)."
+    "report": "JSON document conforming to the RepoPilot Report schema (1.2)."
   },
   "limits": {
     "maxFiles": 2000,
@@ -71,7 +71,7 @@ Service metadata, inputs/outputs, limits, pricing.
   },
   "pricing": {
     "quickScan":  { "amount": "0.02", "currency": "USDT" },
-    "fullAudit":  { "amount": "0.10", "currency": "USDT" }
+    "fullAudit":  { "amount": "0.05", "currency": "USDT" }
   },
   "paymentMode": "mock"
 }
@@ -205,10 +205,33 @@ Start a new audit. Idempotent on `X-PAYMENT`.
 | Field             | Type    | Required | Values                                  |
 |-------------------|---------|----------|-----------------------------------------|
 | `repoUrl`         | string  | yes      | must be a `https://github.com/...` URL or another allowlisted host |
-| `mode`            | string  | yes      | `"quick"` \| `"full"`                   |
+| `mode`            | string  | yes      | `"quick"` \| `"full"` — the tier. See [Tiers](#tiers). |
 | `target`          | string  | yes      | `"hackathon"` \| `"open_source"` \| `"production"` |
 | `outputLanguage`  | string  | yes      | `"en"` \| `"zh-CN"`                     |
-| `includeLaunchCopy` | bool  | no       | default `false`                         |
+| `includeLaunchCopy` | bool  | no       | default `true`. **Scope: `mode: "full"`** — a quick audit omits the launch copy whatever this says. |
+
+### Tiers
+
+`mode` selects what the report **carries**, never what it measures. Both tiers
+run every analyzer over the same commit and produce the same scores, blockers
+and findings — a score has to be a property of the repository, not of the price
+paid, or two audits of the same commit would disagree.
+
+| | `quick` (0.02 USDT) | `full` (0.05 USDT) |
+|---|---|---|
+| scores, blockers, documentation gaps, security findings, quality and fixture findings | yes | yes |
+| detected stack, history-scan scope, launch checklist, recommended tasks | yes | yes |
+| `deploymentPlan` | **omitted** | yes |
+| `launchCopy` | **omitted** | yes (unless `includeLaunchCopy: false`) |
+
+A report names its own omissions in `omittedSections`. Read that field, not
+`auditMode`, to decide whether a section is absent — `deploymentPlan: []` on a
+quick report means "the tier does not include one", not "this repository has no
+deployment story". A report written before this field existed parses with
+`omittedSections: []`, which is the true answer for it.
+
+The derived views (`/fix-plan`, `/diff`, `/quality`) are free for both tiers —
+they read a report you already paid for, and they do not re-scan.
 
 The `200 OK` response is the **same shape** as the Free Check
 envelope plus the full `Report`:
@@ -217,7 +240,7 @@ envelope plus the full `Report`:
 {
   "jobId": "job_8a3b9d...",
   "status": "completed",
-  "report": { "reportVersion": "1.1", "scores": { "overall": 82 }, "...": "..." }
+  "report": { "reportVersion": "1.2", "scores": { "overall": 82 }, "...": "..." }
 }
 ```
 
@@ -273,7 +296,7 @@ If the payment verifies, the route runs the pipeline and returns
   "jobId": "job_8a3b9d...",
   "status": "completed",
   "report": {
-    "reportVersion": "1.1",
+    "reportVersion": "1.2",
     "repository": { "url": "...", "owner": "...", "name": "..." },
     "summary": "...",
     "detectedStack": ["TypeScript", "Node.js"],
@@ -291,6 +314,7 @@ If the payment verifies, the route runs the pipeline and returns
     "deploymentPlan": [],
     "recommendedTasks": [],
     "launchChecklist": [],
+    "omittedSections": [],
     "launchCopy": {
       "oneSentencePitch": "...",
       "shortDescription": "...",
@@ -341,7 +365,7 @@ Fetch the current state of a job.
 {
   "jobId": "job_8a3b9d...",
   "status": "completed",
-  "report": { "reportVersion": "1.1", "...": "..." },
+  "report": { "reportVersion": "1.2", "...": "..." },
   "createdAt": "2026-09-20T10:30:00.000Z",
   "completedAt": "2026-09-20T10:30:09.000Z",
   "cache": { "hit": false, "keyVersion": "v1", "expiresAt": "2026-09-21T10:30:09.000Z" }
@@ -386,7 +410,7 @@ Every fix plan for a completed audit, derived from the stored report.
     "commitSha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
   },
   "generatedAt": "2026-09-20T10:30:00.000Z",
-  "reportVersion": "1.1",
+  "reportVersion": "1.2",
   "plans": [
     {
       "schemaVersion": "1.0",

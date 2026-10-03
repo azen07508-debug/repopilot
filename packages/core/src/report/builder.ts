@@ -32,6 +32,7 @@ import type { FileEntry } from '../git/files.js';
 import type { LLMProvider } from '../llm/provider.js';
 import { templateLaunchCopy, templateSummary } from '../llm/templates.js';
 import { REPORT_VERSION } from '../utils/constants.js';
+import { omittedSections, tierLimitations } from './tiers.js';
 
 export interface ReportBuilderInput {
   metadata: RepoMetadata;
@@ -215,7 +216,12 @@ export class ReportBuilder {
 
     const scores = scoreAll(scoring, { target: input.target });
 
-    const recommendedTasks = buildRecommendedTasks(blockers, web3, hackathon, input.auditMode);
+    // The tier, resolved once. Both the report's `omittedSections` and its
+    // prose about itself come from this one value, so they cannot disagree.
+    const tier = { mode: input.auditMode, includeLaunchCopy: input.includeLaunchCopy };
+    const omitted = omittedSections(tier);
+
+    const recommendedTasks = buildRecommendedTasks(blockers, web3, hackathon);
     const deploymentPlan = buildDeploymentPlan(input.auditMode, hasAny(input.contents, /dockerfile|docker-compose/i));
     const launchChecklist = buildLaunchChecklist(
       doc,
@@ -256,10 +262,11 @@ export class ReportBuilder {
       deploymentPlan,
       recommendedTasks,
       launchChecklist,
+      omittedSections: omitted,
       launchCopy: { oneSentencePitch: '', shortDescription: '', xPost: '' },
       limitations: buildLimitations(
         input.truncated,
-        input.auditMode,
+        tier,
         web3,
         input.historyScan,
         input.degraded ?? false
@@ -279,9 +286,11 @@ export class ReportBuilder {
 
     // Resolve LLM-decorated fields.
     const summary = templateSummary(baseReport);
-    const launchCopy = input.includeLaunchCopy
-      ? templateLaunchCopy(baseReport)
-      : { oneSentencePitch: '', shortDescription: '', xPost: '' };
+    // Read the omission off the declaration rather than re-deriving it from
+    // the two flags. One question, one answer.
+    const launchCopy = omitted.includes('launchCopy')
+      ? { oneSentencePitch: '', shortDescription: '', xPost: '' }
+      : templateLaunchCopy(baseReport);
 
     return {
       report: { ...baseReport, summary, launchCopy },
@@ -335,8 +344,7 @@ function severityWeight(s: 'critical' | 'high' | 'medium' | 'low'): number {
 function buildRecommendedTasks(
   blockers: Finding[],
   web3: Web3Analysis,
-  hackathon: HackathonAnalysis,
-  mode: 'quick' | 'full'
+  hackathon: HackathonAnalysis
 ): Task[] {
   const out: Task[] = [];
   for (const f of blockers) {
@@ -362,22 +370,33 @@ function buildRecommendedTasks(
       acceptanceCriteria: ['forge test (or npx hardhat test) exits 0.'],
     });
   }
-  if (mode === 'full') {
-    if (!hackathon.hasDemoUrl) {
-      out.push({
-        id: 'task-add-demo-url',
-        title: 'Deploy a preview and link the demo URL in the README',
-        effort: 'M',
-        description: 'Add a reachable demo URL at the top of the README.',
-        relatedFindings: ['hack-no-demo'],
-        acceptanceCriteria: ['A live URL is reachable and returns 2xx.'],
-      });
-    }
+  // Both tiers recommend this. It used to be `full`-only, which made the
+  // recommended-task list a tier difference — it is not one: the tasks are
+  // remediation for findings, and both tiers carry the findings.
+  if (!hackathon.hasDemoUrl) {
+    out.push({
+      id: 'task-add-demo-url',
+      title: 'Deploy a preview and link the demo URL in the README',
+      effort: 'M',
+      description: 'Add a reachable demo URL at the top of the README.',
+      relatedFindings: ['hack-no-demo'],
+      acceptanceCriteria: ['A live URL is reachable and returns 2xx.'],
+    });
   }
   return out;
 }
 
+/**
+ * The deployment plan — a `full`-tier section, so `quick` gets none.
+ *
+ * Returning `[]` rather than a shortened plan is the point: `omittedSections`
+ * on the report says the plan was not included, and a reader that wants to
+ * know whether this repository *has* a deployment story reads that field,
+ * not the length of this array. A shortened plan would make the two
+ * questions indistinguishable.
+ */
 function buildDeploymentPlan(mode: 'quick' | 'full', hasDocker: boolean): DeploymentStep[] {
+  if (mode !== 'full') return [];
   const steps: DeploymentStep[] = [
     {
       order: 1,
@@ -416,24 +435,25 @@ function buildDeploymentPlan(mode: 'quick' | 'full', hasDocker: boolean): Deploy
       acceptanceCriteria: ['Service responds on a public URL.'],
     });
   }
-  if (mode === 'full') {
-    steps.push({
-      order: 4,
-      title: 'Configure reverse proxy + TLS',
-      description: 'Terminate TLS in front of the service. Caddy / nginx / Cloudflare all work.',
-      commands: [],
-      prerequisites: ['A domain name'],
-      acceptanceCriteria: ['HTTPS works; HSTS header is set.'],
-    });
-    steps.push({
-      order: 5,
-      title: 'Set up observability',
-      description: 'Wire logs, error tracking, and uptime checks.',
-      commands: [],
-      prerequisites: ['An observability account (e.g. Better Stack, Sentry, Grafana Cloud)'],
-      acceptanceCriteria: ['A test request appears in the log stream.'],
-    });
-  }
+  // Steps 4 and 5 are part of the plan the `full` tier sells. They used to
+  // be gated on the mode *inside* a plan both tiers received, which is how
+  // the tier difference ended up as two rows rather than a section.
+  steps.push({
+    order: 4,
+    title: 'Configure reverse proxy + TLS',
+    description: 'Terminate TLS in front of the service. Caddy / nginx / Cloudflare all work.',
+    commands: [],
+    prerequisites: ['A domain name'],
+    acceptanceCriteria: ['HTTPS works; HSTS header is set.'],
+  });
+  steps.push({
+    order: 5,
+    title: 'Set up observability',
+    description: 'Wire logs, error tracking, and uptime checks.',
+    commands: [],
+    prerequisites: ['An observability account (e.g. Better Stack, Sentry, Grafana Cloud)'],
+    acceptanceCriteria: ['A test request appears in the log stream.'],
+  });
   return steps;
 }
 
@@ -518,7 +538,7 @@ function buildLaunchChecklist(
 
 function buildLimitations(
   truncated: boolean,
-  mode: 'quick' | 'full',
+  tier: { mode: 'quick' | 'full'; includeLaunchCopy: boolean },
   web3: Web3Analysis,
   historyScan?: HistoryScan,
   degraded?: boolean
@@ -551,9 +571,11 @@ function buildLimitations(
         'The analysis is the same; the audit used far more of the GitHub request budget.'
     );
   }
-  if (mode === 'quick') {
-    out.push('Quick scan skips some of the deeper reproducibility heuristics.');
-  }
+  // Generated from the tier declaration, never written here. The sentence
+  // this replaces said a quick audit "skips some of the deeper
+  // reproducibility heuristics" — nothing was skipped, and no test pinned
+  // the claim. See report/tiers.ts and RISKS.md R-30.
+  out.push(...tierLimitations(tier));
   if (web3.hasContracts) {
     out.push('Web3 analyzer checks engineering completeness only; it does NOT audit contract code.');
   }

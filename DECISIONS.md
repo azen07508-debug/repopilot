@@ -60,6 +60,8 @@ Architecture Decision Records (ADR-style, lightweight).
   — A document states no fact it can derive
 - [D-034](#d-034--the-scope-of-a-check-is-part-of-the-check)
   — The scope of a check is part of the check
+- [D-035](#d-035--a-tier-changes-what-a-report-carries-never-what-it-measures)
+  — A tier changes what a report carries, never what it measures
 
 ---
 
@@ -1600,3 +1602,104 @@ this, so the topology is checked in two places that do not need it:
   - **Make `docs:check` fail on any document not in `BLOCK_DOCS`.** It would
     make `CHANGELOG.md` — a historical record that must not be generated — a
     permanent failure.
+
+---
+
+## D-035 — A tier changes what a report carries, never what it measures
+
+- **Date:** 2026-10-03
+- **Status:** Accepted
+- **Context:** `mode` was a required field on every audit request and it decided
+  the price — 0.02 USDT for `quick`, 0.10 for `full`. It did not decide the
+  analysis. Every analyzer ran in both modes, `scanHistory()` was called
+  unconditionally, and grepping `packages/core/src` for a comparison against
+  `mode` returned exactly three, all in `report/builder.ts`, all after the
+  analysis had finished: one extra recommended task, two extra deployment
+  steps, and a sentence in `quick` reports reading "Quick scan skips some of
+  the deeper reproducibility heuristics." Nothing was skipped.
+  `reproducibility` scored 28.5 in both modes.
+
+  Three documents described the difference, and all three described it wrongly:
+  `MARKETPLACE_LISTING.md` promised "the deeper reproducibility and Web3
+  analyzers" in English and in Chinese, `builder.ts` carried the false
+  sentence, and `screenshots/README.md` labelled the two modes' artefacts "same
+  content here, repo is too small to differ" — the right observation with the
+  wrong explanation, written months earlier and never checked. Nothing
+  compared a claim about `mode` against `mode`.
+
+  There was also a second knob for the same axis. `includeLaunchCopy` was a
+  request field that gated `launchCopy`, defaulted to `true`, and appeared in
+  the web form, the MCP tool arguments and the cache key — while the marketplace
+  listing attributed the launch copy to the `full` tier. Two ways to say "how
+  much do I get", disagreeing about which one was authoritative.
+
+- **Decision:** **A tier selects what a report carries, and it must never
+  select what the report measures.** Concretely:
+  1. **The verdict is identical in every tier.** The five dimension scores,
+     the blocker list, the documentation gaps, the security findings, the
+     detected stack, the recommended tasks and the launch checklist are
+     computed the same way and come out the same. A test pins this field by
+     field rather than only on `overall`, because "the score is the same"
+     would still hold if a tier quietly dropped the findings the score is
+     computed from.
+  2. **The tier boundary is declared in one place.** `report/tiers.ts` holds
+     `FULL_ONLY_SECTIONS`. Two things are derived from it rather than written
+     by hand: the report's `omittedSections`, and the sentence the report uses
+     to describe its own omissions. Three scattered `if (mode === 'full')`
+     sites could not be compared against each other; a list can be.
+  3. **Absent and empty are different claims.** A report names what it does
+     not carry in `omittedSections`. `deploymentPlan: []` on a quick report
+     means "the tier does not include one", not "this repository has no
+     deployment story". A test checks the declaration against the sections in
+     **both** directions.
+  4. **A flag's scope is declared where the flag is.** `includeLaunchCopy` is
+     a refinement inside `full`, not a second way to choose a tier, and that
+     sentence lives next to the tier that owns it (D-032).
+  5. **A price gap has to describe something the code does.** The full audit
+     is 0.05, not 0.10; the 5x multiple priced an analysis difference that was
+     never implemented.
+
+- **Consequences:**
+  1. **`Report.reportVersion` moved to 1.2.** The schema change is additive and
+     a stored 1.1 report still parses — `omittedSections` defaults to `[]`,
+     which is the true answer for it — but the *content* of a quick report
+     changed, and `reportVersion` is in the report cache key precisely so a
+     build does not serve a report written by an older one.
+  2. **The derived views stay free, and the ladder is still real.**
+     `/fix-plan`, `/diff` and `/quality` read a report and never re-scan
+     (`apps/api/src/routes/audit-derived.ts` states this as an invariant), so
+     they cannot be the tier boundary. The deployment plan and the launch copy
+     are not derivable from the findings, which is what makes them a boundary
+     that holds without reversing that invariant.
+  3. **Making `quick` skip analyzers was rejected, and the reason generalises.**
+     It would have made `overall` a property of the price. Two buyers auditing
+     the same commit would get different numbers, and neither could tell which
+     one described the repository. For a launch-readiness gate, being the same
+     answer for everyone is the product.
+  4. **The missing test was the whole story.** R-30 recorded that no test
+     pinned the false sentence, which is how it survived. `tiers.test.ts` now
+     pins the declaration, the identical-verdict property, the two-directional
+     consistency of `omittedSections`, and the absence of any limitation line
+     matching `/skip|deeper|thinner/i`. The consistency test immediately found
+     that `builder.test.ts` had a test running as `quick` with
+     `includeLaunchCopy: true` and asserting the launch copy came out — the one
+     test touching the boundary, asserting the wrong side of it.
+  5. **`launchCopy` was already being represented the bad way.** A quick report
+     emitted `{oneSentencePitch: '', shortDescription: '', xPost: ''}` — three
+     empty strings standing in for an absence, with nothing saying which it
+     was. That is D-033's defect in a field rather than in a document.
+
+- **Alternatives rejected.**
+  - **Collapse to one tier.** Honest and cheaper, and it was a live option.
+    Rejected because a deployment plan and a set of launch copy are real
+    deliverables that a buyer can want without wanting a second analysis.
+  - **Make `quick` genuinely skip analyzers.** See consequence 3.
+  - **Delete `includeLaunchCopy` from the request.** It is the cleanest
+    expression of "one knob", but it is in the web form, the MCP tool
+    arguments, the cache key and the integration scripts, and removing a
+    public request field is a breaking change with its own blast radius and
+    its own decision. Recorded as a residual in R-30 instead of folded in.
+  - **Rewrite the documents and leave the code.** This is what would have
+    erased the evidence: the limitation sentence proved that a real tiering
+    had been intended, and deleting it alone would have made the code and the
+    listing agree on a smaller product than the one someone meant to build.

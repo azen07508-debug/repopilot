@@ -30,18 +30,25 @@ the entry point used by other AI agents to triage a repo before
 deciding to pay for a full audit.
 
 **Quick Scan — 0.02 USDT**
-A fast repository readiness report: stack detection, README / LICENSE /
-.env.example checks, lockfile and CI presence, secret hygiene, and an
-overall launch-readiness score. No code execution.
+The readiness verdict: stack detection, README / LICENSE / .env.example
+checks, lockfile and CI presence, secret hygiene, and an overall
+launch-readiness score — plus every blocker, gap and security finding
+behind that score, with evidence (file, line, reason). No code execution.
 
-**Full Launch Audit — 0.10 USDT**
-A complete launch report with blockers, task breakdown, deployment plan
-and launch copy. Includes the deeper reproducibility and Web3 analyzers
-(contract directories, deploy scripts, test coverage, network consistency,
-hackathon submission artefacts).
+**Full Launch Audit — 0.05 USDT**
+The same verdict, plus the materials you ship with: a step-by-step
+deployment plan (environment, tests, container or host, TLS, observability)
+and ready-to-paste launch copy (one-sentence pitch, short description,
+announcement post).
+
+Both tiers run the same analysis over the same commit and produce the same
+scores, blockers and findings. The full audit adds deliverables; it does not
+look deeper. That is deliberate — a score has to be a property of the
+repository, not of what you paid, or two people comparing notes about the
+same repo would get two different answers.
 
 ### What you get
-- A JSON `Report` validated against the RepoPilot `1.0` schema
+- A JSON `Report` validated against the RepoPilot `1.2` schema
   (`@repopilot/core`).
 - Scores for documentation, reproducibility, security hygiene and
   deployment readiness, each with a deterministic rule breakdown.
@@ -89,16 +96,21 @@ LICENSE、.env.example、lockfile、CI）以及 0-100 的评分。不含证据�
 该接口是其他 AI Agent 用来在决定付费做完整审计前先做初筛的入口。
 
 **快速扫描 — 0.02 USDT**
-快速生成仓库就绪度报告：技术栈识别、README / LICENSE / .env.example 检查、
-lockfile 与 CI 存在性、密钥卫生、整体上线就绪度评分。不执行任何代码。
+就绪度结论：技术栈识别、README / LICENSE / .env.example 检查、lockfile
+与 CI 存在性、密钥卫生、整体上线就绪度评分，以及支撑这个评分的每一个
+阻塞项、文档缺口与安全发现，全部带证据（文件、行号、原因）。不执行任何代码。
 
-**完整上线审计 — 0.10 USDT**
-完整的上线报告，包含阻塞项、任务拆解、部署计划与发布文案。同时输出
-更深入的可复现性与 Web3 分析器（合约目录、部署脚本、测试覆盖、网络
-一致性、黑客松提交要素）。
+**完整上线审计 — 0.05 USDT**
+同一份结论，外加你要用来发布的材料：一份分步部署计划（环境、测试、
+容器或主机、TLS、可观测性），以及可直接粘贴的发布文案（一句话介绍、
+短描述、发布贴）。
+
+两个档位对同一个 commit 跑同一套分析，给出相同的评分、阻塞项与发现。
+完整审计增加的是交付物，不是更深的分析。这是刻意的——评分必须是仓库的
+属性，而不是你付了多少钱的属性，否则两个人对同一个仓库会对不上答案。
 
 ### 输出内容
-- 一份符合 RepoPilot `1.0` 架构（`@repopilot/core`）的 JSON 报告。
+- 一份符合 RepoPilot `1.2` 架构（`@repopilot/core`）的 JSON 报告。
 - 文档、可复现性、安全卫生、部署就绪度四类评分，每一项都附带可解释的
   规则明细。
 - 阻塞项列表，每条都附带 **证据**（文件、行号、原因）。

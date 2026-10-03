@@ -354,9 +354,37 @@ export const ReportSchema = z.object({
   deploymentPlan: z.array(DeploymentStepSchema),
   recommendedTasks: z.array(TaskSchema),
   launchChecklist: z.array(LaunchChecklistItemSchema),
+  /**
+   * Sections this report deliberately does not carry, by name.
+   *
+   * **Absent and empty are different claims, and this field is how a reader
+   * tells them apart.** `deploymentPlan: []` on a `quick` report does not
+   * mean "this repository has no deployment story"; it means the quick tier
+   * does not include a deployment plan. Without this field the two are
+   * indistinguishable, and the reader would take the second for the first.
+   *
+   * Empty means "nothing omitted", which is what every `full` report says
+   * and what every report written before this field existed means. The
+   * default is what makes an older report parse: a stored 1.1 report really
+   * did carry everything it could, so `[]` is the true answer for it.
+   *
+   * The names are keys on this object, and `report/tiers.test.ts` checks
+   * that each one is actually empty in the report that declares it — a
+   * declaration that can disagree with the thing it describes is worse
+   * than no declaration.
+   */
+  omittedSections: z.array(z.string()).default([]),
   launchCopy: LaunchCopySchema,
   limitations: z.array(z.string()),
   generatedAt: z.string(),
+  /**
+   * Which tier produced this report.
+   *
+   * It selects what the report *carries*, not what was measured — see
+   * `report/tiers.ts` for the declaration and RISKS.md R-30 for what it
+   * cost to learn. Read `omittedSections`, never `auditMode`, when the
+   * question is "does this report have a deployment plan?".
+   */
   auditMode: z.enum(['quick', 'full']),
   target: z.enum(['hackathon', 'open_source', 'production']),
   outputLanguage: z.enum(['en', 'zh-CN']),

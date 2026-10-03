@@ -114,7 +114,7 @@ export OKX_X402_VERSION="2"
 
 # Optional price overrides, in USDT.
 export PRICE_QUICK_SCAN="0.02"
-export PRICE_FULL_AUDIT="0.10"
+export PRICE_FULL_AUDIT="0.05"
 
 # Optional log level (logs go to stderr).
 export LOG_LEVEL="info"

@@ -2,7 +2,12 @@
  * /api/v1/capabilities — what the service accepts, emits, and charges.
  */
 import type { FastifyInstance } from 'fastify';
-import { CapabilitiesSchema, CORE_VERSION, DEFAULT_LIMITS } from '@repopilot/core';
+import {
+  CapabilitiesSchema,
+  CORE_VERSION,
+  DEFAULT_LIMITS,
+  REPORT_VERSION,
+} from '@repopilot/core';
 import type { PaymentConfig } from '@repopilot/okx-adapter';
 
 export interface CapabilitiesDeps {
@@ -23,7 +28,11 @@ export function registerCapabilitiesRoutes(app: FastifyInstance, opts: Capabilit
         outputLanguage: 'en | zh-CN',
       },
       outputs: {
-        report: 'JSON document conforming to the RepoPilot Report schema (1.0).',
+        // Derived, not typed out. This said "1.0" for two report versions
+        // while `REPORT_VERSION` said 1.1 — the drift was recorded as a
+        // known residual because nothing compared them. Nothing compares
+        // them now either; the literal is just gone.
+        report: `JSON document conforming to the RepoPilot Report schema (${REPORT_VERSION}).`,
       },
       endpoints: {
         freeCheck: {

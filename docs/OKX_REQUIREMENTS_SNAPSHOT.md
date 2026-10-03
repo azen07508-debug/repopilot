@@ -44,7 +44,7 @@ RepoPilot will register **two** services under a single ASP identity:
 | --- | --- | --- | --- | --- | --- |
 | 1 | `RepoPilot Free Check` | A2MCP | `0` (free) | `https://<public-domain>/api/v1/free-check` | No x402. Get-acquisition. |
 | 2 | `RepoPilot Repository Audit (Quick)` | A2MCP | `0.02` USDT | `https://<public-domain>/api/v1/audits` | x402, `mode=quick` |
-| 3 | `RepoPilot Repository Audit (Full)` | A2MCP | `0.10` USDT | `https://<public-domain>/api/v1/audits` | x402, `mode=full` |
+| 3 | `RepoPilot Repository Audit (Full)` | A2MCP | `0.05` USDT | `https://<public-domain>/api/v1/audits` | x402, `mode=full` |
 
 Service field rules (from §3 Step 2 of `identity-register.md`):
 
@@ -101,7 +101,7 @@ Service field rules (from §3 Step 2 of `identity-register.md`):
 | `base` | USDC | 6 | Future option |
 
 **The 402 challenge amounts in our code are stored as strings of
-atomic units** (`"20000"` for 0.02 USDT, `"100000"` for 0.10 USDT). The
+atomic units** (`"20000"` for 0.02 USDT, `"50000"` for 0.05 USDT). The
   agent never multiplies decimals client-side; it reads the configured
   price and converts through `parseUnits(amount, decimals)`. The current
   implementation lives in `packages/okx-adapter/src/mock-adapter.ts`
@@ -234,9 +234,9 @@ state}.rs`.
 | --- | --- | --- |
 | `service[2].name` | `RepoPilot Repository Audit (Full)` | 5–30 chars noun phrase, no price in the name |
 | `service[2].type` | `A2MCP` | literal |
-| `service[2].fee` | `100000` | string of atomic units, USDT, 6 decimals; `100000` = 0.10 USDT |
+| `service[2].fee` | `50000` | string of atomic units, USDT, 6 decimals; `50000` = 0.05 USDT |
 | `service[2].endpoint` | `https://<public-domain>/api/v1/audits` | same endpoint; the mode is in the request body |
-| `service[2].description` (line 1) | `Complete launch audit: blockers, task breakdown, deployment plan, and ready-to-paste launch copy. Adds reproducibility and Web3 analyzers (contract directories, deploy scripts, network consistency, hackathon artefacts).` | ≤200 CJK chars |
+| `service[2].description` (line 1) | `Complete launch audit: blockers, task breakdown, deployment plan, and ready-to-paste launch copy. Runs the same analysis as the quick audit and adds the launch materials.` | ≤200 CJK chars |
 | `service[2].description` (line 2) | `POST the repository URL with mode=full. The server returns 402 with a payment challenge; sign with the onchainos wallet, then replay with the X-PAYMENT header.` | ≤200 CJK chars |
 
 ### 5.5 402 challenge shape (matches the live `accepts[]` schema)

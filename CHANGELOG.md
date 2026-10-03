@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`report/tiers.ts` — the one place that says what each tier contains.**
+  R-30 was three `if (mode === 'full')` sites in `report/builder.ts` plus a
+  claim in `MARKETPLACE_LISTING.md`, with nothing comparing them; two sites
+  added advice rows, the listing promised analyzers that never existed, and
+  the report told `quick` buyers that heuristics had been skipped when
+  nothing was skipped. The declaration is now a list — `FULL_ONLY_SECTIONS`
+  — and two things are derived from it rather than written by hand: the
+  report's `omittedSections`, and the sentence the report uses to describe
+  its own omissions. Adding a section to the list updates both.
+- **`Report.omittedSections` — absent and empty are different claims.**
+  `deploymentPlan: []` on a quick report does not mean "this repository has
+  no deployment story"; it means the tier does not include one. Before this
+  field the two were indistinguishable, and a reader would take the second
+  for the first. The field defaults to `[]`, which is the true answer for a
+  report written before it existed. `tiers.test.ts` checks the declaration
+  against the report in both directions: every declared omission is actually
+  empty, and every empty section is declared — the second direction is what
+  catches a section quietly emptied without being declared, which is how
+  `launchCopy` was represented before this change.
+
 - **The entropy heuristic no longer fires on the wordlist that defines the
   mnemonic rule (R-29).** The rule's candidate regex is "twelve lowercase
   words" and `bip39-english.ts` is a file of twelve-word lines, so the rule
@@ -60,6 +80,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The audit tiers are separated by what the report delivers, not by
+  claimed analysis depth (R-30).** Both tiers ran every analyzer over the
+  same archive and produced the same scores, blockers and findings, while
+  `mode` decided the price and three rows of advice. The tiers now differ in
+  a way the code implements: `full` carries a `deploymentPlan` and
+  `launchCopy`, `quick` carries neither. Everything a reader uses to judge
+  the repository — the five dimension scores, the blocker list, the
+  documentation gaps, the security findings, the detected stack, the
+  recommended tasks, the launch checklist — is identical in both, which is
+  the point: a score has to be a property of the repository, not of what was
+  paid, or two audits of the same commit would disagree.
+  **`Report.reportVersion` is 1.2.** The schema change is additive, so a
+  stored 1.1 report still parses and still means "nothing omitted", but the
+  *content* of a quick report changed, and `reportVersion` is in the report
+  cache key precisely so a build does not serve a report written by an older
+  one.
+- **The full audit is 0.05 USDT, not 0.10.** The 5x gap described the
+  difference the listing claimed. Once the tiers were separated by
+  deliverable the honest multiple was the one the deliverables support — a
+  deployment plan and a set of launch copy, not a second analysis. Updated
+  in `DEFAULT_PRICING`, the API config default, `docker-compose.yml`,
+  `env-check.ts`, `docs/API.md`, `docs/MCP_CLIENT_SETUP.md`, `README_OKX.md`
+  and the OKX registration checklist.
+- **`includeLaunchCopy`'s scope is now declared where the flag is.** It is a
+  refinement inside `full`, not a second way to choose a tier: a quick audit
+  omits the launch copy whatever it says. The scope lives in `report/tiers.ts`
+  next to the tier that owns it, and `docs/API.md` documents it (it previously
+  documented the default as `false` while the schema and the route both
+  defaulted to `true`).
+- **`/api/v1/capabilities` no longer types out the report version.**
+  `outputs.report` said "schema (1.0)" while `REPORT_VERSION` said 1.1 — a
+  drift recorded as a known residual because nothing compared the two. It now
+  reads the constant.
 - **The entropy heuristic measures the value of an assignment, not the
   variable name.** `=` is in the candidate character class because base64
   padding ends in it, so `NAME=value` arrived as a single run and the heuristic
@@ -967,6 +1020,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `quick` report no longer claims an analysis was thinned (R-30).** The
+  sentence `Quick scan skips some of the deeper reproducibility heuristics.`
+  was false: `reproducibility` scored 28.5 in both modes and no analyzer
+  consulted the mode. It is replaced by one generated from
+  `FULL_ONLY_SECTIONS`, so it names what the tier actually omits. Nothing
+  pinned the old sentence — it occurred in `builder.ts` and in generated
+  audit artefacts and nowhere else — which is how it survived; `tiers.test.ts`
+  now fails if any limitation line matches `/skip|deeper|thinner/i`.
+- **`MARKETPLACE_LISTING.md` no longer sells the full tier as a deeper
+  analysis.** It promised "the deeper reproducibility and Web3 analyzers" in
+  English and in Chinese. The Web3 analyzer runs in both modes and there was
+  no deeper reproducibility pass, so a 0.10 buyer received the same numbers
+  as a 0.02 buyer. Both descriptions now state the deliverable difference,
+  and `screenshots/README.md` — the third place that described the two modes
+  with the same wrong theory, "same content here, repo is too small to
+  differ" — says what actually differs and marks the stored artefacts as a
+  record of what the tool said before the fix.
 - **`ROADMAP.md` was outside the document check, and had drifted.**
   - "all 5 packages + 2 apps" — `packages/` has held three since the first
     commit, so this was never true rather than merely stale.

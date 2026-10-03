@@ -39,7 +39,7 @@ const RequiredInProduction = {
   ALLOWED_REPO_HOSTS: 'github.com,raw.githubusercontent.com',
   PAYMENT_MODE: 'mock',
   PRICE_QUICK_SCAN: '0.02',
-  PRICE_FULL_AUDIT: '0.10',
+  PRICE_FULL_AUDIT: '0.05',
 };
 
 const KNOWN_SECRET_KEYS = [

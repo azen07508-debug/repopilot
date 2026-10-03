@@ -19,13 +19,36 @@ function withUnknownVersion(version: string) {
 }
 
 describe('report version', () => {
-  it('writes 1.1 on anything newly built', () => {
-    expect(REPORT_VERSION).toBe('1.1');
+  it('writes 1.2 on anything newly built', () => {
+    expect(REPORT_VERSION).toBe('1.2');
   });
 
-  it('parses a 1.1 report', () => {
+  it('parses a 1.2 report', () => {
+    expect(() => ReportSchema.parse(withVersion('1.2'))).not.toThrow();
+    expect(ReportSchema.parse(withVersion('1.2')).reportVersion).toBe('1.2');
+  });
+
+  it('still parses a 1.1 report', () => {
+    // 1.2 added `omittedSections` and changed what a `quick` report
+    // carries, but the schema change is additive, so a stored 1.1 report
+    // has to keep working — otherwise every report written before the
+    // tiering change becomes unreadable.
     expect(() => ReportSchema.parse(withVersion('1.1'))).not.toThrow();
     expect(ReportSchema.parse(withVersion('1.1')).reportVersion).toBe('1.1');
+  });
+
+  it('reads a report written before the field existed as having omitted nothing', () => {
+    // The default is the true answer for an older report: it carried
+    // everything the build of its day could produce, so it declares no
+    // omissions. `[]` has to mean that, or `omittedSections` cannot be
+    // read at all.
+    //
+    // The field is removed rather than left to the factory, because the
+    // factory fills it in — this test is about a document that never had
+    // the key, which is what a stored 1.1 report is.
+    const { omittedSections, ...withoutTheField } = makeReport();
+    expect(omittedSections).toBeDefined();
+    expect(ReportSchema.parse(withoutTheField).omittedSections).toEqual([]);
   });
 
   it('still parses a 1.0 report', () => {

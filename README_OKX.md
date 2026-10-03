@@ -64,7 +64,7 @@ onchainos agent add-service --agent-id <agentId> \
 
 onchainos agent add-service --agent-id <agentId> \
   --name "Full Launch Audit" --type fixed-price \
-  --amount 0.10 --symbol USDT --description "Full audit with blockers, deployment plan and launch copy"
+  --amount 0.05 --symbol USDT --description "Same analysis as Quick Scan, plus the deployment plan and launch copy"
 ```
 
 Then **activate** the listing:
@@ -135,7 +135,7 @@ Prices are set via environment variables, **not** hard-coded:
 
 ```sh
 PRICE_QUICK_SCAN=0.02   # USDT
-PRICE_FULL_AUDIT=0.10   # USDT
+PRICE_FULL_AUDIT=0.05   # USDT
 ```
 
 The adapter converts these to atomic units using the per-network USDT
@@ -149,7 +149,7 @@ After activation, submit the listing in the OKX.AI console:
 - **Tagline:** One repo in. A launch-ready plan out.
 - **Description:** see `MARKETPLACE_LISTING.md`
 - **Pricing tiers:** Quick Scan (0.02 USDT) and Full Launch Audit
-  (0.10 USDT)
+  (0.05 USDT)
 - **Endpoint:** A2MCP URL pointing at the operator's stdio launcher
   (operator-specific)
 - **Agent ID:** `<agentId>` from `agent activate`

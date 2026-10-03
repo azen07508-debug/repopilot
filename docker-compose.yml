@@ -55,7 +55,7 @@ services:
       OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
       OKX_PAYMENT_NETWORK: ${OKX_PAYMENT_NETWORK:-xlayer}
       PRICE_QUICK_SCAN: ${PRICE_QUICK_SCAN:-0.02}
-      PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.10}
+      PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.05}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       # Loopback only, deliberately. The public entry point is the `web`

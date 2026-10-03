@@ -911,6 +911,9 @@ every commit we push moves it. See D-032.
 
 **Severity:** High
 **Likelihood:** Certain — measured on the 2026-10-02 baseline
+**Status:** **Fixed — 2026-10-03.** The tiers are now separated by what the
+report delivers. The prices in the body below are the ones measured when this
+was found (0.02 / 0.10); the full audit is now 0.05. See the fix at the end.
 
 **What happens.** `mode` is a required field on every audit request, and it
 decides the price: `priceFor(deps.payment, input.mode)` resolves to 0.02
@@ -992,27 +995,80 @@ identical on every field. The explanation offered first — "the 3-commit
 history adds nothing to a one-file repository" — was wrong, and checking it
 is what surfaced that the two modes are the same scan.
 
-**Mitigation.** None yet, deliberately. This is a product decision with two
-defensible answers and the repair plan did not anticipate it:
+**Fixed — 2026-10-03, on the owner's decision.** The decision was neither of
+the two options written above in their original form. The tiering is now real,
+but it is a *deliverable* boundary rather than an analysis boundary: **`full`
+carries a deployment plan and a set of launch copy; `quick` carries neither.**
+Everything used to judge the repository — the five dimension scores, the
+blocker list, the documentation gaps, the security findings, the detected
+stack, the recommended tasks, the launch checklist — is identical in both
+tiers, and a test now pins that field by field.
 
-1. **Implement the tiering.** Make `quick` actually skip the deeper
-   reproducibility heuristics and the Web3 analyzer, and make the limitation
-   sentence true. `DEFAULT_LIMITS` grows a per-mode variant, and
-   `audit-diff` gains something to compare.
-2. **Collapse to one tier.** Delete the mode, keep one price, delete the
-   sentence and the marketplace claim. Cheaper and honest; loses the
-   0.02/0.10 ladder.
+**Why not option 1 as written.** Making `quick` skip analyzers would have made
+the score a property of the price. Two buyers auditing the same commit would
+get different `overall` values, and neither could tell which one described the
+repository. For a launch-readiness gate that is worse than the over-delivery
+it fixes: the product's one job is to be the same answer for everyone.
+Measured consequence of the chosen design — `scores` is byte-identical across
+the two tiers, which `tiers.test.ts` asserts.
 
-Both are larger than a document edit, and (1) changes what a paying customer
-receives, so neither is being chosen unilaterally.
+**Why not option 2.** The owner wants a ladder, and the deployment plan and
+launch copy are genuinely not derivable from the findings, so they cannot leak
+through the free derived views (`/fix-plan`, `/diff`, `/quality` all read a
+report and never re-scan; see `apps/api/src/routes/audit-derived.ts`). The
+ladder is therefore real without reversing that invariant.
 
-**Still open.** Until it is decided, the marketplace listing overstates the
-0.10 tier and the `quick` limitation sentence is false. `docs/API.md` is
-*not* wrong — it lists `mode` as a required parameter (`:208`) and never says
-what it selects — which is precisely why the doc check cannot see any of
-this: there is no derivable number and no cross-reference to disagree with.
-Recorded here rather than fixed, because fixing the documents alone would
-erase the evidence that a real tiering was intended.
+**The price is 0.05, not 0.10.** The 5x gap priced the analysis difference the
+listing claimed. Once the difference is a deployment plan and a set of launch
+copy, the honest multiple is 2.5x. Changed in `DEFAULT_PRICING`, the API
+config default, `docker-compose.yml`, `env-check.ts`, `docs/API.md`,
+`docs/MCP_CLIENT_SETUP.md`, `README_OKX.md` and the OKX registration
+checklist — the registration is an operator action and the live listing still
+says 0.10 until it is re-registered.
+
+**How it was implemented.** `packages/core/src/report/tiers.ts` is the single
+declaration: `FULL_ONLY_SECTIONS = ['deploymentPlan', 'launchCopy']`. Two
+things are derived from it rather than written by hand — the report's new
+`omittedSections` field, and the limitation sentence the report uses to
+describe itself. Adding a section to the list updates both, which is what the
+three scattered `if (mode === 'full')` sites could not do.
+
+`Report.omittedSections` exists because **absent and empty are different
+claims.** `deploymentPlan: []` on a quick report does not mean "this
+repository has no deployment story"; it means the tier does not include one.
+Before this field the two were indistinguishable, and `launchCopy` was already
+being represented the bad way — a quick report emitted
+`{oneSentencePitch: '', shortDescription: '', xPost: ''}`, three empty strings
+standing in for an absence. The field defaults to `[]`, which is the true
+answer for a report written before it existed.
+
+`Report.reportVersion` is **1.2**. The schema change is additive and a stored
+1.1 report still parses, but the *content* of a quick report changed, and
+`reportVersion` is in the report cache key precisely so a build does not serve
+a report written by an older one.
+
+**The test that was missing.** R-30 noted that no test pinned the false
+sentence. `tiers.test.ts` now pins four things: the declaration's four
+combinations; that both tiers produce identical scores and identical finding
+lists; that the report's declared omissions and its actually-empty sections
+agree **in both directions** — the reverse direction is what catches a section
+quietly emptied without being declared, which is how `launchCopy` was
+represented; and that no limitation line matches `/skip|deeper|thinner/i`.
+
+The second direction immediately found something. `builder.test.ts` had a test
+named "produces a complete report even with no LLM configured" running as
+`quick` with `includeLaunchCopy: true` and asserting the launch copy came out.
+It was asserting exactly the behaviour this fix removes — the only test that
+touched the tier boundary, and it asserted the wrong side of it.
+
+**One thing this did not fix.** `includeLaunchCopy` remains a request field
+whose scope is the `full` tier. It is a refinement, not a second tier knob —
+a quick audit omits the launch copy whatever it says — and that scope is now
+declared in `tiers.ts` next to the tier that owns it rather than left to be
+inferred. It was not removed from the request because it is in the web form,
+the MCP tool arguments, the cache key and the integration scripts, and a
+breaking request-schema change is a separate decision with its own blast
+radius. Recorded rather than folded in.
 
 
 

@@ -122,7 +122,13 @@ describe('ReportBuilder', () => {
       entries,
       contents,
       truncated: false,
-      auditMode: 'quick',
+      // `full`, because this test is about the deterministic templates
+      // standing in for an absent LLM, not about the tier. It used to run
+      // as `quick` and assert the launch copy came out anyway — which is
+      // what the tiering was supposed to prevent, and the only test that
+      // would have noticed had it asserted the other direction. See
+      // tiers.test.ts.
+      auditMode: 'full',
       target: 'open_source',
       outputLanguage: 'en',
       includeLaunchCopy: true,

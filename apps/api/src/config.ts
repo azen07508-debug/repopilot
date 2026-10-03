@@ -33,7 +33,7 @@ const ConfigSchema = z.object({
   OKX_X402_VERSION: z.coerce.number().int().default(2),
 
   PRICE_QUICK_SCAN: z.string().default('0.02'),
-  PRICE_FULL_AUDIT: z.string().default('0.10'),
+  PRICE_FULL_AUDIT: z.string().default('0.05'),
 
   LLM_PROVIDER: z.string().default(''),
   LLM_API_KEY: z.string().default(''),
