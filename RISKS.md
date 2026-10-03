@@ -45,6 +45,8 @@ Active risks the team is aware of and how they are mitigated.
   — `quick` and `full` are the same analysis at two prices
 - [R-31](#r-31--the-typecheck-gate-does-not-cover-scripts)
   — The typecheck gate does not cover `scripts/`
+- [R-32](#r-32--the-injection-rule-reports-the-sentence-that-documents-the-injection-rule)
+  — The injection rule reports the sentence that documents the injection rule
 
 ---
 
@@ -862,6 +864,20 @@ measure what has been pushed** — the first re-run of `audit-diff` after the
 tree fix measured the *old* code, because the fix was still uncommitted, and
 it reported no movement for a change that had already worked.
 
+**The self-audit's floor is now 6, and 5 of them are documents.** After the
+fix, `securityFindings` is 6 and `securityHygiene` is 87.5:
+
+| | |
+|---|---|
+| `low` | `CHANGELOG.md` ×3 (one entropy, one injection, one history) |
+| `low` | `DECISIONS.md`, `RISKS.md` — injection patterns |
+| `medium` | `shapes.ts:54` **in commit `b01067b`** — the bare citation this batch fixed in the tree |
+
+The last row is the shape of every history finding: **fixing the file does
+not fix the commit.** `b01067b` really did add that line, and the record is
+correct. It clears itself when the commit falls out of the 20-commit history
+window, which is a property of the scan rather than of the finding.
+
 ### The acceptance criterion this risk was written against was wrong
 
 `190 → 0`, later `194 → 0`, cannot be reached and was never the right target.
@@ -1076,3 +1092,50 @@ own right.
 **Still open.** Until then, `scripts/` has no static checking, and the
 `✓ tsc clean` line should be read as covering five workspaces and nothing
 else.
+
+
+## R-32 — The injection rule reports the sentence that documents the injection rule
+
+**Severity:** Low
+**Likelihood:** Certain — measured on the 2026-10-03 self-audit
+**Status:** Accepted residual. Not being fixed, and the reason is the point.
+
+**What happens.** `RISKS.md`, `DECISIONS.md` and `CHANGELOG.md` each carry a
+`low` prompt-injection finding, and all three are the same sentence: our own
+explanation that the detector matches on word boundaries, because as a bare
+substring the two-word instruction phrase is read out of `contract as`. The
+explanation quotes the phrase in order to explain it, and the rule then
+reports the quotation.
+
+This is R-29's shape one rule over: **the rule fires on the text that defines
+it.** Three sightings of the same pattern now — the mnemonic rule on its own
+wordlist, the entropy rule on `shapes.ts`'s own citations, and the injection
+rule on the paragraph describing the injection rule.
+
+**Why it is not being fixed.** The finding is a *true positive*. A document
+really does contain the phrase the detector looks for, and the detector
+cannot tell a quotation from an instruction — nor should it try, because
+"the payload is in a code span" is a thing an attacker can arrange. The
+severity is already right: the rule only looks in prose documents, and
+`severityForPath` holds document findings at `low`.
+
+The available fixes are both worse than the finding:
+
+1. **Reword the documents to avoid the phrase.** This works for `RISKS.md`
+   and is arguably better writing — the sentence is about *containment*, so
+   naming the containing word is enough and the contained one is redundant.
+   It does not work for `DECISIONS.md` or `CHANGELOG.md`, which are records
+   of what happened. Editing a decision record so that a check stops firing
+   is the failure mode this whole exercise exists to prevent.
+2. **Suppress a phrase inside a code span or quotation marks.** That turns a
+   true positive into a false negative, in the one rule where the
+   attacker chooses the markup.
+
+**What to do instead.** Leave it, and read the number correctly: three of the
+self-audit's six `securityFindings` are our own security documentation, at
+the lowest severity, and they are the *evidence that the rule works*. A
+future reader who wants the number to be zero should fix the rule's scope,
+not the sentences.
+
+**Related.** R-29 (the same shape, fixed), R-28 (a tick that means something
+other than what it looks like).
