@@ -64,18 +64,23 @@
  * which is worse than the sentence in ARCHITECTURE.md naming the nine calls in
  * order and claiming no count at all.
  *
- * Three checks carry no generated block at all — they assert an invariant and
+ * Four checks carry no generated block at all — they assert an invariant and
  * print nothing:
  *
  *   1. the `BILLING` map and the `server.tool()` registrations agree;
  *   2. `docs/INDEX.md` links every `docs/*.md` file, and every link resolves;
- *   3. every `pnpm <script>` a document names exists.
+ *   3. every `pnpm <script>` a document names exists;
+ *   4. `CHANGELOG.md` names each release category at most once per release.
  *
  * Check 3 is the one that already paid for itself: `PROJECT_STATE.md` told an
  * operator to run `pnpm start:api` and `pnpm start:worker`, and neither has
  * ever existed at the root. It also closes the gap check 1 names: the test
  * called "registers every tool the billing map advertises" checked a
  * hand-copied list, so the billing map itself was asserted by nothing.
+ *
+ * Check 4 is the newest and the narrowest: a duplicated `### Changed` in
+ * `[Unreleased]` made the Contents link point at the first of two sections,
+ * leaving the second unreachable (2026-10-04).
  *
  * Every source read is a text file in this repository. No build, no network,
  * no environment. It runs in about a tenth of a second, which is why it can
@@ -598,6 +603,86 @@ function checkCommandReferences(): Problem[] {
   return problems;
 }
 
+/**
+ * `CHANGELOG.md` names each Keep-a-Changelog category at most once per release.
+ *
+ * A repeated `### Changed` is not cosmetic. Heading anchors are positional: the
+ * second one becomes `#changed-1`, and the Contents list at the top of the file
+ * links `[Changed](#changed)`. So the second section is reachable from nowhere,
+ * and the document claims to have one Changed section while having two. Nothing
+ * noticed, because every other check in this script asks about *generated
+ * blocks* and `CHANGELOG.md` is deliberately block-free.
+ *
+ * Found on 2026-10-04: `[Unreleased]` carried `### Changed` at line 81 and
+ * again at line 840. Merging them was a two-line deletion — the content was
+ * never wrong, only the heading was duplicated — but no check had ever looked
+ * at heading structure, so it had been that way for an unknown number of
+ * batches, growing each time.
+ *
+ * Deliberately *not* checked here: whether a given bullet sits under the right
+ * category. `[Unreleased]` also files a run of feature additions under
+ * `### Changed`, and separating them needs a per-bullet judgement — several
+ * read "no longer claims" or "instead of" and belong in Fixed. A check that
+ * guessed at that would be worse than a sentence describing it.
+ */
+function checkChangelogStructure(): Problem[] {
+  const problems: Problem[] = [];
+  const lines = read('CHANGELOG.md').split('\n');
+
+  const CATEGORIES = new Set([
+    'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security',
+  ]);
+
+  let release = '(above the first `## ` heading)';
+  let headings = 0;
+  let seen = new Map<string, number[]>();
+
+  const flush = () => {
+    for (const [name, at] of seen) {
+      if (at.length < 2) continue;
+      problems.push({
+        where: `CHANGELOG.md (${release})`,
+        message:
+          `"### ${name}" appears ${at.length} times (lines ${at.join(', ')}). ` +
+          'Anchors are positional, so only the first is reachable as ' +
+          `#${name.toLowerCase()} — the Contents list links that one and the ` +
+          'rest are reachable from nowhere. Merge them into one section.',
+      });
+    }
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.startsWith('## ')) {
+      flush();
+      release = line.slice(3).trim();
+      seen = new Map();
+      continue;
+    }
+    const m = /^### (.+)$/.exec(line);
+    if (!m) continue;
+    headings += 1;
+    const name = m[1].trim();
+    if (!CATEGORIES.has(name)) continue;
+    seen.set(name, [...(seen.get(name) ?? []), i + 1]);
+  }
+  flush();
+
+  // A rename of the file, or a change to the heading level, would leave the
+  // loop above with nothing to inspect and this check green. That is the same
+  // failure the `total === 0` guard in `checkBlocks()` exists for (R-26).
+  if (headings === 0) {
+    problems.push({
+      where: 'CHANGELOG.md',
+      message:
+        'no "### " headings found at all. Either the file was renamed or its ' +
+        'heading level changed, and this check is currently a no-op.',
+    });
+  }
+
+  return problems;
+}
+
 /* ─────────────────────────────────── main ───────────────────────────────── */
 
 const mode = process.argv[2] ?? '--check';
@@ -626,6 +711,7 @@ const problems = [
   ...checkBlocks(),
   ...checkIndex(),
   ...checkCommandReferences(),
+  ...checkChangelogStructure(),
 ];
 
 console.log('docs-facts: recompute and compare');
@@ -644,5 +730,11 @@ if (problems.length === 0) {
 for (const p of problems) {
   console.log(`  \x1b[33m!\x1b[0m ${p.where}: ${p.message}`);
 }
-console.log(`\n  ${problems.length} issue(s). Run \`pnpm docs:facts\` to rewrite the generated blocks.`);
+console.log(`\n  ${problems.length} issue(s).`);
+// Only the block problems are fixable by rewriting the generated blocks. A
+// duplicated `### Changed` is not, and telling the reader to run `docs:facts`
+// for it sends them at a command that will not change anything.
+if (problems.some((p) => p.where.includes('docs-facts:'))) {
+  console.log('  Run `pnpm docs:facts` to rewrite the generated blocks.');
+}
 process.exit(1);

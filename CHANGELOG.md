@@ -837,8 +837,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exports` declares only an `import` condition
   (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
 
-### Changed
-
 - **The version is `0.1.0-rc.3`, which is what the code has been for two
   weeks.** Three documents written on different days — the `[0.1.0-rc.3]`
   CHANGELOG section, D-023 (2026-09-23) and R-23 — place the standalone worker
