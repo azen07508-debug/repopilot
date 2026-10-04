@@ -78,16 +78,50 @@ repositories is easily enough to exhaust — pass a token. See ADR D-029 for
 what this script caught (a shipped defect in `.js` → `.tsx` resolution) and
 why it is a script rather than a test.
 
-The CLI is also exposed as a binary after `pnpm install`:
+The CLI is also exposed as a binary once the workspace is installed:
 
 ```bash
 # inside the workspace
 pnpm mcp
 # or
 node packages/mcp-server/dist/cli.js
-# after `npm i -g .`
+# or, after `npm i -g ./packages/mcp-server`
 repopilot-mcp
 ```
+
+### Installing
+
+`@repopilot/mcp-server` is **not on npm** — the registry answers 404 for it,
+and the manifest is `private: true`. Running it means running it from a
+checkout:
+
+```bash
+git clone https://github.com/azen07508-debug/repopilot.git
+cd repopilot
+pnpm install
+pnpm --filter "./packages/*" build
+```
+
+Then point the client at the absolute path —
+`/absolute/path/to/repopilot/packages/mcp-server/dist/cli.js` — which is
+what every config snippet below does.
+
+`npm i -g ./packages/mcp-server` also produces a working `repopilot-mcp`,
+but read what it installs: npm **links** a local directory rather than
+copying it, so `$(npm prefix -g)/lib/node_modules/@repopilot/mcp-server`
+is a symlink back into this checkout, and its imports resolve through the
+checkout's own `node_modules`. It keeps working exactly as long as the
+checkout stays where it is.
+
+**What publishing would take.** `@repopilot/core` and
+`@repopilot/okx-adapter` are declared as `workspace:*`, and npm rejects
+that protocol outside a workspace (`EUNSUPPORTEDPROTOCOL`), so a tarball
+built today installs nowhere. A root `workspaces` field does not help —
+npm does not rewrite `workspace:*` on `pack`, and pnpm ignores the field
+outright. The two real options are shipping all three packages together
+under a scope you control, or bundling the two workspace packages into
+this one's `dist`. `files` is already set on all three, so the tarball
+itself is clean either way.
 
 ## Configuration
 

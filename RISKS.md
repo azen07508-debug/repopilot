@@ -49,6 +49,8 @@ Active risks the team is aware of and how they are mitigated.
   — The injection rule reports the sentence that documents the injection rule
 - [R-33](#r-33--the-local-lint-gate-checks-downstream-packages-against-a-stale-dist)
   — The local lint gate checks downstream packages against a stale `dist`
+- [R-34](#r-34--the-mcp-server-cannot-be-installed-outside-its-own-checkout)
+  — The MCP server cannot be installed outside its own checkout
 
 ---
 
@@ -1268,3 +1270,52 @@ pnpm --filter "./packages/*" build && pnpm lint
 
 **Related.** R-31 (a gate whose scope is narrower than it looks), D-034 (the
 scope of a check is part of the check), R-26 (a check that never runs).
+
+## R-34 — The MCP server cannot be installed outside its own checkout
+
+**Severity:** Medium
+**Likelihood:** Certain — measured on 2026-10-04
+
+**What happens.** `packages/mcp-server/package.json` advertises a binary
+(`repopilot-mcp`) and is `private: true`, and two of its dependencies are
+declared as `workspace:*`. So there are exactly two ways to obtain it, and
+one of them lies:
+
+- `npm i -g ./packages/mcp-server` — **reports success and does not
+  install anything**. npm links a local directory instead of copying it, so
+  `lib/node_modules/@repopilot/mcp-server` is a symlink back into this
+  checkout and every import resolves through the checkout's own
+  `node_modules`. It exits 0 and prints `added 1 package in 4s`.
+- `npm pack` then install that tarball — **fails**, because npm rejects the
+  protocol outside a workspace: `EUNSUPPORTEDPROTOCOL: Unsupported URL Type
+  "workspace:": workspace:*`.
+
+**Measured.** `registry.npmjs.org/@repopilot%2Fmcp-server` answers 404. A
+root `workspaces` field is not a fix: a throwaway workspace with one proved
+npm leaves `workspace:*` untouched on `pack`, and pnpm prints
+`The "workspaces" field in package.json is not supported by pnpm` for the
+same field. The tarball also carried **114 files** — `src/`, `tsconfig.json`
+and 76 `vitest.config.ts.timestamp-*.mjs` scratch files — because no package
+declared `files`. That part is now fixed: `files: ["dist", "!dist/**/*.test.*"]`
+takes it to 21 files, 29.2 kB.
+
+**Why this is Medium and not Low.** The failure is **silent**. Both the
+installer's exit code and its output say the install worked, and the
+`repopilot-mcp` command it produces really does run — on this machine, for
+as long as the checkout stays put. A reader has no signal that they have
+taken a dependency on a directory rather than installed a package, and the
+first symptom is a broken command on someone else's machine.
+
+**How it was found.** By running the generated shim rather than reading the
+manifest. The manifest was read too, but reading it is what produced the
+*false* conclusion "private, so it cannot be published, but a global
+install of the local path is fine".
+
+**Mitigation.** The tarball is clean (`files` on all three library
+packages). `docs/MCP_CLIENT_SETUP.md` now states that the package is not on
+npm, that `npm i -g` links rather than installs, and what publishing would
+require. Whether to publish — and therefore whether to ship the three
+packages together under a scope or bundle the two workspace packages into
+this one's `dist` — is a distribution decision, not a defect, and is
+deliberately left open.
+
