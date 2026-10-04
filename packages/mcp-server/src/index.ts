@@ -52,6 +52,7 @@ import {
   DEFAULT_LIMITS,
   DEFAULT_PRICING,
   CORE_VERSION,
+  REPORT_VERSION,
   ReportSchema,
 } from '@repopilot/core';
 import { buildPaymentAdapter, type PaymentConfig, priceFor } from '@repopilot/okx-adapter';
@@ -267,7 +268,13 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
     'get_audit_status',
     'Look up the status of a previously created audit job.',
     {
-      job_id: z.string().describe('The jobId returned by audit_github_repository'),
+      job_id: z
+        .string()
+        .describe(
+          'A jobId from this session: from list_audit_history, or from the ' +
+            'payment challenge that audit_github_repository returns in okx mode ' +
+            '(mock mode settles the audit inline and returns no jobId).'
+        ),
     },
     async (args) => {
       const job = jobStore.get(args.job_id);
@@ -518,8 +525,14 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
           outputLanguage: 'en | zh-CN',
         },
         outputs: {
+          // Interpolated, not written out: this string used to say `(1.0)`
+          // while `REPORT_VERSION` had moved to `1.2`, so the capabilities
+          // payload told every client one version and every report carried
+          // another. `docs:check` cannot see it — it reads markdown, and
+          // `readMcpTools()` reads this file for tool names only, not for
+          // the prose around them.
           report:
-            'JSON document conforming to @repopilot/core Report schema (1.0): blockers, scores, evidence, deployment plan, launch copy.',
+            `JSON document conforming to @repopilot/core Report schema (${REPORT_VERSION}): blockers, scores, evidence, deployment plan, launch copy.`,
         },
         limits: {
           maxFiles: DEFAULT_LIMITS.maxFiles,

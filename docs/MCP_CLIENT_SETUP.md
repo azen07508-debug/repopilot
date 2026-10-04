@@ -128,8 +128,11 @@ challenge and verifies the signature; signing happens in the caller's
 
 ### Claude Code (Anthropic)
 
-Claude Code reads MCP config from `~/.config/claude-code/mcp.json` or
-`.mcp.json` in the project root.
+Claude Code reads MCP config from `~/.claude.json` — that one file holds
+both user-scoped and project-local servers, the latter keyed by project
+path — or from `.mcp.json` in the project root for project-scoped
+servers. There is no `~/.config/claude-code/` directory; `claude mcp add`
+writes to whichever of the two you pick with `--scope`.
 
 ```json
 {
@@ -150,8 +153,10 @@ Claude Code reads MCP config from `~/.config/claude-code/mcp.json` or
 
 ### Codex (OpenAI)
 
-Codex reads MCP config from `~/.codex/mcp.toml` or
-`.codex/mcp.toml` in the project root.
+Codex keeps MCP config in its ordinary settings file: `~/.codex/config.toml`,
+or `.codex/config.toml` to scope a server to one project. The filename is
+`config.toml`, not `mcp.toml`; servers live under an `[mcp_servers.<name>]`
+table.
 
 ```toml
 [mcp_servers.repopilot]
@@ -207,10 +212,9 @@ can spawn a subprocess works.
 
 ### `audit_github_repository`
 
-Start a new audit. Returns the `jobId` and (if mock payment is
-configured) settles it immediately. With real OKX payment the tool
-returns the `paymentId` and the client should retry after the buyer
-has signed.
+Start a new audit. The response shape depends on the payment mode, and in
+the default `mock` mode **it carries no `jobId`** — see "Getting the
+`jobId`" below for where to find one.
 
 **Input**
 
@@ -224,29 +228,86 @@ has signed.
 }
 ```
 
-**Output**
+**Output, `PAYMENT_MODE=mock`** — the pipeline runs in-process and the tool
+returns a headline summary alongside the full report:
 
 ```json
 {
-  "jobId": "job_8a3b9d...",
   "status": "completed",
-  "report": { ... full Report ... }
+  "reportVersion": "1.2",
+  "repository": { "url": "...", "defaultBranch": "master", "stars": 3839, "...": "..." },
+  "summary": "… an overall launch-readiness score of 53.1/100. Top blocker: LICENSE is missing (high).",
+  "scores": 53.1,
+  "scoreBreakdown": {
+    "documentation": 37.5,
+    "reproducibility": 28.5,
+    "securityHygiene": 95,
+    "deploymentReadiness": 63.5
+  },
+  "detectedStack": [],
+  "blockerCount": 4,
+  "documentationGapCount": 8,
+  "securityFindingCount": 1,
+  "fixtureFindingCount": 0,
+  "fixtureFileCount": 0,
+  "launchChecklist": [ "...", "..." ],
+  "report": { "...": "full Report" }
 }
 ```
 
-or, when payment is required:
+The counts are headlines, not the whole list. `fixtureFindingCount` counts
+findings held out of the release gate because of *where they live* — test
+files, fixtures, sample apps — so `securityFindingCount: 3` does not mean
+three findings total; the detail is in `report.fixtureSummary`.
+
+**Output, `PAYMENT_MODE=okx`** — the caller settles the challenge and
+retries:
 
 ```json
 {
+  "status": "awaiting_payment",
   "jobId": "job_8a3b9d...",
-  "status": "queued",
-  "payment": {
-    "paymentId": "mock_xxx",
-    "amount": "0.02",
-    "currency": "USDT"
-  }
+  "paymentId": "mock_xxx",
+  "challenge": "...",
+  "price": { "amount": "0.02", "currency": "USDT" },
+  "nextAction": "Call onchainos payment pay --payment-id <id> --yes, then call get_audit_status with the same paymentId."
 }
 ```
+
+#### Getting the `jobId`
+
+Every report-derived tool — `get_fix_plan`, `quality_status`,
+`release_check`, `get_audit_status`, `compare_audits` — takes a `job_id`,
+and the mock response above does not return one. Call `list_audit_history`
+with the repository URL and take the newest entry:
+
+```json
+{ "repo_url": "https://github.com/owner/repo" }
+```
+
+```json
+{
+  "repoUrl": "https://github.com/owner/repo",
+  "count": 1,
+  "audits": [
+    {
+      "jobId": "job_8a3b9d...",
+      "status": "completed",
+      "createdAt": "2026-10-04T06:09:00.000Z",
+      "mode": "quick",
+      "target": "open_source",
+      "overall": 53.1,
+      "findingCount": 13
+    }
+  ]
+}
+```
+
+**The job store is in-process memory.** A job lives exactly as long as the
+server process, and a client spawns one server per session — so this works
+within a session, and a `jobId` from an earlier session is gone: the report
+tools answer `{"error":"job_not_found"}` and `list_audit_history` reports
+`count: 0`. Re-audit instead of trying to recover it.
 
 ### `get_audit_status`
 

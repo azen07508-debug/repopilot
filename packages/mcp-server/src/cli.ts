@@ -1,5 +1,12 @@
+#!/usr/bin/env node
 /**
  * CLI entrypoint: `repopilot-mcp`. Reads environment, starts the stdio server.
+ *
+ * The shebang is load-bearing. `package.json` declares this file as the
+ * `repopilot-mcp` bin, and npm builds that shim by copying the file verbatim
+ * when it carries no shebang — so without this line the copy is handed to the
+ * shell, which reads `import` as a command and the first path inside the
+ * comment below as another one. `tsc` preserves a shebang on line 1.
  */
 import { startStdioServer } from './index.js';
 import { DEFAULT_PRICING, CORE_VERSION } from '@repopilot/core';
