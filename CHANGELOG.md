@@ -35,35 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty, and every empty section is declared — the second direction is what
   catches a section quietly emptied without being declared, which is how
   `launchCopy` was represented before this change.
-
-- **The entropy heuristic no longer fires on the wordlist that defines the
-  mnemonic rule (R-29).** The rule's candidate regex is "twelve lowercase
-  words" and `bip39-english.ts` is a file of twelve-word lines, so the rule
-  reported its own dictionary: **165 critical findings**, and in this
-  repository's self-audit that was the single largest contributor to
-  `securityHygiene: 0`. No per-match check can separate the two — the match is
-  identical — so the distinguishing fact is about the *file*: a seed phrase is
-  a line in a document, a wordlist is a file whose every word is a BIP-39 word.
-  `isWordlistFile()` asks that, and a new `skipFile` gate on the pattern makes
-  it inapplicable to such a file. Deliberately a property of the content
-  rather than of the path: a path exclusion would miss a wordlist fetched to a
-  temporary directory, renamed, or vendored. Threshold measured rather than
-  guessed — the wordlist scores **0.956**, the next-highest of the 248 tracked
-  files with at least 50 words scores **0.447**, and nothing measured lands
-  between them, so the band is wide and 0.75 is its midpoint.
-  **The first version of this fix missed the history path**, and the audit
-  caught it: `securityFindings` stayed at 7 with a `critical` finding against
-  `bip39-english.ts` in commit `82a244c`, and the report's headline read "Top
-  blocker: Secret in commit history: Possible seed phrase". The history
-  scanner scans a patch one added line at a time, so a file-level question was
-  being asked of a single line — and twelve words is below the floor
-  `isWordlistFile` needs before it will judge anything, so the answer was
-  always no. `scanTextForSecrets` now takes the text a file-level judgement
-  should be made against (`fileContent`), separately from the text being
-  scanned, and the history scanner passes the whole patch. A patch is the
-  widest sample that path has, and for the commit that adds a file it *is* the
-  file. A test pins both directions: a commit that adds a wordlist reports
-  nothing, and a single phrase added to an ordinary file is still reported.
 - **Three more non-credential shapes, and the shapes module now holds the
   decomposition as well as the judgements.** `uuid` (a canonical UUID is an
   identifier), `evm-address` (a 20-byte contract address is public by
@@ -77,122 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Measured on this repository's tracked tree: `generic_high_entropy` 33 → 4**,
   and all four survivors are in a document or a test file, so the severity
   downgrade in `severityForPath` applies to every one of them.
-
-### Changed
-
-- **The audit tiers are separated by what the report delivers, not by
-  claimed analysis depth (R-30).** Both tiers ran every analyzer over the
-  same archive and produced the same scores, blockers and findings, while
-  `mode` decided the price and three rows of advice. The tiers now differ in
-  a way the code implements: `full` carries a `deploymentPlan` and
-  `launchCopy`, `quick` carries neither. Everything a reader uses to judge
-  the repository — the five dimension scores, the blocker list, the
-  documentation gaps, the security findings, the detected stack, the
-  recommended tasks, the launch checklist — is identical in both, which is
-  the point: a score has to be a property of the repository, not of what was
-  paid, or two audits of the same commit would disagree.
-  **`Report.reportVersion` is 1.2.** The schema change is additive, so a
-  stored 1.1 report still parses and still means "nothing omitted", but the
-  *content* of a quick report changed, and `reportVersion` is in the report
-  cache key precisely so a build does not serve a report written by an older
-  one.
-- **The full audit is 0.05 USDT, not 0.10.** The 5x gap described the
-  difference the listing claimed. Once the tiers were separated by
-  deliverable the honest multiple was the one the deliverables support — a
-  deployment plan and a set of launch copy, not a second analysis. Updated
-  in `DEFAULT_PRICING`, the API config default, `docker-compose.yml`,
-  `env-check.ts`, `docs/API.md`, `docs/MCP_CLIENT_SETUP.md`, `README_OKX.md`
-  and the OKX registration checklist.
-- **`includeLaunchCopy`'s scope is now declared where the flag is.** It is a
-  refinement inside `full`, not a second way to choose a tier: a quick audit
-  omits the launch copy whatever it says. The scope lives in `report/tiers.ts`
-  next to the tier that owns it, and `docs/API.md` documents it (it previously
-  documented the default as `false` while the schema and the route both
-  defaulted to `true`).
-- **`/api/v1/capabilities` no longer types out the report version.**
-  `outputs.report` said "schema (1.0)" while `REPORT_VERSION` said 1.1 — a
-  drift recorded as a known residual because nothing compared the two. It now
-  reads the constant.
-- **The entropy heuristic measures the value of an assignment, not the
-  variable name.** `=` is in the candidate character class because base64
-  padding ends in it, so `NAME=value` arrived as a single run and the heuristic
-  then measured the name as if it were part of the secret. A real audit
-  reported `POSTGRES_PASSWORD=repopilot_test` — a throwaway password in a
-  developer's `docker run` command — as a 33-character possible API key, of
-  which 18 characters were the name. `assignmentValue()` splits the run first,
-  and both the length test and the entropy test then run against the value, so
-  the reported length is the length of the thing that could be a secret.
-  Trailing `=` is stripped before the split so base64 padding is not read as an
-  assignment, and the left side must look like a name rather than like data —
-  otherwise an opaque token containing an `=` would be split and half of it
-  silently discarded. The two thresholds the rule is built from
-  (`MIN_TOKEN_LENGTH`, `ENTROPY_FLOOR`) are now named constants, because the
-  length floor is read twice: once to build the candidate regex and once to
-  re-check the value.
-- **`shapes.ts` documents each shape with a run the shape itself suppresses.**
-  The module's own prose is scanned like any other source, so citing a bare
-  run that the shape does not cover puts a finding *in the file that defines
-  the rule* — two of them, both in `shapes.ts`, until this change. The
-  citations now read `docs/REPOSITORY_INTELLIGENCE_PLAN.md` rather than the
-  bare stem, which is both the accurate filename and a live example.
-  `shapes.test.ts` scans `shapes.ts` and fails if that slips.
-
-- **The doc-facts check now declares which blocks each document carries, so a
-  deleted block is a failure rather than a silence.** `BLOCK_DOCS` named the
-  documents but left the block set implicit, and `checkBlocks()` can only
-  compare a block it *finds* — so a document that lost one entirely had nothing
-  left to be stale. `docs/RELEASE_CHECKLIST.md` was in exactly that state when
-  the scope check was written: reading "(every workspace: )" with no block at
-  all, and `pnpm docs:check` green. `BLOCK_DOCS` is now a map from document to
-  the block ids it must contain; a declared block that is absent fails, and so
-  does a block no document declares. **Verified by mutation: 8 mutations, 8
-  caught** — including the `RELEASE_CHECKLIST` case itself. Two of the eight
-  passed on the first attempt for the wrong reason (a body that was both
-  undeclared *and* stale, so the staleness rule fired instead) and were re-run
-  with a correct body so that only the intended rule could fire.
-- **The doc-facts check now knows which documents it owns.** Its scope was a
-  hand-written list of four files, and `ROADMAP.md` was not on it — so it had
-  drifted in exactly the way the fourteen had: "all 5 packages + 2 apps" in a
-  repository that has always had three packages, and "5 fixtures" directly
-  above six fixture names. Every markdown file in the repository is now in
-  exactly one of two lists, `BLOCK_DOCS` or `BLOCK_FREE_DOCS`, and the second
-  one carries the reason a document has no generated block. A file in neither
-  fails the check, so adding a document forces the question instead of
-  defaulting to unchecked (D-034).
-- **`fixture-count`, and two more documents inside the block set.** `README.md`
-  and `PROJECT_STATE.md` both said "6 sample repos", and `docs/INDEX.md` and
-  `docs/MCP_CLIENT_SETUP.md` both said "thirteen tools" — four numbers that
-  were correct and that nothing kept correct. The count is generated now, from
-  `fixtures/` and from the tool registrations.
-- **The documents no longer keep their own copy of a number.**
-  `scripts/docs-facts.ts` derives the facts a document states about the code —
-  the MCP tool list and count, the compose service table, the workspace package
-  names, the workspace count — and writes them into `README.md`,
-  `PROJECT_STATE.md`, `docs/ARCHITECTURE.md` and `docs/RELEASE_CHECKLIST.md`
-  between `<!-- docs-facts:… -->` markers. `pnpm docs:check` recomputes them and
-  exits non-zero on any divergence; `pnpm docs:facts` rewrites them; CI runs the
-  check on every push.
-  - The 2026-10-01 review found fourteen places where a document disagreed with
-    the repository, and nearly all of them were the same shape: a number or a
-    name that can be read out of the source tree, typed into a paragraph by
-    hand, and then kept in step by discipline. Six of the fourteen are fixed in
-    this pass; the generated blocks make the class impossible rather than
-    unlikely.
-  - Three checks carry no generated block. They assert the `BILLING` map
-    against the `server.tool()` registrations; that `docs/INDEX.md` links every
-    `docs/*.md` file and that every link resolves; and that every `pnpm <script>`
-    a document names exists. The last one had already caught `pnpm start:api`
-    and `pnpm start:worker` being documented before they existed.
-  - **Verified by mutation, not by inspection: 12 mutations, 12 caught.** Each
-    block id was corrupted in both directions (the source moved; the block
-    moved), a fake `pnpm` command was added to a document, a docs file was added
-    without an INDEX link, an INDEX link was broken, a compose service was
-    added, and every marker was deleted. That last one matters most: a
-    marker-syntax change that stops the regex matching would otherwise turn
-    every block check into a no-op that still prints a green tick (R-26).
-  - Two mutations were discarded rather than counted. They failed because pnpm
-    itself refused to run, not because the check caught anything — a mutation
-    battery that counts those as catches is measuring the wrong thing.
 - **`scripts/audit-diff.ts` and `scripts/audit-baseline.json`** — run the four
   reference audits sequentially and print a five-score × four-audit table plus
   the change against a recorded baseline. Every batch of the repair plan ended
@@ -236,7 +91,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The 202 body is additionally checked against the `required` list in
     `apps/api/src/openapi.ts`, so the fixture cannot drift from the
     published contract without the web suite saying so.
-
 - **Repository Map builder (V0.2-d).** The first Repository Intelligence
   artifact: a deterministic description of what a repository is made of
   — modules, how important each is, how they depend on each other, and
@@ -332,33 +186,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     where a score is already on the board is what made it mean something.
     Two mutations found real bugs: the manifest ordering bug above, and
     the cap reporting fixed below.
-- **`limitations` no longer claims a cap that did not bite (V0.2-d
-  review).** Found by re-reading the builder rather than by a failing
-  test, and fixed together with the tests that would have caught it.
-  - The entrypoint cap was decided from
-    `entrypoints.length >= MAX_ENTRYPOINTS` while the producer truncates
-    on `>`, so a repository with exactly fifty entrypoints was told
-    "Entrypoints are capped at 50; there may be more" about a list that
-    was complete. The length cannot settle it — fifty entries is either
-    fifty or the first fifty of more — so `detectEntrypointSet()` returns
-    `{ entrypoints, total, truncated }` next to the unchanged
-    array-returning `detectEntrypoints()`, and the limitation follows
-    `truncated`.
-  - The dependency cap compared the **pre-dedupe** declaration count
-    against the cap while slicing the **deduplicated** list. A manifest
-    set declaring 600 entries that deduplicate to 450 was told "Only the
-    first 500 of 600 dependencies are listed" — a truncation that never
-    happened, with both numbers wrong. `collectDependencies()` now
-    returns `{ dependencies, total, truncated }` like `listFiles()` does,
-    and `countDependencies()` is deleted.
-  - A capped module list produced two `limitations` lines for one fact:
-    one from `detectModules()`, which knows the true total, and one from
-    `buildLimitations()`, which did not. The second is gone.
-  - This matters more than a stray line usually would, because
-    `limitations` is the artifact's honesty channel: a reader who catches
-    one untrue line stops believing the rest.
-  - **Test baseline: core +5** (545 → 550), four of them stating that a
-    cap is reported only when it actually cut something.
 - **Symbol Map (V0.2-e, ADR D-026).** The second Repository Intelligence
   artifact: the declaration surface of a repository — functions, classes,
   interfaces, types, methods, constants, contracts, structs, enums — with
@@ -550,46 +377,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     were 4. Thirty mutations over `intelligence.ts` and the new
     `withSnapshot` / `describeError`: **30 caught, 0 missed, 0 invalid.**
     Test baseline: core 740 → 759, workspace 823 → 879.
-- **Repository content is read in one request instead of one per file
-  (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
-  issued a `repos.getContent` request per file, and
-  `DEFAULT_LIMITS.maxFiles` is 2000, so a full audit could spend the
-  whole 60 requests/hour anonymous budget (R-03) on downloading before
-  it analysed anything. Repository Map and Symbol Map need to read a
-  large number of source files, which is exactly the shape that broke.
-  - `git/tar.ts` — a read-only ustar reader. Hand-written rather than a
-    dependency because `@repopilot/core` ships octokit, pino and zod
-    and nothing else. The format is narrow but not trivial: measured
-    against a real 12,577-entry archive (`nodejs/node` v0.12.0), 192
-    entries have a path split across `prefix` + `name` and one carries a
-    130-character pax `path=`, so a reader that ignored both would
-    mis-address 193 of the 12,577. Takes the archive *after* gunzipping,
-    so it is pure and testable against a hand-built buffer.
-  - `git/tarball.ts` — `extractTarball()` reads the wanted paths out of
-    an archive. The archive's wrapper directory is derived from the
-    archive and then **checked against the tree the caller already
-    listed**, because the shape alone cannot settle it: `src/` +
-    `src/a.ts` is a flat archive and `repo/src/a.ts` is a wrapped one,
-    and in both cases every entry sits under one directory. Only the
-    wanted set can tell them apart, and getting it wrong yields files
-    that do not exist in the repository. Files that were not asked for
-    are never decoded.
-  - `GitHubFetcher.fetchRepositoryContents()` is the one entry point:
-    tarball first, then the existing per-file path on failure, with
-    `source` and `degraded` on the result. It also refuses an archive
-    that parses cleanly but contains none of the listed files — how a
-    moved ref would present — rather than returning an empty
-    repository. `filterFiles` and `classifyFile` are reused unchanged,
-    so the text/binary/ignore policy is identical on both paths.
-  - ADR D-024 records one deliberate departure from D-017: the archive
-    is decompressed in memory, not into a `mkdtemp` directory. The
-    reader needs a contiguous buffer anyway, so writing to disk first
-    would add a copy and a cleanup path without lowering peak memory —
-    and R-17's disk risk disappears with it. Two caps stand in for it:
-    64 MiB compressed, 256 MiB decompressed. Decompression runs off the
-    event loop.
-  - `degraded` reaches the report as a `limitations` line, because what
-    degraded is the request budget, not what the audit saw.
 - **Integration tests for the three derived endpoints.**
   - `apps/api/src/tests/api.integration.test.ts` covered `/quality` and
     nothing else under `derived routes`. Twenty tests now pin
@@ -837,6 +624,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exports` declares only an `import` condition
   (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
 
+### Changed
+
+- **The audit tiers are separated by what the report delivers, not by
+  claimed analysis depth (R-30).** Both tiers ran every analyzer over the
+  same archive and produced the same scores, blockers and findings, while
+  `mode` decided the price and three rows of advice. The tiers now differ in
+  a way the code implements: `full` carries a `deploymentPlan` and
+  `launchCopy`, `quick` carries neither. Everything a reader uses to judge
+  the repository — the five dimension scores, the blocker list, the
+  documentation gaps, the security findings, the detected stack, the
+  recommended tasks, the launch checklist — is identical in both, which is
+  the point: a score has to be a property of the repository, not of what was
+  paid, or two audits of the same commit would disagree.
+  **`Report.reportVersion` is 1.2.** The schema change is additive, so a
+  stored 1.1 report still parses and still means "nothing omitted", but the
+  *content* of a quick report changed, and `reportVersion` is in the report
+  cache key precisely so a build does not serve a report written by an older
+  one.
+- **The full audit is 0.05 USDT, not 0.10.** The 5x gap described the
+  difference the listing claimed. Once the tiers were separated by
+  deliverable the honest multiple was the one the deliverables support — a
+  deployment plan and a set of launch copy, not a second analysis. Updated
+  in `DEFAULT_PRICING`, the API config default, `docker-compose.yml`,
+  `env-check.ts`, `docs/API.md`, `docs/MCP_CLIENT_SETUP.md`, `README_OKX.md`
+  and the OKX registration checklist.
+- **`includeLaunchCopy`'s scope is now declared where the flag is.** It is a
+  refinement inside `full`, not a second way to choose a tier: a quick audit
+  omits the launch copy whatever it says. The scope lives in `report/tiers.ts`
+  next to the tier that owns it, and `docs/API.md` documents it (it previously
+  documented the default as `false` while the schema and the route both
+  defaulted to `true`).
+- **`/api/v1/capabilities` no longer types out the report version.**
+  `outputs.report` said "schema (1.0)" while `REPORT_VERSION` said 1.1 — a
+  drift recorded as a known residual because nothing compared the two. It now
+  reads the constant.
+- **The entropy heuristic measures the value of an assignment, not the
+  variable name.** `=` is in the candidate character class because base64
+  padding ends in it, so `NAME=value` arrived as a single run and the heuristic
+  then measured the name as if it were part of the secret. A real audit
+  reported `POSTGRES_PASSWORD=repopilot_test` — a throwaway password in a
+  developer's `docker run` command — as a 33-character possible API key, of
+  which 18 characters were the name. `assignmentValue()` splits the run first,
+  and both the length test and the entropy test then run against the value, so
+  the reported length is the length of the thing that could be a secret.
+  Trailing `=` is stripped before the split so base64 padding is not read as an
+  assignment, and the left side must look like a name rather than like data —
+  otherwise an opaque token containing an `=` would be split and half of it
+  silently discarded. The two thresholds the rule is built from
+  (`MIN_TOKEN_LENGTH`, `ENTROPY_FLOOR`) are now named constants, because the
+  length floor is read twice: once to build the candidate regex and once to
+  re-check the value.
+- **`shapes.ts` documents each shape with a run the shape itself suppresses.**
+  The module's own prose is scanned like any other source, so citing a bare
+  run that the shape does not cover puts a finding *in the file that defines
+  the rule* — two of them, both in `shapes.ts`, until this change. The
+  citations now read `docs/REPOSITORY_INTELLIGENCE_PLAN.md` rather than the
+  bare stem, which is both the accurate filename and a live example.
+  `shapes.test.ts` scans `shapes.ts` and fails if that slips.
+- **The doc-facts check now declares which blocks each document carries, so a
+  deleted block is a failure rather than a silence.** `BLOCK_DOCS` named the
+  documents but left the block set implicit, and `checkBlocks()` can only
+  compare a block it *finds* — so a document that lost one entirely had nothing
+  left to be stale. `docs/RELEASE_CHECKLIST.md` was in exactly that state when
+  the scope check was written: reading "(every workspace: )" with no block at
+  all, and `pnpm docs:check` green. `BLOCK_DOCS` is now a map from document to
+  the block ids it must contain; a declared block that is absent fails, and so
+  does a block no document declares. **Verified by mutation: 8 mutations, 8
+  caught** — including the `RELEASE_CHECKLIST` case itself. Two of the eight
+  passed on the first attempt for the wrong reason (a body that was both
+  undeclared *and* stale, so the staleness rule fired instead) and were re-run
+  with a correct body so that only the intended rule could fire.
+- **The doc-facts check now knows which documents it owns.** Its scope was a
+  hand-written list of four files, and `ROADMAP.md` was not on it — so it had
+  drifted in exactly the way the fourteen had: "all 5 packages + 2 apps" in a
+  repository that has always had three packages, and "5 fixtures" directly
+  above six fixture names. Every markdown file in the repository is now in
+  exactly one of two lists, `BLOCK_DOCS` or `BLOCK_FREE_DOCS`, and the second
+  one carries the reason a document has no generated block. A file in neither
+  fails the check, so adding a document forces the question instead of
+  defaulting to unchecked (D-034).
+- **`fixture-count`, and two more documents inside the block set.** `README.md`
+  and `PROJECT_STATE.md` both said "6 sample repos", and `docs/INDEX.md` and
+  `docs/MCP_CLIENT_SETUP.md` both said "thirteen tools" — four numbers that
+  were correct and that nothing kept correct. The count is generated now, from
+  `fixtures/` and from the tool registrations.
+- **The documents no longer keep their own copy of a number.**
+  `scripts/docs-facts.ts` derives the facts a document states about the code —
+  the MCP tool list and count, the compose service table, the workspace package
+  names, the workspace count — and writes them into `README.md`,
+  `PROJECT_STATE.md`, `docs/ARCHITECTURE.md` and `docs/RELEASE_CHECKLIST.md`
+  between `<!-- docs-facts:… -->` markers. `pnpm docs:check` recomputes them and
+  exits non-zero on any divergence; `pnpm docs:facts` rewrites them; CI runs the
+  check on every push.
+  - The 2026-10-01 review found fourteen places where a document disagreed with
+    the repository, and nearly all of them were the same shape: a number or a
+    name that can be read out of the source tree, typed into a paragraph by
+    hand, and then kept in step by discipline. Six of the fourteen are fixed in
+    this pass; the generated blocks make the class impossible rather than
+    unlikely.
+  - Three checks carry no generated block. They assert the `BILLING` map
+    against the `server.tool()` registrations; that `docs/INDEX.md` links every
+    `docs/*.md` file and that every link resolves; and that every `pnpm <script>`
+    a document names exists. The last one had already caught `pnpm start:api`
+    and `pnpm start:worker` being documented before they existed.
+  - **Verified by mutation, not by inspection: 12 mutations, 12 caught.** Each
+    block id was corrupted in both directions (the source moved; the block
+    moved), a fake `pnpm` command was added to a document, a docs file was added
+    without an INDEX link, an INDEX link was broken, a compose service was
+    added, and every marker was deleted. That last one matters most: a
+    marker-syntax change that stops the regex matching would otherwise turn
+    every block check into a no-op that still prints a green tick (R-26).
+  - Two mutations were discarded rather than counted. They failed because pnpm
+    itself refused to run, not because the check caught anything — a mutation
+    battery that counts those as catches is measuring the wrong thing.
+- **Repository content is read in one request instead of one per file
+  (ADR D-017, V0.2-c).** This was the V0.2 blocker: `fetchContents`
+  issued a `repos.getContent` request per file, and
+  `DEFAULT_LIMITS.maxFiles` is 2000, so a full audit could spend the
+  whole 60 requests/hour anonymous budget (R-03) on downloading before
+  it analysed anything. Repository Map and Symbol Map need to read a
+  large number of source files, which is exactly the shape that broke.
+  - `git/tar.ts` — a read-only ustar reader. Hand-written rather than a
+    dependency because `@repopilot/core` ships octokit, pino and zod
+    and nothing else. The format is narrow but not trivial: measured
+    against a real 12,577-entry archive (`nodejs/node` v0.12.0), 192
+    entries have a path split across `prefix` + `name` and one carries a
+    130-character pax `path=`, so a reader that ignored both would
+    mis-address 193 of the 12,577. Takes the archive *after* gunzipping,
+    so it is pure and testable against a hand-built buffer.
+  - `git/tarball.ts` — `extractTarball()` reads the wanted paths out of
+    an archive. The archive's wrapper directory is derived from the
+    archive and then **checked against the tree the caller already
+    listed**, because the shape alone cannot settle it: `src/` +
+    `src/a.ts` is a flat archive and `repo/src/a.ts` is a wrapped one,
+    and in both cases every entry sits under one directory. Only the
+    wanted set can tell them apart, and getting it wrong yields files
+    that do not exist in the repository. Files that were not asked for
+    are never decoded.
+  - `GitHubFetcher.fetchRepositoryContents()` is the one entry point:
+    tarball first, then the existing per-file path on failure, with
+    `source` and `degraded` on the result. It also refuses an archive
+    that parses cleanly but contains none of the listed files — how a
+    moved ref would present — rather than returning an empty
+    repository. `filterFiles` and `classifyFile` are reused unchanged,
+    so the text/binary/ignore policy is identical on both paths.
+  - ADR D-024 records one deliberate departure from D-017: the archive
+    is decompressed in memory, not into a `mkdtemp` directory. The
+    reader needs a contiguous buffer anyway, so writing to disk first
+    would add a copy and a cleanup path without lowering peak memory —
+    and R-17's disk risk disappears with it. Two caps stand in for it:
+    64 MiB compressed, 256 MiB decompressed. Decompression runs off the
+    event loop.
+  - `degraded` reaches the report as a `limitations` line, because what
+    degraded is the request budget, not what the audit saw.
 - **The version is `0.1.0-rc.3`, which is what the code has been for two
   weeks.** Three documents written on different days — the `[0.1.0-rc.3]`
   CHANGELOG section, D-023 (2026-09-23) and R-23 — place the standalone worker
@@ -889,28 +830,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list above, from D-031, or from the Dockerfile's Node base image, its
   install/build filter lists, its install inputs and its runtime COPY list —
   were reintroduced one at a time and all seventeen were caught.
-- **`docker compose up -d` brought up a deployment that could not audit
-  anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
-  stack ran against an empty database: the `/health` probe (`repo.list(1)`)
-  threw `no such table`, `/health` answered `degraded` forever, and every audit
-  POST failed at the database layer — while every container reported healthy,
-  because `/health` returns HTTP 200 either way. `docker compose ps` showed a
-  full set of green ticks. The docs had prescribed "run `pnpm db:migrate`
-  once", which cannot be run in the runtime image: it carries `dist/` and
-  `node_modules/` but no `tsx`, which is what the script shells out to. There
-  is now a one-shot `migrate` service running `node
-  apps/api/dist/db/migrate.js`, and both `api` and `worker` wait on it with
-  `service_completed_successfully` (D-031). Re-running is a no-op — every
-  statement in `runMigrations` is `IF NOT EXISTS`. `compose:check` asserts the
-  ordering, and four mutations cover it (M9–M12). R-25 records the residual
-  risk for the three deployment shapes that are not compose.
-- **The single-image Docker instructions could not start.** The documented
-  `docker run` set `NODE_ENV=production` with `PAYMENT_MODE=mock`, which
-  `validateProductionConfig` rejects outright (R-02) — and it also omitted
-  `AUDIT_QUEUE_DRIVER`, whose `inline` default is rejected in production for the
-  same reason. It now runs as `NODE_ENV=development`, applies the schema first,
-  and states what a production config actually requires. The Railway and Render
-  sections gained the migration step they were missing.
 - **`.github/workflows/docker.yml` runs on push to `main`, and smoke-tests the
   topology rather than each image alone.** It builds both stages, runs them on
   one docker network, and asserts that `/` serves the app shell, `/api/*` and
@@ -921,21 +840,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a production-shaped environment is refused by the R-02 guard before the first
   request arrives, which would have made every routing assertion fail for a
   reason that has nothing to do with routing.
-- **`PROJECT_STATE.md` claimed `POST /api/v1/audits` answers "200 + report
-  after X-PAYMENT replay".** It answers 202 with `statusUrl` and `pollAfterMs`,
-  which is what D-015 says and what `routes/audits.ts` does. The same list said
-  the OpenAPI document is "consumed by web UI"; the web client never fetches
-  it. Both corrected.
-
-- **The documentation index now covers every document it claims to.**
-  `docs/INDEX.md` opens with "the single entry point for every document
-  in the repository" and did not link six of them — including
-  `DECISIONS.md`, the largest file in the repo at 1118 lines. The ADR
-  log, the risk register and the changelog now sit under a new *For
-  reviewers / auditors* section, and *Design intent* names the second
-  overlapping cluster (`ROADMAP` / `BACKLOG` / `PROJECT_STATE`, which
-  all answer some form of "what's next") with a precedence rule for
-  each pair.
 - **The seven documents over 300 lines have a table of contents**, and
   the twelve untagged code fences — ASCII diagrams, directory trees and
   plain command output — are marked `text`. TOC anchors were generated
@@ -1018,6 +922,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The entropy heuristic no longer fires on the wordlist that defines the
+  mnemonic rule (R-29).** The rule's candidate regex is "twelve lowercase
+  words" and `bip39-english.ts` is a file of twelve-word lines, so the rule
+  reported its own dictionary: **165 critical findings**, and in this
+  repository's self-audit that was the single largest contributor to
+  `securityHygiene: 0`. No per-match check can separate the two — the match is
+  identical — so the distinguishing fact is about the *file*: a seed phrase is
+  a line in a document, a wordlist is a file whose every word is a BIP-39 word.
+  `isWordlistFile()` asks that, and a new `skipFile` gate on the pattern makes
+  it inapplicable to such a file. Deliberately a property of the content
+  rather than of the path: a path exclusion would miss a wordlist fetched to a
+  temporary directory, renamed, or vendored. Threshold measured rather than
+  guessed — the wordlist scores **0.956**, the next-highest of the 248 tracked
+  files with at least 50 words scores **0.447**, and nothing measured lands
+  between them, so the band is wide and 0.75 is its midpoint.
+  **The first version of this fix missed the history path**, and the audit
+  caught it: `securityFindings` stayed at 7 with a `critical` finding against
+  `bip39-english.ts` in commit `82a244c`, and the report's headline read "Top
+  blocker: Secret in commit history: Possible seed phrase". The history
+  scanner scans a patch one added line at a time, so a file-level question was
+  being asked of a single line — and twelve words is below the floor
+  `isWordlistFile` needs before it will judge anything, so the answer was
+  always no. `scanTextForSecrets` now takes the text a file-level judgement
+  should be made against (`fileContent`), separately from the text being
+  scanned, and the history scanner passes the whole patch. A patch is the
+  widest sample that path has, and for the commit that adds a file it *is* the
+  file. A test pins both directions: a commit that adds a wordlist reports
+  nothing, and a single phrase added to an ordinary file is still reported.
+- **`limitations` no longer claims a cap that did not bite (V0.2-d
+  review).** Found by re-reading the builder rather than by a failing
+  test, and fixed together with the tests that would have caught it.
+  - The entrypoint cap was decided from
+    `entrypoints.length >= MAX_ENTRYPOINTS` while the producer truncates
+    on `>`, so a repository with exactly fifty entrypoints was told
+    "Entrypoints are capped at 50; there may be more" about a list that
+    was complete. The length cannot settle it — fifty entries is either
+    fifty or the first fifty of more — so `detectEntrypointSet()` returns
+    `{ entrypoints, total, truncated }` next to the unchanged
+    array-returning `detectEntrypoints()`, and the limitation follows
+    `truncated`.
+  - The dependency cap compared the **pre-dedupe** declaration count
+    against the cap while slicing the **deduplicated** list. A manifest
+    set declaring 600 entries that deduplicate to 450 was told "Only the
+    first 500 of 600 dependencies are listed" — a truncation that never
+    happened, with both numbers wrong. `collectDependencies()` now
+    returns `{ dependencies, total, truncated }` like `listFiles()` does,
+    and `countDependencies()` is deleted.
+  - A capped module list produced two `limitations` lines for one fact:
+    one from `detectModules()`, which knows the true total, and one from
+    `buildLimitations()`, which did not. The second is gone.
+  - This matters more than a stray line usually would, because
+    `limitations` is the artifact's honesty channel: a reader who catches
+    one untrue line stops believing the rest.
+  - **Test baseline: core +5** (545 → 550), four of them stating that a
+    cap is reported only when it actually cut something.
+- **`docker compose up -d` brought up a deployment that could not audit
+  anything.** Neither `server.js` nor `worker.js` applies migrations, so a fresh
+  stack ran against an empty database: the `/health` probe (`repo.list(1)`)
+  threw `no such table`, `/health` answered `degraded` forever, and every audit
+  POST failed at the database layer — while every container reported healthy,
+  because `/health` returns HTTP 200 either way. `docker compose ps` showed a
+  full set of green ticks. The docs had prescribed "run `pnpm db:migrate`
+  once", which cannot be run in the runtime image: it carries `dist/` and
+  `node_modules/` but no `tsx`, which is what the script shells out to. There
+  is now a one-shot `migrate` service running `node
+  apps/api/dist/db/migrate.js`, and both `api` and `worker` wait on it with
+  `service_completed_successfully` (D-031). Re-running is a no-op — every
+  statement in `runMigrations` is `IF NOT EXISTS`. `compose:check` asserts the
+  ordering, and four mutations cover it (M9–M12). R-25 records the residual
+  risk for the three deployment shapes that are not compose.
+- **The single-image Docker instructions could not start.** The documented
+  `docker run` set `NODE_ENV=production` with `PAYMENT_MODE=mock`, which
+  `validateProductionConfig` rejects outright (R-02) — and it also omitted
+  `AUDIT_QUEUE_DRIVER`, whose `inline` default is rejected in production for the
+  same reason. It now runs as `NODE_ENV=development`, applies the schema first,
+  and states what a production config actually requires. The Railway and Render
+  sections gained the migration step they were missing.
+- **`PROJECT_STATE.md` claimed `POST /api/v1/audits` answers "200 + report
+  after X-PAYMENT replay".** It answers 202 with `statusUrl` and `pollAfterMs`,
+  which is what D-015 says and what `routes/audits.ts` does. The same list said
+  the OpenAPI document is "consumed by web UI"; the web client never fetches
+  it. Both corrected.
+- **The documentation index now covers every document it claims to.**
+  `docs/INDEX.md` opens with "the single entry point for every document
+  in the repository" and did not link six of them — including
+  `DECISIONS.md`, the largest file in the repo at 1118 lines. The ADR
+  log, the risk register and the changelog now sit under a new *For
+  reviewers / auditors* section, and *Design intent* names the second
+  overlapping cluster (`ROADMAP` / `BACKLOG` / `PROJECT_STATE`, which
+  all answer some form of "what's next") with a precedence rule for
+  each pair.
 - **A `quick` report no longer claims an analysis was thinned (R-30).** The
   sentence `Quick scan skips some of the deeper reproducibility heuristics.`
   was false: `reproducibility` scored 28.5 in both modes and no analyzer
@@ -1256,7 +1251,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   meaningful. The fallback is now `null`, and
   `JobService.setCommitSha()` takes `string | null` to make that
   explicit at the call site.
-
 - **One generated file could zero a score dimension (R-22, ADR D-022).**
   `severityPenalty()` summed `SEVERITY_PENALTY` over every finding with no
   bound on how many one file could contribute. A lockfile is mostly
@@ -1281,7 +1275,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `packages/core/src/scoring/penalty-cap.test.ts` pins both
     directions: the cap holds, and breadth still scores. Reverting the
     cap fails 7 of its 8 tests.
-
 - **The secret heuristics were precise enough to be worth reading.**
   Auditing three real repositories (`octocat/Hello-World`, `pinojs/pino`,
   and this one) produced 676 findings, of which every hand-checked one was
@@ -1314,7 +1307,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `pino-telegram-webhook`, which is the string Telegram's own
     documentation uses — an inherent residual of the unknown-format
     catch-all, not a miss.
-
 - **Two existence questions were being asked of the wrong list.** The
   screenshot check could never pass:
   `entries.some(e => /\.(png|jpe?g|gif|webp|svg)$/i.test(e.path))`, where
@@ -1329,7 +1321,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped by a total-bytes cap — must not be reported as "0 characters
   long", so the content check requires the content and not merely the
   path.
-
 - **Fixture trees were being read as evidence about the project.**
   RepoPilot audited itself as `Solidity, Foundry` and then ticked
   `[x] Contracts covered by tests (Foundry / Hardhat)` — a green tick over
@@ -1341,7 +1332,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   predicate deliberately narrower than `isFixturePath` — that one includes
   `test/`, and a repository's own `test/Counter.sol` really does mean the
   project is Solidity.
-
 - **Two entry points disagreed about what a README is called.**
   `free-check` accepted a bare `README`; the full audit did not. That is
   not hypothetical: `octocat/Hello-World` — the repository this project's
@@ -1352,7 +1342,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`COPYING` against `LICENCE`). Both now read one set of constants in
   `utils/paths.ts`, which are the unions, so unifying made neither entry
   point stricter than it already was.
-
 - **The launch checklist inlined every finding title.** Its two
   finding-backed rows mapped findings to titles one for one, so the
   self-audit printed a single line holding 639 of them — roughly forty
@@ -1362,7 +1351,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remainder reported as counts of groups and of findings:
   `High-entropy string ×557 in pnpm-lock.yaml`. On the 2026-10-01
   self-audit data, 639 findings and 41 groups become six lines.
-
 - **The prompt-injection detector fired on its own source.** The
   self-audit flagged eleven files and ten were false: `security/injection.ts`
   (the keyword table, matched against itself), its own test suite,
@@ -1388,7 +1376,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Recorded, not fixed: the audit prompt carries repository metadata and
     no file content, so the only repository text that can reach a model
     today is its GitHub description, and that is not scanned (R-08).
-
 - **A test carried a thirty-five-line second copy of the scoring rules
   that nothing read.** `pipeline-fixture.test.ts` built a whole
   `ScoringInput` by hand and never used it; one of its predicates asked
@@ -1397,7 +1384,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixing one copy of a rule does not fix the other. The dead block is
   deleted rather than updated, and the test now asserts on the analyzers'
   own outputs so those calls stay live.
-
 - **The score breakdown asserted things that were not true.** It emitted
   every rule with `delta: 0` for the ones that did not fire, keeping the
   rule's penalty-shaped text — so a real report contained
@@ -1409,7 +1395,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads `b?.delta ?? 0`, and what the test's own name — "breakdown records
   every applied rule" — already claimed. Found by reading a real audit's
   JSON, not by reading the code.
-
 ## [0.1.0-rc.3] - 2026-07-19
 
 ### Added
