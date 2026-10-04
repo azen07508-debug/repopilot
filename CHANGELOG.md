@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`free_check` — the free entry point, on the MCP surface.** The
+  marketplace listing sells Free Check as "the entry point used by other AI
+  agents to triage a repo before deciding to pay for a full audit", and MCP
+  is the AI-agent channel — but the tool existed only over HTTP. The stated
+  entry point was absent from the one surface that reaches the audience the
+  sentence names. It is the same dependency-free `FreeCheckRunner`
+  `/api/v1/free-check` uses and returns the same `FreeCheckReport`
+  (`reportVersion: "1.0"`), with no `jobId`: a free check is not a job, so
+  there is nothing to poll. A repository that cannot be read comes back as
+  `{error: "repository_unavailable", message: "[404] …"}`, matching the
+  intelligence tools. The MCP surface is now 14 tools.
+- **`FreeCheckSource` — the seam that makes the free check testable.**
+  `FreeCheckRunner` built `GitHubFetcher` and `MetadataAnalyzer` inline, so
+  the product's own entry point was the one part of it no test could drive.
+  `free-check.test.ts` worked around that by re-implementing the matching
+  rules inside the test bodies — see Fixed. The seam is one interface with
+  two methods (`metadata`, `tree`), defaulted to the real GitHub source, and
+  it is what the MCP server's `freeCheckSource` option forwards.
 - **`report/tiers.ts` — the one place that says what each tier contains.**
   R-30 was three `if (mode === 'full')` sites in `report/builder.ts` plus a
   claim in `MARKETPLACE_LISTING.md`, with nothing comparing them; two sites
@@ -626,6 +644,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`FreeCheckOptions` lost three fields that did nothing.** `maxFiles`,
+  `maxFileBytes` and `maxTotalBytes` were defaulted, stored on the instance,
+  and never read by `run()` — while `apps/api` passed
+  `maxFiles: Math.min(200, cfg.MAX_FILES)` into them, so `MAX_FILES` silently
+  did nothing on `POST /api/v1/free-check` and looked like it did. Removed
+  rather than implemented: the runner reads a tree listing and never
+  downloads a file, so the byte bounds had no meaning, and bounding the tree
+  by truncating it would turn a cut-off listing into `has-readme: FAIL` on a
+  repository that has a README — the false negative this entry point has
+  already produced once.
 - **The audit tiers are separated by what the report delivers, not by
   claimed analysis depth (R-30).** Both tiers ran every analyzer over the
   same archive and produced the same scores, blockers and findings, while
@@ -922,6 +950,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The free check's test suite did not test the free check (R-35).** The
+  "FreeCheck heuristics" cases built their own `README_NAMES`,
+  `LICENSE_NAMES`, `LOCKFILE_PATTERNS` and `entries.find(...)` inside the
+  test bodies, then asserted on those, so every assertion was about code
+  written in the test file. Measured: with `LOCKFILE_PATTERNS` emptied in
+  `free-check.ts`, the old file passed **5 of 5**. The two cases that did
+  reach the real runner were URL rejections, which return before any network
+  call. The file now drives the shipped runner through `FreeCheckSource` —
+  26 cases over the five checks, the score arithmetic, the evidence strings,
+  the branch-resolution order, the metadata-failure fallback and the stack
+  detection. Verified by mutation: emptying the lockfile rules fails 8
+  cases, reading a fixed `main` instead of the reported branch fails 1, and
+  returning the first match instead of the shortest path fails 1.
+- **Two `free_check` evidence strings named a place the check never looked.**
+  `has-readme` and `has-license` match a basename at any depth, so a
+  repository with `docs/README.md` passes; the failure message said "at the
+  repository root". It now says "anywhere in the repository". A limitation
+  the new tests record rather than hide: the lookup compares names exactly,
+  so `Readme.md` is not recognised. Widening it changes the paid audit's
+  scoring too — both read `README_FILENAMES` — so it is marked with
+  `it.fails` and left for its own change.
 - **The entropy heuristic no longer fires on the wordlist that defines the
   mnemonic rule (R-29).** The rule's candidate regex is "twelve lowercase
   words" and `bip39-english.ts` is a file of twelve-word lines, so the rule

@@ -9,7 +9,7 @@ Pick the one that matches your role and jump straight in.
   paid audit flow, tech stack overview.
 - [docs/MCP_CLIENT_SETUP.md](MCP_CLIENT_SETUP.md) — how to point an MCP
   client (Claude Code, Codex, OpenClaw, or any generic client) at the
-  MCP server, and what its <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end --> tools do.
+  MCP server, and what its <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end --> tools do.
 - [MARKETPLACE_LISTING.md](../MARKETPLACE_LISTING.md) — the ready-to-paste
   OKX.AI Marketplace copy (name, tagline, description) in English and
   Chinese.

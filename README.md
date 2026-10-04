@@ -34,7 +34,7 @@ audit. It does not custody funds or read private keys.
   that changed, and which findings were resolved, appeared or persist.
 - **Built for AI agents.** The report is a single JSON document with a
   stable schema (`reportVersion: "1.2"`; `"1.1"` and `"1.0"` still parse). The MCP
-  server exposes <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end -->
+  server exposes <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end -->
   tools and marks which of them are free, so any MCP-compatible client
   can drive the whole loop.
 - **No surprise charges.** Reading a fix plan or a comparison is free;

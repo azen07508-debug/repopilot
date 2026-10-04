@@ -51,6 +51,8 @@ Active risks the team is aware of and how they are mitigated.
   — The local lint gate checks downstream packages against a stale `dist`
 - [R-34](#r-34--the-mcp-server-cannot-be-installed-outside-its-own-checkout)
   — The MCP server cannot be installed outside its own checkout
+- [R-35](#r-35--a-test-that-re-implements-the-code-under-test-asserts-nothing-about-it)
+  — A test that re-implements the code under test asserts nothing about it
 
 ---
 
@@ -1319,3 +1321,74 @@ packages together under a scope or bundle the two workspace packages into
 this one's `dist` — is a distribution decision, not a defect, and is
 deliberately left open.
 
+
+## R-35 — A test that re-implements the code under test asserts nothing about it
+
+**Severity:** Medium
+**Likelihood:** Certain — measured on 2026-10-04
+
+**What happens.** `free-check.test.ts` opened with a `describe('FreeCheck
+heuristics')` block whose cases built their own `README_NAMES` set, their own
+`LICENSE_NAMES` and `ENV_EXAMPLE_NAMES` sets, their own `LOCKFILE_PATTERNS`
+array, their own CI regexes, and their own `entries.find(...)` — inside the
+test body — and then asserted on those. Every assertion was about code
+written in the test file. The module they were named after was not involved.
+
+The file did contain two cases that reached the real `FreeCheckRunner`, and
+they are the reason the block looked like coverage: `rejects a non-https URL`
+and `rejects an off-allowlist host`. Both are answered by `parseRepoUrl`,
+which runs before the runner touches anything, so they exercised the URL
+parser and nothing else. Five green tests, four of them about a copy.
+
+**Measured.** With `LOCKFILE_PATTERNS` emptied in `packages/core/src/
+free-check.ts`, the old file passed **5 of 5** — the same 5 it passed before.
+The rules that decide whether a repository has a lockfile could have been
+deleted outright and the suite would have said the entry point was fine.
+
+**Why it mattered here more than elsewhere.** This was not an obscure module.
+It is `POST /api/v1/free-check` — the no-payment tier the marketplace listing
+describes as *"the entry point used by other AI agents to triage a repo before
+deciding to pay for a full audit"*. It is the first thing a prospective buyer
+runs, it is the cheapest thing to break, and it was the least verified part of
+the product. A funnel entry that reports `has-readme: FAIL` on a repository
+that has a README costs a sale before the paid tier is ever reached.
+
+**How it was found.** Not by a check, and not by reading the test file —
+reading it produces the impression of a well-covered module, because the
+constants being rebuilt look like fixtures. It was found by trying to *use*
+the runner from a second caller: adding `free_check` to the MCP server needed
+a way to drive the runner without the network, and there was none. The
+runner built `GitHubFetcher` and `MetadataAnalyzer` inline, so no test could
+substitute them. The absent seam is what led back to the tests that had been
+written to route around it.
+
+**The rule.** A test asserts something about the product only if it reaches
+product code. Re-declaring a constant inside a test body converts a real
+assertion into a tautology, and the failure is invisible in review because the
+test reads as thorough — it names the right things and covers the right
+cases, just against the wrong code. The question to ask of any test is the
+one R-26 asks of any check: **what would have to change in the product for
+this to go red?** If the answer is "nothing in the product", it is not a test.
+
+**Mitigation.** `FreeCheckRunner` takes a `source` (`FreeCheckSource`:
+`metadata` + `tree`), defaulted to the real GitHub source, and
+`free-check.test.ts` drives the shipped runner through it — 26 cases over the
+five checks, the score arithmetic, the evidence strings, the branch-resolution
+order, the metadata-failure fallback and the stack detection. Each new
+assertion was mutation-tested before landing: emptying `LOCKFILE_PATTERNS`
+fails 8 cases, reading a fixed `main` instead of the branch the metadata
+reports fails 1, returning the first match instead of the shortest path fails
+1. That last mutation **survived the first version of the test** — the fixture
+listed `README.md` before `docs/README.md`, so first-match and shortest-match
+gave the same answer and the case was green for a reason it did not state.
+The fixture order was changed until the mutation died, which is the only
+evidence that a case discriminates between the two rules.
+
+**Residual risk.** Only this module was re-examined. The same shape — a test
+that rebuilds the logic it means to check — is invisible to every existing
+gate, and nothing in CI looks for it. `pnpm -r test` counts cases, not
+whether they can fail.
+
+**Related.** R-26 (a check that never runs is indistinguishable from one that
+passes), R-27 (a check that can never pass), D-034 (the scope of a check is
+part of the check).

@@ -27,7 +27,8 @@ five boolean checks (README, LICENSE, .env.example, lockfile, CI) plus
 a 0-100 score. No evidence, no task list, no launch copy. Always
 returns HTTP 200 (or a 4xx/502 if the repo is unreachable). This is
 the entry point used by other AI agents to triage a repo before
-deciding to pay for a full audit.
+deciding to pay for a full audit — and it is on both channels an agent
+might use: `POST /api/v1/free-check` over HTTP, `free_check` over MCP.
 
 **Quick Scan — 0.02 USDT**
 The readiness verdict: stack detection, README / LICENSE / .env.example
@@ -93,7 +94,8 @@ Web3 配置问题与黑客松提交准备度。它返回结构化的证据、优
 无需账户、无需付费的只读仓库健康探测。返回五个布尔检查项（README、
 LICENSE、.env.example、lockfile、CI）以及 0-100 的评分。不含证据、不含任务
 清单、不含发布文案。始终返回 HTTP 200（或仓库不可达时的 4xx/502）。
-该接口是其他 AI Agent 用来在决定付费做完整审计前先做初筛的入口。
+该接口是其他 AI Agent 用来在决定付费做完整审计前先做初筛的入口，
+且两条通道都可用：HTTP 走 `POST /api/v1/free-check`，MCP 走 `free_check`。
 
 **快速扫描 — 0.02 USDT**
 就绪度结论：技术栈识别、README / LICENSE / .env.example 检查、lockfile

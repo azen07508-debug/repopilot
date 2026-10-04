@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import type { PaymentConfig } from '@repopilot/okx-adapter';
-import type { RepoMetadata } from '@repopilot/core';
+import type { FreeCheckSource, RepoMetadata } from '@repopilot/core';
 import { buildMcpServer, BILLING } from './index.js';
 import {
   MAX_CONTEXT_DEPENDENCIES,
@@ -42,6 +42,7 @@ beforeAll(() => {
 const ADVERTISED_TOOLS = [
   'audit_github_repository',
   'reaudit_repository',
+  'free_check',
   'get_fix_plan',
   'quality_status',
   'release_check',
@@ -82,9 +83,15 @@ function toolNames(server: unknown): string[] {
 async function callTool<T = unknown>(
   loader: SnapshotLoader,
   name: string,
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown> = {},
+  freeCheckSource?: FreeCheckSource
 ): Promise<T> {
-  const { server } = buildMcpServer({ payment, allowedHosts: ALLOWED_HOSTS, snapshotLoader: loader });
+  const { server } = buildMcpServer({
+    payment,
+    allowedHosts: ALLOWED_HOSTS,
+    snapshotLoader: loader,
+    ...(freeCheckSource === undefined ? {} : { freeCheckSource }),
+  });
   const tool = registryOf(server)[name];
   if (!tool) throw new Error(`tool not registered: ${name}`);
   const result = await tool.callback(args);
@@ -201,6 +208,96 @@ describe('MCP server', () => {
     const { server } = buildMcpServer({ payment, allowedHosts: ALLOWED_HOSTS });
     expect([...Object.keys(BILLING)].sort()).toEqual([...toolNames(server)].sort());
     expect([...Object.keys(BILLING)].sort()).toEqual([...ADVERTISED_TOOLS].sort());
+  });
+});
+
+/**
+ * The free check, on the AI-agent channel.
+ *
+ * `MARKETPLACE_LISTING.md` calls Free Check "the entry point used by other AI
+ * agents to triage a repo before deciding to pay for a full audit". MCP is that
+ * channel and the tool was absent from it, so these tests exist to keep it
+ * there — and to keep it honest about being the cheap one: it reads a tree
+ * listing and never asks the snapshot loader for file contents.
+ */
+describe('the free check tool', () => {
+  const FILES = ['README.md', 'LICENSE', '.env.example', 'package.json', 'pnpm-lock.yaml'];
+
+  function freeCheckSourceOf(files: string[]): FreeCheckSource & { refs: string[] } {
+    const state = { refs: [] as string[] };
+    const source: FreeCheckSource = {
+      metadata: async () => metadata('sample'),
+      tree: async (_owner, _repo, ref) => {
+        state.refs.push(ref);
+        return files.map((path) => ({ path, size: 10 }));
+      },
+    };
+    return Object.assign(source, state);
+  }
+
+  interface FreeCheckAnswer {
+    kind: string;
+    reportVersion: string;
+    checks: { id: string; passed: boolean; evidence: string | null }[];
+    score: { value: number; passed: number; total: number };
+  }
+
+  it('answers with a FreeCheckReport, not a job', async () => {
+    const source = freeCheckSourceOf(FILES);
+    const result = await callTool<FreeCheckAnswer>(
+      loaderOf(snapshotOf(SAMPLE)),
+      'free_check',
+      { repo_url: 'https://github.com/repopilot/sample' },
+      source
+    );
+
+    expect(result.kind).toBe('free-check');
+    expect(result.reportVersion).toBe('1.0');
+    expect(result.checks.map((c) => c.id)).toEqual([
+      'has-readme',
+      'has-license',
+      'has-env-example',
+      'has-lockfile',
+      'has-ci',
+    ]);
+    // Four of five: there is no CI configuration in FILES.
+    expect(result.score).toEqual({ value: 80, passed: 4, total: 5 });
+  });
+
+  it('reads the tree and never asks for file contents', async () => {
+    // The header claims `free_check` is the cheapest repository-reading tool
+    // because presence is a question about names. If it ever starts routing
+    // through the snapshot loader, that claim is false and the tool silently
+    // became a tarball download.
+    const loader = loaderOf(snapshotOf(SAMPLE));
+    const source = freeCheckSourceOf(FILES);
+    await callTool(loader, 'free_check', { repo_url: 'https://github.com/repopilot/sample' }, source);
+
+    expect(loader).not.toHaveBeenCalled();
+    expect(source.refs).toEqual(['main']);
+  });
+
+  it('returns a structured error rather than throwing when the fetch fails', async () => {
+    const source: FreeCheckSource = {
+      metadata: async () => metadata('sample'),
+      tree: async () => {
+        throw Object.assign(new Error('Not Found'), { status: 404 });
+      },
+    };
+
+    const result = await callTool<{ error: string; message: string }>(
+      loaderOf(snapshotOf(SAMPLE)),
+      'free_check',
+      { repo_url: 'https://github.com/repopilot/missing' },
+      source
+    );
+
+    expect(result.error).toBe('repository_unavailable');
+    expect(result.message).toBe('[404] Not Found');
+  });
+
+  it('is advertised as free in the capabilities billing map', () => {
+    expect(BILLING.free_check.paid).toBe(false);
   });
 });
 

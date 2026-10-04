@@ -274,12 +274,14 @@ export async function buildApp(
     allowedHosts: deps.allowedHosts,
     log,
   });
+  // No `maxFiles` / `maxFileBytes` / `maxTotalBytes` here. They used to be
+  // passed — `maxFiles` as `Math.min(200, cfg.MAX_FILES)` — and the runner
+  // stored them without ever reading them, so `MAX_FILES` did nothing on this
+  // route while looking like it did. The runner reads a tree listing and never
+  // downloads a file, so there is no byte bound to set either.
   const freeCheckRunner = new FreeCheckRunner({
     githubToken: deps.githubToken ?? cfg.GITHUB_TOKEN,
     allowedHosts: deps.allowedHosts,
-    maxFiles: Math.min(200, cfg.MAX_FILES),
-    maxFileBytes: 262_144,
-    maxTotalBytes: 5_242_880,
     networkTimeoutMs: 15_000,
   });
   registerFreeCheckRoutes(app, {

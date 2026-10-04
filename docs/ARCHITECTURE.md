@@ -76,7 +76,7 @@ rather than typed here. `pnpm docs:check` fails if the two disagree.
 <!-- docs-facts:mcp-tools-box -->
 ```text
 ┌─────────────────────────────────────────┐
-│  packages/mcp-server (stdio), 13 tools  │
+│  packages/mcp-server (stdio), 14 tools  │
 │    paid: audit_github_repository        │
 │          reaudit_repository             │
 │    free: get_audit_status               │
@@ -85,6 +85,7 @@ rather than typed here. `pnpm docs:check` fails if the two disagree.
 │          get_fix_plan                   │
 │          compare_audits                 │
 │          list_audit_history             │
+│          free_check                     │
 │          get_repository_context         │
 │          get_repository_map             │
 │          get_symbol_map                 │

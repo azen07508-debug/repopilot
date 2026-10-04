@@ -1,7 +1,7 @@
 # RepoPilot — MCP Client Setup
 
 RepoPilot ships an MCP (Model Context Protocol) server that exposes
-RepoPilot as <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end --> tools to any MCP-compatible client.
+RepoPilot as <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end --> tools to any MCP-compatible client.
 
 ## Contents
 
@@ -33,10 +33,15 @@ can call them as often as it likes:
   tools are free or paid
 
 **Free, and they do read a repository** — the Repository Intelligence
-artifacts. These need a file list and file contents, so they fetch a
-tree and a tarball (three requests) and derive. "Free" means **no
-analysis pipeline**: nothing here scores, judges or scans for findings.
+artifacts, plus the free check. The four intelligence tools need a file
+list and file contents, so they fetch a tree and a tarball (three
+requests) and derive. `free_check` needs only the file names, so it reads
+the tree listing and stops. "Free" means **no analysis pipeline**: nothing
+here scores, judges or scans for findings.
 
+- `free_check` — five presence checks (README, LICENSE, `.env.example`,
+  lockfile, CI) and a 0-100 score, from the file names alone. The entry
+  point: call this before paying for anything
 - `get_repository_context` — what is this repository, and where do I
   start reading? The one call to make first
 - `get_repository_map` — modules with an importance score, entrypoints,
@@ -47,9 +52,9 @@ analysis pipeline**: nothing here scores, judges or scans for findings.
 
 The first group closes the loop an agent actually needs: audit → fix
 plan → fix → re-audit → compare. The second answers "what am I looking
-at?" before spending money on an audit. `get_repopilot_capabilities`
-returns a `billing` map so an agent can tell what costs money before
-calling it.
+at?" before spending money on an audit, and `free_check` is the cheapest
+way to ask. `get_repopilot_capabilities` returns a `billing` map so an
+agent can tell what costs money before calling it.
 
 The current transport is **stdio** (the official MCP TS SDK
 `@modelcontextprotocol/sdk@1.22.0`). HTTP/SSE transport is on the
@@ -243,6 +248,67 @@ The wire protocol is plain NDJSON on stdin/stdout, so any client that
 can spawn a subprocess works.
 
 ## Tool reference
+
+### `free_check`
+
+The no-payment entry point. Start here: it costs nothing, returns in one
+request, and tells you whether the repository is worth a paid audit.
+
+It reads the repository **tree listing** and nothing else — it never opens
+a file. Five presence checks and a score out of 100:
+
+| Check id | Passes when |
+| --- | --- |
+| `has-readme` | A README is anywhere in the tree |
+| `has-license` | A LICENSE (or LICENCE / COPYING) is anywhere in the tree |
+| `has-env-example` | `.env.example`, `.env.sample`, `example.env`, `sample.env` or `env.example` |
+| `has-lockfile` | Any of pnpm / npm / yarn / bun / Pipfile / poetry / Cargo / go.sum / composer |
+| `has-ci` | `.github/workflows/*.yml`, `.circleci/config.yml`, `.gitlab-ci.yml`, `.travis.yml`, `.drone.yml`, `.buildkite/pipeline.yml`, `Jenkinsfile`, `azure-pipelines.yml` |
+
+Each check scores 20 points. The evidence names the file it matched.
+
+**Input**
+
+```json
+{ "repo_url": "https://github.com/owner/repo" }
+```
+
+**Output** — a `FreeCheckReport`, `reportVersion: "1.0"`, `kind: "free-check"`:
+
+```json
+{
+  "reportVersion": "1.0",
+  "kind": "free-check",
+  "repository": { "url": "...", "host": "github.com", "owner": "owner", "name": "repo", "valid": true },
+  "metadata": { "description": "...", "defaultBranch": "main", "stars": 12, "language": "TypeScript", "topics": [] },
+  "stack": { "languages": ["TypeScript"], "frameworks": [], "runtimes": ["Node.js"] },
+  "checks": [{ "id": "has-readme", "title": "README present", "passed": true, "evidence": "README.md found" }],
+  "score": { "value": 100, "passed": 5, "total": 5 },
+  "generatedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+
+**No `jobId`, and no `job_id` to pass anywhere.** A free check is not a
+job: it does not run the pipeline, so there is nothing to poll and nothing
+to compare later. `metadata` is `null` if the metadata call fails — that
+is not an error, the checks still run.
+
+**Failure** — a repository that cannot be read comes back as a payload,
+not an exception, so an agent has something to act on:
+
+```json
+{ "error": "repository_unavailable", "message": "[404] Not Found" }
+```
+
+`[403]` and `[429]` mean GitHub rate-limited the request; set
+`GITHUB_TOKEN` and retry. `[404]` means the URL is wrong or the repository
+is private.
+
+**What it is not.** `free_check` says what is *present*, never what is
+*wrong*. It does not read inside a file, so it cannot see a README that is
+empty, a licence that is not a licence, or a committed secret. The paid
+audit is the superset: findings with evidence, blockers, per-dimension
+scores, and a launch plan.
 
 ### `audit_github_repository`
 

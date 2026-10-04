@@ -34,14 +34,64 @@ import {
   README_FILENAMES,
 } from './utils/paths.js';
 
+/**
+ * Where the runner reads a repository from.
+ *
+ * `FreeCheckRunner` used to build `GitHubFetcher` and `MetadataAnalyzer` inline,
+ * which left the product's own entry point as the one part of it no test could
+ * drive. `free-check.test.ts` worked around that by re-implementing the five
+ * matching rules inside the test body — so it asserted on its own copy of the
+ * logic and would have stayed green through any change to the real one. This
+ * is the seam that makes those assertions mean something.
+ *
+ * It is also the seam that lets the MCP server exercise the tool, and the HTTP
+ * route keep its current behaviour, without either of them standing up GitHub.
+ */
+export interface FreeCheckSource {
+  /** Repository metadata. Never fatal: a `null` yields a report without stars. */
+  metadata(owner: string, repo: string): Promise<RepoMetadata | null>;
+  /** The tree at a ref. A throw here reaches the caller unchanged. */
+  tree(owner: string, repo: string, ref: string): Promise<FileEntry[]>;
+}
+
 export interface FreeCheckOptions {
   githubToken?: string;
   allowedHosts: string[];
-  maxFiles?: number;
-  maxFileBytes?: number;
-  maxTotalBytes?: number;
   /** Max time per network call. */
   networkTimeoutMs?: number;
+  /** The seam a test drives instead of the network. */
+  source?: FreeCheckSource;
+}
+
+/**
+ * The real source: one metadata call, one tree call, and no file contents.
+ *
+ * Nothing here downloads a file, which is why there is no `maxFileBytes` or
+ * `maxTotalBytes` to pass. Both used to exist on `FreeCheckOptions` — carried
+ * over from the audit config, defaulted, stored on the instance, and never read
+ * by `run()`. `apps/api` was passing `maxFiles: Math.min(200, cfg.MAX_FILES)`
+ * into a field that had no effect, so `MAX_FILES` silently did nothing here.
+ * They are gone rather than implemented: bounding the tree by truncating it
+ * would turn a cut-off listing into `has-readme: FAIL` on a repository that has
+ * a README, and a false negative is the one failure this entry point has
+ * already been bitten by (see the shared-lists comment above).
+ */
+export function createGitHubSource(opts: {
+  githubToken?: string;
+  networkTimeoutMs?: number;
+}): FreeCheckSource {
+  return {
+    metadata: (owner, repo) =>
+      new MetadataAnalyzer({
+        token: opts.githubToken,
+        timeoutMs: opts.networkTimeoutMs,
+      }).fetch(owner, repo),
+    tree: async (owner, repo, ref) => {
+      const fetcher = new GitHubFetcher(opts.githubToken);
+      const { entries } = await fetcher.fetchTree(owner, repo, ref);
+      return entries;
+    },
+  };
 }
 
 interface CheckResult {
@@ -188,19 +238,23 @@ function buildStack(signals: StackSignal[]): {
 }
 
 export class FreeCheckRunner {
-  private opts: Required<Omit<FreeCheckOptions, 'githubToken'>> & {
+  private opts: Required<Omit<FreeCheckOptions, 'githubToken' | 'source'>> & {
     githubToken?: string;
   };
+  private readonly source: FreeCheckSource;
 
   constructor(opts: FreeCheckOptions) {
     this.opts = {
       githubToken: opts.githubToken,
       allowedHosts: opts.allowedHosts,
-      maxFiles: opts.maxFiles ?? 200,
-      maxFileBytes: opts.maxFileBytes ?? 262_144, // 256 KB per file
-      maxTotalBytes: opts.maxTotalBytes ?? 5_242_880, // 5 MB total
       networkTimeoutMs: opts.networkTimeoutMs ?? 15_000,
     };
+    this.source =
+      opts.source ??
+      createGitHubSource({
+        githubToken: opts.githubToken,
+        networkTimeoutMs: this.opts.networkTimeoutMs,
+      });
   }
 
   async run(input: FreeCheckInput): Promise<FreeCheckReport> {
@@ -229,24 +283,18 @@ export class FreeCheckRunner {
     //    be useful without stars/description, so long as the tree is reachable.
     let metadata: RepoMetadata | null = null;
     try {
-      const meta = new MetadataAnalyzer({
-        token: this.opts.githubToken,
-        timeoutMs: this.opts.networkTimeoutMs,
-      });
-      metadata = await meta.fetch(parsed.owner, parsed.repo);
+      metadata = await this.source.metadata(parsed.owner, parsed.repo);
     } catch {
       metadata = null;
     }
 
     // 3. Fetch a slim tree. Hard failures here are propagated so the route
     //    can surface 404 / 403 / 429 / 502 to the caller.
-    const fetcher = new GitHubFetcher(this.opts.githubToken);
-    const tree = await fetcher.fetchTree(
+    const entries: FileEntry[] = await this.source.tree(
       parsed.owner,
       parsed.repo,
       metadata?.defaultBranch ?? parsed.defaultBranchHint ?? 'main',
     );
-    const entries: FileEntry[] = tree.entries;
 
     // 4. Stack detection.
     const stackSignals = detectStack(entries, new Map());
@@ -259,18 +307,19 @@ export class FreeCheckRunner {
     const lockfile = findAny(entries, LOCKFILE_PATTERNS);
     const ci = findAny(entries, CI_PATTERNS);
 
+    // The README and LICENSE lookups match a basename anywhere in the tree, so
+    // "at the repository root" was wrong in both failure messages — a
+    // repository with `docs/README.md` passes this check, and a repository with
+    // no README at all was being told to look in a place the check never
+    // restricted itself to. The sentence an agent reads has to describe the
+    // check that produced it.
     const checks: CheckResult[] = [
-      makeCheck(
-        'has-readme',
-        'README present',
-        readme,
-        'No README at the repository root',
-      ),
+      makeCheck('has-readme', 'README present', readme, 'No README anywhere in the repository'),
       makeCheck(
         'has-license',
         'License file present',
         license,
-        'No LICENSE file at the repository root',
+        'No LICENSE file anywhere in the repository',
       ),
       makeCheck(
         'has-env-example',

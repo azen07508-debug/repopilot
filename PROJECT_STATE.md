@@ -126,7 +126,7 @@ repopilot/
 ## MCP server
 
 - Transport: stdio
-- Tools: <!-- docs-facts:mcp-tool-count -->13<!-- docs-facts:end --> registered.
+- Tools: <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end --> registered.
   `get_repopilot_capabilities` returns the same list with a `billing` map, so an
   agent can tell free from paid before it calls anything.
 - Bin: `packages/mcp-server/dist/cli.js` (also `repopilot-mcp`)
@@ -142,6 +142,7 @@ repopilot/
 | `get_fix_plan` | free |
 | `compare_audits` | free |
 | `list_audit_history` | free |
+| `free_check` | free |
 | `get_repository_context` | free |
 | `get_repository_map` | free |
 | `get_symbol_map` | free |

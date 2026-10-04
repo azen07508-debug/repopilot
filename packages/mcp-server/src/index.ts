@@ -1,7 +1,7 @@
 /**
  * MCP server for RepoPilot.
  *
- * Exposes thirteen tools, split by cost:
+ * Exposes fourteen tools, split by cost:
  *
  *   Paid (they run the pipeline):
  *   - audit_github_repository: run a Quick Scan or Full Launch Audit
@@ -17,6 +17,7 @@
  *   - get_repopilot_capabilities: inputs, outputs, limits, pricing, billing
  *
  *   Free, and they do read a repository (V0.2-g, ADR D-028):
+ *   - free_check: five presence checks and a score, from the file names alone
  *   - get_repository_context: what is this repo, and where do I start?
  *   - get_repository_map: modules, entrypoints, dependencies, important files
  *   - get_symbol_map: the declaration surface, with line ranges
@@ -25,11 +26,13 @@
  * The report tools never scan a repository: they call the same pure functions
  * (`buildFixPlanSet`, `diffReports`) the HTTP API uses. The intelligence tools
  * do read one — and that is the distinction this header used to blur. **Free
- * means no analysis pipeline**, not "no network": the four intelligence tools
- * fetch a tree and a tarball (three requests, D-017) and derive, and nothing
- * they do scores, judges or scans history. D-019 is the reason they are free —
- * an agent asks them five to ten times per repository, and a paid call at that
- * frequency is a paid call nobody makes.
+ * means no analysis pipeline**, not "no network": the five repository-reading
+ * tools fetch a tree and, for the four that need file contents, a tarball
+ * (three requests, D-017) and derive, and nothing they do scores, judges or
+ * scans history. `free_check` is the cheapest of them — it reads the tree
+ * listing and stops, because presence is a question about names. D-019 is the
+ * reason they are free — an agent asks them five to ten times per repository,
+ * and a paid call at that frequency is a paid call nobody makes.
  *
  * Communication is stdio JSON-RPC (the official MCP transport). No
  * credentials are stored here; payment is handled by the OKX adapter
@@ -46,7 +49,9 @@ import {
   diffReports,
   evaluateQualityContract,
   findingKey,
+  FreeCheckRunner,
   type CreateAuditInput,
+  type FreeCheckSource,
   type Report,
   type Capabilities,
   DEFAULT_LIMITS,
@@ -83,6 +88,16 @@ export interface McpServerOptions {
    * a tool *returns* — including what it returns when the fetch fails.
    */
   snapshotLoader?: SnapshotLoader;
+  /**
+   * The same seam for `free_check`.
+   *
+   * A second seam rather than a second loader because the free check reads a
+   * tree and nothing else: it needs no contents, no tarball, and it is the one
+   * tool here whose whole answer is derived from file names. Sharing
+   * `snapshotLoader` would have meant downloading a repository to answer a
+   * question that never looks inside a file.
+   */
+  freeCheckSource?: FreeCheckSource;
 }
 
 /**
@@ -99,6 +114,10 @@ export interface McpServerOptions {
 export const BILLING = {
   audit_github_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
   reaudit_repository: { paid: true, reason: 'Runs the analysis pipeline.' },
+  free_check: {
+    paid: false,
+    reason: 'Reads the repository tree and derives; never runs the pipeline.',
+  },
   get_fix_plan: { paid: false, reason: 'Derived from an existing report.' },
   quality_status: { paid: false, reason: 'Derived from an existing report.' },
   release_check: { paid: false, reason: 'Derived from an existing report.' },
@@ -137,6 +156,11 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
     githubToken: opts.githubToken,
     allowedHosts: opts.allowedHosts,
     ...(opts.snapshotLoader === undefined ? {} : { load: opts.snapshotLoader }),
+  });
+  const freeCheck = new FreeCheckRunner({
+    githubToken: opts.githubToken,
+    allowedHosts: opts.allowedHosts,
+    ...(opts.freeCheckSource === undefined ? {} : { source: opts.freeCheckSource }),
   });
 
   const server = new McpServer(
@@ -429,6 +453,43 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
       return { error: 'repository_unavailable', message: describeError(error) };
     }
   }
+
+  /**
+   * The funnel entry, on the channel the funnel is aimed at.
+   *
+   * `MARKETPLACE_LISTING.md` sells Free Check as "the entry point used by other
+   * AI agents to triage a repo before deciding to pay for a full audit" — and
+   * MCP is the AI-agent channel. It was on the HTTP surface and absent here, so
+   * the stated entry point was missing from the one surface that reaches the
+   * audience the sentence names. Nothing about the runner is MCP-specific: this
+   * is the same dependency-free `FreeCheckRunner` `/api/v1/free-check` uses, and
+   * it answers with the same `FreeCheckReport` (reportVersion 1.0).
+   *
+   * No `jobId`, deliberately. A free check has no job — it never runs the
+   * pipeline, so there is nothing to poll and nothing to compare later. That is
+   * what separates it from `audit_github_repository`, which returns a jobId in
+   * okx mode and none in mock mode.
+   *
+   * No `output_language` either. The audit exposes one because its summary is
+   * generated in it; every string this tool returns is a fixed literal
+   * ("README.md found", "No lockfile (reproducibility is at risk)"), so the
+   * knob would be a setting that changes nothing — which is what the runner's
+   * own `maxFiles` / `maxFileBytes` / `maxTotalBytes` turned out to be.
+   */
+  server.tool(
+    'free_check',
+    'Free, no payment and no job. Five presence checks (README, LICENSE, .env.example, lockfile, CI) and a 0-100 score, answered from the repository tree alone — it never reads inside a file. Use it to triage a repository before paying for an audit: it says what is present, not what is wrong. The paid audit is the superset — findings with evidence, blockers, per-dimension scores and a launch plan.',
+    {
+      repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
+    },
+    async (args) => {
+      try {
+        return textResult(await freeCheck.run({ repoUrl: args.repo_url, outputLanguage: 'en' }));
+      } catch (error) {
+        return textResult({ error: 'repository_unavailable', message: describeError(error) });
+      }
+    }
+  );
 
   server.tool(
     'get_repository_context',
