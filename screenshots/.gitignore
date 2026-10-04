@@ -1,0 +1,24 @@
+# Run outputs are not tracked. Only the curated baseline is.
+#
+# `pnpm mcp:audit` (scripts/mcp-audit.ts) and `pnpm tsx scripts/okx-seller-smoke.ts`
+# write three files per run into this directory, and they accumulate: by
+# 2026-10-04 there were 108 untracked ones from three days of runs, showing up
+# in every `git status` and in none of the checks.
+#
+# `README.md` already says the artifacts are reproducible — "re-run the script
+# to regenerate them" — so the directory's tracked content is the *record*, and
+# a fresh run is not a change to the record. The 2026-07-20 baseline stays
+# tracked: `.gitignore` never untracks a file that is already in the index.
+#
+# To cite a new run in the README, promote it deliberately:
+#
+#     git add -f screenshots/mcp-audit-octocat-Hello-World-full-<timestamp>.json
+#
+mcp-audit-*.html
+mcp-audit-*.json
+mcp-audit-*.md
+mcp-audit-*.png
+okx-seller-smoke-*.html
+okx-seller-smoke-*.json
+okx-seller-smoke-*.md
+okx-seller-smoke-*.png

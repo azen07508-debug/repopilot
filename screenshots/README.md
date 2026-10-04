@@ -101,3 +101,33 @@ The smoke starts the API with `PAYMENT_MODE=okx` and a valid
 x402 v2 challenge. The fullpage screenshot shows the response body
 with `payTo` set to the configured recipient and `asset` set to the
 X Layer USDT contract.
+
+## What is tracked here, and what is not
+
+Every run of `scripts/mcp-audit.ts` writes three files into this directory, and
+they accumulate. By 2026-10-04 there were **108** untracked ones — three days of
+runs against `octocat/Hello-World`, `pinojs/pino` and this repository itself —
+appearing in every `git status` and read by nothing.
+
+`.gitignore` in this directory now ignores the run outputs. The reasoning is in
+that file, and it is short: this README already says the artifacts are
+reproducible by re-running the script, so the directory's **tracked** content is
+the record of what the tool said, and a fresh run is not a change to the record.
+
+The 2026-07-20 baseline listed above stays tracked — `.gitignore` never
+untracks a file that is already in the index. To cite a new run, promote it on
+purpose:
+
+```bash
+git add -f screenshots/mcp-audit-octocat-Hello-World-full-<timestamp>.json
+```
+
+A run output that is not promoted is still on disk; nothing prunes it. If the
+directory ever grows enough to matter, delete the untracked ones — they are
+regenerable by definition, which is why they are not tracked:
+
+```bash
+git clean -n screenshots/     # dry run: list what would go
+git clean -f screenshots/     # then remove the untracked run outputs
+```
+
