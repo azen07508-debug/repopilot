@@ -11,11 +11,12 @@
  *   no-hardcoded-secret - looks like a credential literal
  *   no-empty-catch     - catch {} blocks
  *   no-floating-promise - Promise.then() without await / return / assignment
+ *   bin-needs-shebang  - every `bin` target starts with `#!`
  *
  * Exits 0 on success, 1 on any issue.
  */
 import { execSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -208,6 +209,121 @@ function flagFloatingPromise(rel: string, i: number, t: string): void {
   }
 }
 
+/**
+ * Every `bin` a package declares is a file npm installs as an executable.
+ * When that file carries no shebang, npm does not wrap it — it copies the
+ * file verbatim and the shell runs the copy as a script, so `import` is read
+ * as a command and the first path in the header comment is read as another.
+ * `@repopilot/mcp-server` shipped that way, and `repopilot-mcp` could not
+ * run on any machine.
+ *
+ * The check reads the *source* file, derived from the bin target through the
+ * package's own tsconfig (`outDir` → `rootDir`), rather than the emitted one.
+ * CI builds before it lints, so `dist` is fresh there — but a local
+ * `pnpm lint` may not have built, and a gate whose answer depends on build
+ * order is the trap R-33 already documents. The source is also the file a
+ * human actually edits.
+ */
+function checkPackageBins(): { issues: Issue[]; bins: number } {
+  const out: Issue[] = [];
+  let bins = 0;
+
+  const packageDirs = ['packages', 'apps'].flatMap((group) => {
+    const dir = join(REPO, group);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir).map((name) => join(group, name));
+  });
+
+  for (const pkgDir of packageDirs) {
+    const manifestPath = join(REPO, pkgDir, 'package.json');
+    if (!existsSync(manifestPath)) continue;
+
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      name?: string;
+      bin?: string | Record<string, string>;
+    };
+    if (!manifest.bin) continue;
+
+    const entries: [string, string][] =
+      typeof manifest.bin === 'string'
+        ? [[manifest.name ?? pkgDir, manifest.bin]]
+        : Object.entries(manifest.bin);
+
+    for (const [binName, target] of entries) {
+      bins += 1;
+      const file = resolveBinFile(pkgDir, target);
+      if (!file) {
+        out.push({
+          file: `${pkgDir}/package.json`, line: 1, rule: 'bin-needs-shebang',
+          message:
+            `"${binName}" points at ${target}, which is neither a file that ` +
+            'exists nor a source derivable from the package tsconfig — this ' +
+            'check cannot see it, which is not the same as it being fine.',
+        });
+        continue;
+      }
+      const first = (readFileSync(join(REPO, file), 'utf8').split('\n')[0] ?? '').trim();
+      if (!first.startsWith('#!')) {
+        out.push({
+          file, line: 1, rule: 'bin-needs-shebang',
+          message:
+            `"${binName}" is installed as an executable, so this file needs a ` +
+            'shebang on line 1 (e.g. `#!/usr/bin/env node`). Without one npm ' +
+            'copies the file verbatim as the shim and the shell runs it as a ' +
+            'script instead of through node.',
+        });
+      }
+    }
+  }
+
+  // A check that cannot fail is not a check. If the `bin` field is renamed,
+  // or the last bin is dropped, the loop above inspects nothing and stays
+  // green — the same degradation `docs-facts.ts` guards with `total === 0`.
+  if (bins === 0) {
+    out.push({
+      file: 'scripts/lint.ts', line: 1, rule: 'bin-needs-shebang',
+      message: 'no package declares a `bin`, so this rule verified nothing.',
+    });
+  }
+
+  return { issues: out, bins };
+}
+
+/**
+ * Map a bin target back to the file a human edits. The source wins over the
+ * emitted file on purpose — see `checkPackageBins`.
+ */
+function resolveBinFile(pkgDir: string, target: string): string | null {
+  const derived = deriveSourceFromTsconfig(pkgDir, target);
+  if (derived) return derived;
+  const asDeclared = join(pkgDir, target);
+  return existsSync(join(REPO, asDeclared)) ? asDeclared : null;
+}
+
+function deriveSourceFromTsconfig(pkgDir: string, target: string): string | null {
+  const tsconfigPath = join(REPO, pkgDir, 'tsconfig.json');
+  if (!existsSync(tsconfigPath)) return null;
+
+  // The package tsconfigs are plain JSON with no comments today, but the
+  // base one is extended and may grow them; stripping is cheaper than
+  // adding a JSON5 dependency for two string reads.
+  const raw = readFileSync(tsconfigPath, 'utf8')
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const outDir = (/"outDir"\s*:\s*"([^"]+)"/.exec(raw)?.[1] ?? 'dist').replace(/^\.\//, '');
+  const rootDir = (/"rootDir"\s*:\s*"([^"]+)"/.exec(raw)?.[1] ?? 'src').replace(/^\.\//, '');
+
+  const prefix = `./${outDir}/`;
+  if (!target.startsWith(prefix)) return null;
+  const stem = target.slice(prefix.length).replace(/\.[cm]?js$/, '');
+
+  for (const ext of ['.ts', '.tsx', '.mts', '.cts']) {
+    const candidate = join(pkgDir, rootDir, stem + ext);
+    if (existsSync(join(REPO, candidate))) return candidate;
+  }
+  return null;
+}
+
 console.log('lint: tsc + custom rules');
 console.log('──────────────────────────────────────────────');
 
@@ -225,6 +341,15 @@ try {
 console.log('2. custom rules');
 const files = walk(REPO);
 for (const f of files) checkFile(f);
+
+// 3. Package bins — a `bin` is installed as an executable, so its file has
+// to be one. This reads the source, not `dist`, so it holds without a build.
+console.log('3. package bins');
+const bins = checkPackageBins();
+issues.push(...bins.issues);
+if (bins.issues.length === 0) {
+  console.log(`  \x1b[32m✓\x1b[0m ${bins.bins} bin target(s) declare a shebang`);
+}
 
 if (issues.length === 0) {
   console.log('  \x1b[32m✓\x1b[0m 0 issues');
