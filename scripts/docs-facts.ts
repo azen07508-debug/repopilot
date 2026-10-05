@@ -614,6 +614,74 @@ function checkCommandReferences(): Problem[] {
 }
 
 /**
+ * A documented `docker run` must not ask for a configuration the API refuses
+ * to start with.
+ *
+ * `validateProductionConfig` (`apps/api/src/config.ts`, R-02) rejects
+ * `NODE_ENV=production` together with `PAYMENT_MODE=mock`. A document that
+ * tells a human to pass both hands them a container that exits before the
+ * first request, and the failure reads as "/health never came up" rather than
+ * as the config error it is.
+ *
+ * This is not hypothetical and it is not a one-off. The same command was
+ * documented in three places. It was found and corrected twice —
+ * `docs/DEPLOYMENT.md`, and `docker-check.sh`'s own smoke test — and both
+ * corrections are in `CHANGELOG.md` as fixed. `README.md` and
+ * `docs/EXTERNAL_ACTIONS.md` still carried the broken pair until 2026-10-05,
+ * the second of them underneath an acceptance criterion that the pair made
+ * unmeetable. Two `CHANGELOG` entries saying "it now runs as
+ * `NODE_ENV=development`" is not a check.
+ *
+ * Only fenced code blocks are inspected, and only those that invoke
+ * `docker run`. The pairing appears legitimately in prose — `RISKS.md`,
+ * `ROADMAP.md` and `docs/DEPLOYMENT.md` all *explain* that the combination is
+ * refused — and flagging those would train the reader to ignore this check.
+ *
+ * Not covered: `NODE_ENV=production` with the `inline` default of
+ * `AUDIT_QUEUE_DRIVER`, which is refused for the same reason but is an
+ * *absence*, so detecting it needs a judgement this check should not make.
+ */
+function checkDockerRunConfig(): Problem[] {
+  const problems: Problem[] = [];
+  for (const path of allDocPaths()) {
+    let fenced = false;
+    let fenceStart = 0;
+    let block: string[] = [];
+
+    const flush = (): void => {
+      const text = block.join('\n');
+      block = [];
+      if (!/\bdocker run\b/.test(text)) return;
+      if (!/NODE_ENV=production/.test(text)) return;
+      if (!/PAYMENT_MODE=mock/.test(text)) return;
+      problems.push({
+        where: `${path}:${fenceStart + 1}`,
+        message:
+          'this `docker run` sets NODE_ENV=production with PAYMENT_MODE=mock, ' +
+          'which validateProductionConfig refuses (R-02) — the container exits ' +
+          'before the first request. Use NODE_ENV=development for a local run, ' +
+          'or PAYMENT_MODE=okx for production.',
+      });
+    };
+
+    read(path)
+      .split('\n')
+      .forEach((line, i) => {
+        if (/^\s*```/.test(line)) {
+          if (fenced) flush();
+          else fenceStart = i;
+          fenced = !fenced;
+          return;
+        }
+        if (fenced) block.push(line);
+      });
+    // An unterminated fence would otherwise swallow the block silently.
+    flush();
+  }
+  return problems;
+}
+
+/**
  * `CHANGELOG.md` names each Keep-a-Changelog category at most once per release.
  *
  * A repeated `### Changed` is not cosmetic. Heading anchors are positional: the
@@ -939,6 +1007,7 @@ const problems = [
   ...checkBlocks(),
   ...checkIndex(),
   ...checkCommandReferences(),
+  ...checkDockerRunConfig(),
   ...checkChangelogStructure(),
   ...checkPrices(),
 ];

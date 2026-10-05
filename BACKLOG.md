@@ -112,3 +112,14 @@ Tracked work, in priority order, updated as items are completed.
   `### Changed` in `CHANGELOG.md`, in the one file that is deliberately
   block-free. Fix the instance by hand (done) and then make it a check, with
   its own injection test, rather than a convention.
+- [ ] **Nothing executes the commands the documents tell a human to run.**
+  `docs:check` verifies `pnpm <script>` references and, since 2026-10-05, the
+  one `docker run` environment pair that `validateProductionConfig` refuses
+  (`checkDockerRunConfig()`). The rest of every fenced block is unchecked
+  prose. The three copies of the single-image Docker instructions were that
+  defect, and so is every `curl` example: `docs/API.md`'s 402 body was wrong in
+  *shape* — `payment.accepts` where the route returns
+  `payment.challenge.accepts` — and only a human reading `audits.ts` was ever
+  going to catch it. Running a block needs a live service and is out of reach;
+  comparing a documented response body against the route's own JSON schema is
+  not, and that is the half worth building.

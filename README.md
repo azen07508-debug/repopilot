@@ -72,20 +72,38 @@ pnpm --filter @repopilot/api start
 # Web on http://localhost:5173 (run pnpm --filter @repopilot/web dev in another shell)
 ```
 
-Or with Docker:
+Or with Docker — the API image. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has the
+production path (`PAYMENT_MODE=okx`, Postgres, `pg-boss`):
 
 ```bash
 docker build -t repopilot:0.1.0-rc.3 .
-docker run --rm -p 4000:4000 \
-  -e NODE_ENV=production -e PAYMENT_MODE=mock \
+mkdir -p data                                   # the container runs as uid 1000
+
+# 1. Apply the schema. A fresh database has no tables, and `/health` probes one.
+docker run --rm \
+  -e NODE_ENV=development -e PAYMENT_MODE=mock \
+  -e DATABASE_URL=file:/data/repopilot.db \
+  -v $(pwd)/data:/data \
+  repopilot:0.1.0-rc.3 \
+  node apps/api/dist/db/migrate.js
+
+# 2. Serve.
+docker run --rm -p 127.0.0.1:4000:4000 \
+  -e NODE_ENV=development -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
   -v $(pwd)/data:/data \
   repopilot:0.1.0-rc.3
 ```
 
+`NODE_ENV=development` is deliberate, not a simplification: the API refuses to
+start with `NODE_ENV=production` and `PAYMENT_MODE=mock`
+(`apps/api/src/config.ts`, `validateProductionConfig`). The image itself sets
+`NODE_ENV=production`, so a local smoke run has to override it.
+
 A gate takes 5–15 seconds for a typical public repository. The examples below
-ask for `mode: 'quick'` — the verdict alone — to keep the responses small:
+pass `mode: 'quick'` — the verdict alone — to keep the responses small. The
+default is `full`, the shape the paid service is sold as:
 
 ```bash
 # 1. Submit a repo for audit (returns 402 with a payment challenge)

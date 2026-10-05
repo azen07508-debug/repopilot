@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs:check` now fails on a documented `docker run` that asks for a
+  configuration the API refuses to start with.** The same broken command
+  survived in two files after being fixed in a third, twice over — which makes
+  it a rule rather than a typo. `checkDockerRunConfig()` in
+  `scripts/docs-facts.ts` scans fenced code blocks for `docker run` and rejects
+  the pair `NODE_ENV=production` + `PAYMENT_MODE=mock` (R-02). Prose is
+  deliberately out of scope: `RISKS.md`, `ROADMAP.md` and `docs/DEPLOYMENT.md`
+  all *explain* that the combination is refused, and flagging those would train
+  the reader to ignore the check. Verified by mutation — restoring the pair in
+  `docs/EXTERNAL_ACTIONS.md` makes `docs:check` name that file and exit 1.
 - **`pnpm preflight:production` — the pre-registration checks, run as
   production.** `env:check` and `docs:check` both existed, and neither ran
   under `NODE_ENV=production`: `env:check` reads `.env`, so a development
@@ -1069,6 +1079,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`packages/core/src/schemas/inputs.test.ts`), because a one-line default is
   exactly the change that comes back: nothing else in the suite read the
   default, so reverting it would have been silent.
+- **The documented `docker run` could not start, in two of its three copies —
+  and this file said it had been fixed.** `README.md` and
+  `docs/EXTERNAL_ACTIONS.md` both told a reader to run the API image with
+  `NODE_ENV=production` and `PAYMENT_MODE=mock`, which
+  `validateProductionConfig` (`apps/api/src/config.ts`, R-02) refuses outright:
+  the container exits before the first request, and the failure reads as
+  "`/health` never came up". In `docs/EXTERNAL_ACTIONS.md` the same pair sat
+  directly above an acceptance criterion of `/health` reporting
+  `paymentMode: "mock"`, so the two conditions were mutually exclusive and the
+  criterion could not be met by following the instructions. `docs/DEPLOYMENT.md`
+  and `docker-check.sh`'s own smoke test had already been corrected — both are
+  recorded in this file as fixed, one of them in this very section — which is
+  why the pair survived: a `CHANGELOG` entry is not a check. Both blocks now
+  mirror `docs/DEPLOYMENT.md`, migrate before serving, and bind
+  `127.0.0.1:4000:4000` instead of every interface.
+- **`docs/API.md` documented a 402 body that no adapter returns.**
+  `docs/API.md` put the x402 `accepts[]` array at `payment.accepts`, and
+  described it as a flat `{scheme, maxAmountRequired, resource, description}`
+  in mock mode. The route (`apps/api/src/routes/audits.ts`) nests it at
+  `payment.challenge.accepts` — `api.integration.test.ts` asserts that shape —
+  and returns three fields the example did not have (`payment.mode`,
+  `payment.expiresAt`, and the top-level `nextAction`, which is the only place
+  the buyer is told how to pay). The mock adapter returns the same full x402 v2
+  envelope as OKX; only the values inside `accepts[]` differ, so the sentence
+  claiming the mock shape was "the simple object above" was wrong in the
+  direction that matters to an integrator.
+- **The web form and the seed job both pointed at a repository that does not
+  exist.** `apps/web/src/components/AuditForm.tsx` opened on
+  `https://github.com/okx/repopilot` and offered it as the first "try" link,
+  and `apps/api/src/db/seed.ts` seeded its example job for the same URL. There
+  is no such repository (`gh api repos/okx/repopilot` → 404), so a visitor's
+  first click returned a 404 and the seed's "example audit job. Useful for the
+  admin UI" produced a failed job. Both now use `pinojs/pino`, and the form
+  derives its initial value from the sample list rather than repeating the
+  string, so the two cannot drift apart again.
+- **A deliberate 404 fixture was indistinguishable from an unfinished
+  placeholder.** `scripts/verify-release.ts` audits `okx/repopilot` in non-live
+  runs so that step 11b can assert a nonexistent repository ends the job in
+  `failed`. That is the whole point of the value, and nothing at the definition
+  said so — while the same string *was* a broken default in the two files
+  above, which is exactly how it reads. The comment now states that it is a
+  negative fixture and that "fixing" it to a live repository would make step
+  11b assert the opposite of what it exists to test.
 - **`README.md` still sold the retired positioning, and still repeated the
   retired `mode` claim.** The GitHub front door described RepoPilot as "a
   structured launch-readiness report" under the tagline "a launch-ready plan

@@ -23,15 +23,37 @@ Docker.
 # On any host with Docker 24+ installed:
 cd /path/to/repopilot
 docker build -t repopilot:0.1.0-rc.3 .
-docker run --rm -p 4000:4000 \
-  -e NODE_ENV=production \
+mkdir -p data                                   # the container runs as uid 1000
+
+# 1. Apply the schema. `/health` probes the database, and a fresh one has no
+#    tables, so this has to happen before the API is any use.
+docker run --rm \
+  -e NODE_ENV=development \
+  -e PAYMENT_MODE=mock \
+  -e DATABASE_URL=file:/data/repopilot.db \
+  -v $(pwd)/data:/data \
+  repopilot:0.1.0-rc.3 \
+  node apps/api/dist/db/migrate.js
+
+# 2. Serve.
+docker run --rm -p 127.0.0.1:4000:4000 \
+  -e NODE_ENV=development \
   -e PAYMENT_MODE=mock \
   -e DATABASE_URL=file:/data/repopilot.db \
   -e ALLOWED_REPO_HOSTS=github.com,raw.githubusercontent.com \
   -v $(pwd)/data:/data \
   repopilot:0.1.0-rc.3
+
 curl http://127.0.0.1:4000/health
 ```
+
+`NODE_ENV=development` here is not a simplification, and it is what makes the
+acceptance below reachable. `validateProductionConfig`
+(`apps/api/src/config.ts`, R-02) refuses `NODE_ENV=production` together with
+`PAYMENT_MODE=mock`, so a container that is told it is in production cannot
+also report `paymentMode: "mock"`. The two conditions are mutually exclusive;
+before 2026-10-05 this block asked for both, which made the acceptance
+unmeetable. For a production topology use `docker-compose.yml`.
 
 **Acceptance**
 

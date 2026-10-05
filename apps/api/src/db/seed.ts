@@ -1,5 +1,10 @@
 /**
  * Seeds the database with one example audit job. Useful for the admin UI.
+ *
+ * The example used to be `okx/repopilot`, which is not a repository that has
+ * ever existed: the seeded job failed the moment the worker tried to fetch it,
+ * which is the opposite of useful for a row whose purpose is to be looked at.
+ * It is now a real repository, the same one the web form opens on.
  */
 import { openDatabase, runMigrations, closeDatabase } from './client.js';
 import { loadConfig } from '../config.js';
@@ -8,6 +13,9 @@ import { JobRepository } from '../repositories/job-repository.js';
 import { JobService } from '../services/job-service.js';
 import { AuditPipeline } from '@repopilot/core';
 import { MockPaymentAdapter } from '@repopilot/okx-adapter';
+
+/** A real repository. See the note above for why this is not a placeholder. */
+const EXAMPLE_REPO_URL = 'https://github.com/pinojs/pino';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -20,7 +28,7 @@ async function main(): Promise<void> {
   });
   const service = new JobService(repo, pipeline, new MockPaymentAdapter());
   const job = await service.create({
-    repoUrl: 'https://github.com/okx/repopilot',
+    repoUrl: EXAMPLE_REPO_URL,
     mode: 'quick',
     target: 'open_source',
     outputLanguage: 'en',

@@ -268,6 +268,12 @@ async function main(): Promise<void> {
 
     // liveUrl is the canonical happy-path repo for the rest of the script
     const liveUrl = 'https://github.com/octocat/Hello-World';
+    // `repoUrl` is read by exactly one step: 11b, which asserts that a repo that
+    // does not exist ends the job in `failed`. `okx/repopilot` is a genuine 404
+    // — there is no such repository — and that is the point. It is a negative
+    // fixture, not a placeholder someone forgot to fill in. Do not "fix" it to
+    // a live repository: step 11b would then assert the opposite of what it
+    // exists to test. Step 11b is `!LIVE`-only, so in live mode this is unused.
     const repoUrl = LIVE ? liveUrl : 'https://github.com/okx/repopilot';
     let jobId = '';
     let paymentId = '';

@@ -204,9 +204,9 @@ Start a new audit. Idempotent on `X-PAYMENT`.
 | Field             | Type    | Required | Values                                  |
 |-------------------|---------|----------|-----------------------------------------|
 | `repoUrl`         | string  | yes      | must be a `https://github.com/...` URL or another allowlisted host |
-| `mode`            | string  | yes      | `"quick"` \| `"full"` — the tier. See [Tiers](#tiers). |
-| `target`          | string  | yes      | `"hackathon"` \| `"open_source"` \| `"production"` |
-| `outputLanguage`  | string  | yes      | `"en"` \| `"zh-CN"`                     |
+| `mode`            | string  | no       | `"quick"` \| `"full"` — the report shape. Default `"full"`, the shape the paid service is sold as. See [Tiers](#tiers). |
+| `target`          | string  | no       | `"hackathon"` \| `"open_source"` \| `"production"`. Default `"open_source"`. |
+| `outputLanguage`  | string  | no       | `"en"` \| `"zh-CN"`. Default `"en"`.    |
 | `includeLaunchCopy` | bool  | no       | default `true`. **Scope: `mode: "full"`** — a quick audit omits the launch copy whatever this says. |
 
 ### Tiers
@@ -253,32 +253,49 @@ response carries a `cache` object saying whether it was a hit. See
 
 ### First call (no payment)
 
-Returns **402 Payment Required** with a `PaymentChallenge`:
+Returns **402 Payment Required** with a payment challenge:
 
 ```json
 {
   "jobId": "job_8a3b9d...",
   "status": "queued",
   "payment": {
-    "paymentId": "mock_xxx",
+    "paymentId": "mock_3f1c...",
+    "mode": "mock",
     "amount": "1",
     "currency": "USDT",
-    "accepts": [
-      {
-        "scheme": "mock",
-        "maxAmountRequired": "1",
-        "resource": "https://repopilot/api/v1/audits",
-        "description": "RepoPilot Release Gate"
-      }
-    ]
-  }
+    "challenge": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "xlayer",
+          "maxAmountRequired": "1000000",
+          "resource": "repopilot:audit",
+          "description": "RepoPilot full audit",
+          "mimeType": "application/json",
+          "payTo": "0xMOCK0000000000000000000000000000000000000",
+          "maxTimeoutSeconds": 300,
+          "extra": { "mock": true, "mode": "full" }
+        }
+      ]
+    },
+    "expiresAt": "2026-10-05T04:07:00.000Z"
+  },
+  "nextAction": "Replay this POST with header X-PAYMENT: mock:mock_3f1c..."
 }
 ```
 
-The exact shape of the `accepts[]` array depends on the active
-`PaymentAdapter`. In mock mode it's the simple object above. In OKX
-mode it's the full x402 v2 envelope with `network`, `payTo`,
-`maxTimeoutSeconds`, etc.
+`maxAmountRequired` is atomic USDT, six decimals, so `"1000000"` is 1 USDT.
+The amount, the currency and the mode are repeated at `payment.*` so a buyer
+does not have to parse the envelope to learn what it is being asked to pay.
+
+`payment.challenge` is the x402 payload itself, and its interior is the
+adapter's business — `PaymentChallenge.challenge` is typed `unknown` on
+purpose. Both adapters return a **full x402 v2 envelope**; what changes is the
+values inside `accepts[]`. The mock fills `payTo` with a placeholder and sets
+`extra.mock`; OKX fills the real settlement address and network. The envelope
+is not flatter in mock mode.
 
 ### Second call (with `X-PAYMENT`)
 
