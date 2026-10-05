@@ -366,6 +366,7 @@ export function defaultPaymentConfig(): PaymentConfig {
       recipientAddress: cfg.OKX_PAYMENT_ADDRESS,
       network: cfg.OKX_PAYMENT_NETWORK,
       x402Version: cfg.OKX_X402_VERSION === 1 ? 1 : 2,
+      resourceUrl: cfg.OKX_PAYMENT_RESOURCE_URL,
     },
     pricing: {
       quickScan: { amount: cfg.PRICE_QUICK_SCAN, currency: 'USDT' },

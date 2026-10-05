@@ -63,8 +63,11 @@ same repo would get two different answers.
 - **HTTP** (x402 + accepts[]): see `README.md` for `curl` examples.
 - **MCP** (stdio): see `README.md` for the `mcpServers` config.
 
-### Hero image
-[docs/brand/hero.png](docs/brand/hero.png) — 1280 × 640 PNG, see `docs/HERO_IMAGE_BRIEF.md`
+### Brand assets
+- [docs/brand/hero.png](docs/brand/hero.png) — 1280 × 640 listing banner,
+  see `docs/HERO_IMAGE_BRIEF.md`
+- [docs/brand/avatar.png](docs/brand/avatar.png) — 1024 × 1024 square,
+  the `--picture` for ASP registration, see `docs/AVATAR_BRIEF.md`
 
 ### Constraints
 - Public repositories only.
@@ -124,8 +127,11 @@ LICENSE、.env.example、lockfile、CI）以及 0-100 的评分。不含证据�
 - **HTTP**（x402 + accepts[]）：参见 `README.md` 中的 `curl` 示例。
 - **MCP**（stdio）：参见 `README.md` 中的 `mcpServers` 配置示例。
 
-### Hero image
-[docs/brand/hero.png](docs/brand/hero.png) — 1280 × 640 PNG, 见 `docs/HERO_IMAGE_BRIEF.md`
+### 品牌素材
+- [docs/brand/hero.png](docs/brand/hero.png) — 1280 × 640 的列表横幅，
+  见 `docs/HERO_IMAGE_BRIEF.md`
+- [docs/brand/avatar.png](docs/brand/avatar.png) — 1024 × 1024 方形，
+  用于 ASP 注册的 `--picture`，见 `docs/AVATAR_BRIEF.md`
 
 ### 边界
 - 仅支持公开仓库。

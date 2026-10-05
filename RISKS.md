@@ -1392,3 +1392,76 @@ whether they can fail.
 **Related.** R-26 (a check that never runs is indistinguishable from one that
 passes), R-27 (a check that can never pass), D-034 (the scope of a check is
 part of the check).
+
+---
+
+## R-36 — A document cannot disagree with a function it is never compared to
+
+**Severity:** High **Likelihood:** High (it had already happened)
+
+**The defect.** `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.5 is the registration
+authority: it is the 402 challenge the ASP is registered with, and the shape a
+marketplace reviewer compares the live service against. It had drifted from
+`OkxPaymentAdapter.createChallenge` in four independent ways:
+
+| Field | §5.5 said | The adapter emitted |
+| --- | --- | --- |
+| `resource` | `https://<public-domain>/api/v1/audits` | `https://repopilot/api/v1/audits` — hard-coded, and not a host that exists |
+| `description` | `RepoPilot Quick Audit` | `RepoPilot quick audit` — the internal `mode` value, lower-cased |
+| `maxTimeoutSeconds` | `60` | `300`, matching the challenge's own 5-minute `expiresAt` |
+| `asset` | absent | present — the USDT contract address |
+
+**Why it matters more than a stale table.** Three of the four are read by the
+buyer. `resource` is the field an x402 client shows as *the thing being paid
+for*; `description` is the tier name on the payment prompt, and it named the
+tier differently from the listing that sold it; `maxTimeoutSeconds` is the
+window the buyer's wallet is told it has to sign in. The `resource` value was
+the worst of the four because it looked plausible — `https://repopilot/…` is a
+syntactically valid https URL with no TLD, so nothing rejects it and nobody
+reads it twice.
+
+**How it was found.** Not by a check. It was found by writing one. The same
+week, the same question asked of the *price* had already found a worse instance
+of the same defect: `PRICE_FULL_AUDIT` was stated as `0.10` in `.env.example`
+and `0.05` in every other place that stated it, and
+`docs/EXTERNAL_ACTIONS.md` told the operator to set the price from
+`.env.example` — so the runbook pointed at the one wrong copy. In `okx` mode
+the 402 amount comes from that variable, so a buyer reading `0.05` on the
+listing would sign an EIP-3009 authorization for `0.05` and be challenged for
+`0.10`: the first real sale fails at the payment step. That one now has a
+check that compares all twelve statements of the two prices
+(`readPriceStatements()` in `scripts/docs-facts.ts`). The 402 shape was the
+next question, and its answer was "nothing compares them".
+
+**The rule.** For any payload an external party reads — a price, a challenge, a
+listing — the document and the producer must be *compared*, not both maintained.
+A second hand-written copy of a machine-generated value is a copy that can only
+be wrong.
+
+**Mitigation.** `okx-adapter.test.ts` reads §5.5 out of the snapshot, extracts
+the `accepts[0]` object, and asserts the field set and every
+environment-independent value against the challenge the adapter actually
+builds. Six injections were run against it and all six are caught: changing
+`maxTimeoutSeconds` to `60`, rewording either `description`, deleting `asset`,
+renaming `mimeType`, and changing the full tier's `maxAmountRequired`. Two
+code-side injections (renaming the full description, hard-coding the network)
+are caught as well, so the check is not one-directional.
+
+`resource` became `OKX_PAYMENT_RESOURCE_URL`, and the unconfigured value became
+`https://repopilot.invalid/api/v1/audits`. `.invalid` is reserved by RFC 2606 and
+can never resolve, so "this is a placeholder" is a property of the string rather
+than something a reader has to know. `validateProductionConfig` refuses to boot
+in production with `PAYMENT_MODE=okx` and no resource URL, so the placeholder
+cannot reach a buyer.
+
+**Residual risk.** Whether `asset` belongs in `accepts[]` is **not confirmed**.
+§1.4's field list omits it and the adapter emits it; the `exact` scheme needs the
+token contract, so either the snapshot's list is incomplete or the field is
+extra. `validate-listing` is the only thing that can settle it and it needs a
+registered ASP. Until then the test pins the two together, which means the
+question cannot be answered by accident — someone has to decide and change both.
+
+**Related.** R-26 (a check that never runs), R-27 (a check that can never pass),
+R-28 (a green tick over a capability the repository does not have), D-033 (a
+document states no fact it can derive), D-034 (the scope of a check is part of
+the check).

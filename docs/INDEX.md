@@ -45,8 +45,11 @@ Pick the one that matches your role and jump straight in.
 - [docs/OKX_LIVE_INTEGRATION.md](OKX_LIVE_INTEGRATION.md) — the live
   integration matrix (which OKX CLI steps are ready, which require
   user action).
-- [docs/HERO_IMAGE_BRIEF.md](HERO_IMAGE_BRIEF.md) — the hero image
-  used in the Marketplace listing (`docs/brand/hero.png`).
+- [docs/HERO_IMAGE_BRIEF.md](HERO_IMAGE_BRIEF.md) — the 2:1 listing
+  banner (`docs/brand/hero.png`) used on the Marketplace listing page.
+- [docs/AVATAR_BRIEF.md](AVATAR_BRIEF.md) — the 1:1 registration picture
+  (`docs/brand/avatar.png`) passed to `onchainos agent create --picture`.
+  Not the same asset as the banner; see the table in that file.
 - [ROADMAP.md](../ROADMAP.md) — what is in the current sprint, what is
   gated on external approvals, and in what order it lands.
 - [BACKLOG.md](../BACKLOG.md) — tracked work in priority order, with the

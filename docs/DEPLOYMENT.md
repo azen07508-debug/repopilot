@@ -305,6 +305,10 @@ deploy if any of the following is missing or wrong:
 - `ALLOWED_REPO_HOSTS` (must include at least one host)
 - `PAYMENT_MODE` (must be `okx`; `mock` is rejected in production)
 - `OKX_PAYMENT_ADDRESS` (if `PAYMENT_MODE=okx`; must be a 0x EVM address)
+- `OKX_PAYMENT_RESOURCE_URL` (if `PAYMENT_MODE=okx`; this deployment's own
+  public https URL. It is the `resource` field of the 402 challenge — what the
+  buyer's client reads to know what it is paying for — so a reserved or
+  unresolvable host is rejected)
 - `PRICE_QUICK_SCAN` and `PRICE_FULL_AUDIT`
 
 The script never prints the values of any var whose name suggests a

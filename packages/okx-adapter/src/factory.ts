@@ -25,6 +25,13 @@ export interface PaymentConfig {
     recipientAddress: string;
     network: string;
     x402Version: 1 | 2;
+    /**
+     * Public URL of this deployment's audit endpoint, placed in the 402
+     * challenge's `accepts[].resource`. Empty means "not configured" and the
+     * adapter emits `PLACEHOLDER_RESOURCE`; production refuses to start
+     * without it.
+     */
+    resourceUrl?: string;
   };
   pricing: {
     quickScan: { amount: string; currency: 'USDT' };
@@ -49,6 +56,7 @@ export function buildPaymentAdapter(cfg: PaymentConfig): PaymentAdapter {
       recipientAddress: cfg.okx.recipientAddress,
       network: cfg.okx.network,
       x402Version: cfg.okx.x402Version,
+      resourceUrl: cfg.okx.resourceUrl,
     });
   }
   return new MockPaymentAdapter();

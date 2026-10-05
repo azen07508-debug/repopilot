@@ -64,13 +64,15 @@
  * which is worse than the sentence in ARCHITECTURE.md naming the nine calls in
  * order and claiming no count at all.
  *
- * Four checks carry no generated block at all — they assert an invariant and
+ * Five checks carry no generated block at all — they assert an invariant and
  * print nothing:
  *
  *   1. the `BILLING` map and the `server.tool()` registrations agree;
  *   2. `docs/INDEX.md` links every `docs/*.md` file, and every link resolves;
  *   3. every `pnpm <script>` a document names exists;
- *   4. `CHANGELOG.md` names each release category at most once per release.
+ *   4. `CHANGELOG.md` names each release category at most once per release;
+ *   5. every statement of an audit price agrees, and the atomic registration
+ *      values are those prices.
  *
  * Check 3 is the one that already paid for itself: `PROJECT_STATE.md` told an
  * operator to run `pnpm start:api` and `pnpm start:worker`, and neither has
@@ -81,6 +83,13 @@
  * Check 4 is the newest and the narrowest: a duplicated `### Changed` in
  * `[Unreleased]` made the Contents link point at the first of two sections,
  * leaving the second unreachable (2026-10-04).
+ *
+ * Check 5 is the one with money behind it. `PRICE_FULL_AUDIT` was stated as
+ * `0.10` in `.env.example` and `0.05` in every other place that stated it,
+ * while `docs/EXTERNAL_ACTIONS.md` told the operator to set the price from
+ * `.env.example` — so the runbook pointed at the one wrong copy, and the
+ * disagreement would have surfaced as a failed payment on the first real sale.
+ * See `readPriceStatements()` for the full account.
  *
  * Every source read is a text file in this repository. No build, no network,
  * no environment. It runs in about a tenth of a second, which is why it can
@@ -368,9 +377,10 @@ const BLOCK_FREE_DOCS: Record<string, string> = {
   'README_OKX.md': 'OKX integration notes; the flow, not the counts',
   'RISKS.md': 'a risk register; the version labels record when a risk was mitigated',
   'docs/API.md': 'the HTTP surface; endpoints and payloads, no derivable counts',
+  'docs/AVATAR_BRIEF.md': 'a design brief; its measurements are re-taken by preflight:production',
   'docs/DEPLOYMENT.md': 'operator instructions',
   'docs/EXTERNAL_ACTIONS.md': 'the user-side checklist',
-  'docs/HERO_IMAGE_BRIEF.md': 'a design brief',
+  'docs/HERO_IMAGE_BRIEF.md': 'a design brief; its measurements are re-taken by preflight:production',
   'docs/OKX_LIVE_INTEGRATION.md': 'a runbook for an external service',
   'docs/OKX_REQUIREMENTS_SNAPSHOT.md': "a dated snapshot of an external party's requirements",
   'docs/REPOSITORY_INTELLIGENCE_PLAN.md': 'the phased plan; its tables are Phase-0 snapshots',
@@ -625,6 +635,245 @@ function checkCommandReferences(): Problem[] {
  * read "no longer claims" or "instead of" and belong in Fixed. A check that
  * guessed at that would be worse than a sentence describing it.
  */
+/** USDT on every network this product settles on has 6 decimals. */
+const PRICE_ATOMIC_DECIMALS = 6;
+
+interface PriceStatement {
+  where: string;
+  tier: 'quick' | 'full';
+  /** Decimal USDT, as a human reads it. */
+  amount: string;
+}
+
+/** Read a value that must be there, or fail with a message that says what to fix. */
+function required(pattern: RegExp, text: string, what: string): string {
+  const m = pattern.exec(text);
+  if (!m) {
+    throw new Error(
+      `docs-facts: could not read ${what}. The statement was reworded or moved; ` +
+        `fix readPriceStatements() rather than trusting the result.`
+    );
+  }
+  return m[1];
+}
+
+/**
+ * Every place that states an audit price.
+ *
+ * This check exists because they disagreed. `PRICE_FULL_AUDIT` was `0.10` in
+ * `.env.example` and `0.05` in every other place that stated it —
+ * including `MARKETPLACE_LISTING.md`, which is the price a buyer reads, and the
+ * registration values, which are what the marketplace is told. And
+ * `docs/EXTERNAL_ACTIONS.md` instructs the operator to "set the price exactly
+ * as documented in `.env.example`", so the runbook pointed at the one wrong
+ * copy.
+ *
+ * The failure mode is not a wrong number on a page. In `okx` mode the server
+ * builds the 402 challenge from `PRICE_FULL_AUDIT` (via `apps/api/src/config.ts`
+ * → `server.ts` → `priceFor()`), so a buyer who reads 0.05 on the listing and
+ * signs an EIP-3009 authorization for 0.05 would be challenged for 0.10. The
+ * first real sale fails at the payment step — the worst place to find out, and
+ * the hardest for the buyer to diagnose.
+ *
+ * A price is a number with a customer on one side and a signature on the other.
+ * Two statements of it need a check that compares them, not a third statement.
+ */
+function readPriceStatements(): PriceStatement[] {
+  const statements: PriceStatement[] = [];
+  const add = (where: string, tier: 'quick' | 'full', amount: string) =>
+    statements.push({ where, tier, amount });
+
+  // 1. The server default — what is charged when nothing overrides it.
+  const config = read('apps/api/src/config.ts');
+  add(
+    'apps/api/src/config.ts',
+    'quick',
+    required(/PRICE_QUICK_SCAN:\s*z\.string\(\)\.default\('([\d.]+)'\)/, config, 'the PRICE_QUICK_SCAN default')
+  );
+  add(
+    'apps/api/src/config.ts',
+    'full',
+    required(/PRICE_FULL_AUDIT:\s*z\.string\(\)\.default\('([\d.]+)'\)/, config, 'the PRICE_FULL_AUDIT default')
+  );
+
+  // 2. The env template — what `cp .env.example .env` gives an operator.
+  const env = read('.env.example');
+  add('.env.example', 'quick', required(/^PRICE_QUICK_SCAN=([\d.]+)$/m, env, 'PRICE_QUICK_SCAN'));
+  add('.env.example', 'full', required(/^PRICE_FULL_AUDIT=([\d.]+)$/m, env, 'PRICE_FULL_AUDIT'));
+
+  // 3. The compose default, which applies when the env file is absent.
+  const compose = read('docker-compose.yml');
+  add(
+    'docker-compose.yml',
+    'quick',
+    required(/PRICE_QUICK_SCAN:\s*\$\{PRICE_QUICK_SCAN:-([\d.]+)\}/, compose, 'the compose PRICE_QUICK_SCAN default')
+  );
+  add(
+    'docker-compose.yml',
+    'full',
+    required(/PRICE_FULL_AUDIT:\s*\$\{PRICE_FULL_AUDIT:-([\d.]+)\}/, compose, 'the compose PRICE_FULL_AUDIT default')
+  );
+
+  // 4. The sold price, in both languages. Anchored on the tier labels so a
+  //    reworded heading fails loudly instead of silently matching nothing.
+  const listing = read('MARKETPLACE_LISTING.md');
+  add(
+    'MARKETPLACE_LISTING.md (English)',
+    'quick',
+    required(/\*\*Quick Scan — ([\d.]+) USDT\*\*/, listing, 'the English Quick Scan price')
+  );
+  add(
+    'MARKETPLACE_LISTING.md (English)',
+    'full',
+    required(/\*\*Full Launch Audit — ([\d.]+) USDT\*\*/, listing, 'the English Full Launch Audit price')
+  );
+  add(
+    'MARKETPLACE_LISTING.md (简体中文)',
+    'quick',
+    required(/\*\*快速扫描 — ([\d.]+) USDT\*\*/, listing, 'the Chinese Quick Scan price')
+  );
+  add(
+    'MARKETPLACE_LISTING.md (简体中文)',
+    'full',
+    required(/\*\*完整上线审计 — ([\d.]+) USDT\*\*/, listing, 'the Chinese Full Launch Audit price')
+  );
+
+  // 5. The registration table in the snapshot. These two are the prices the
+  //    ASP is registered with, in the decimal form the marketplace displays.
+  //    The atomic-unit forms live in §5.2–§5.4 and are checked by membership in
+  //    `checkPrices()` below.
+  const snapshot = read('docs/OKX_REQUIREMENTS_SNAPSHOT.md');
+  add(
+    'docs/OKX_REQUIREMENTS_SNAPSHOT.md §1.3',
+    'quick',
+    required(
+      /\| `RepoPilot Repository Audit \(Quick\)` \| A2MCP \| `([\d.]+)` USDT \|/,
+      snapshot,
+      'the §1.3 quick-audit registration price'
+    )
+  );
+  add(
+    'docs/OKX_REQUIREMENTS_SNAPSHOT.md §1.3',
+    'full',
+    required(
+      /\| `RepoPilot Repository Audit \(Full\)` \| A2MCP \| `([\d.]+)` USDT \|/,
+      snapshot,
+      'the §1.3 full-audit registration price'
+    )
+  );
+
+  // The count is asserted, not assumed. Deleting an `add()` call is the one
+  // way this check can shrink without anything failing: `required()` never
+  // runs, so no throw, no finding — the check just quietly covers less. The
+  // number below is the only place it is written down, so bumping it is a
+  // deliberate act rather than a comment that drifts. (An earlier draft of
+  // this file claimed "the count is always 8" in a comment. It was 10.)
+  const EXPECTED_STATEMENTS = 12;
+  if (statements.length !== EXPECTED_STATEMENTS) {
+    throw new Error(
+      `docs-facts: read ${statements.length} price statements, expected ${EXPECTED_STATEMENTS}. ` +
+        'An `add()` call was probably removed or duplicated — which is not a price ' +
+        'disagreement, it is this check covering less than it used to.'
+    );
+  }
+
+  return statements;
+}
+
+/**
+ * The prices must be one number, and the registration values must be those
+ * numbers in atomic units.
+ *
+ * The registration values are checked by *membership* rather than by position:
+ * every atomic value the snapshot states has to be a price this repository
+ * actually charges. `100000` (= 0.10) sitting beside a 0.05 full price is the
+ * exact defect this exists for, and membership catches it without this check
+ * having to know which table row is which tier.
+ *
+ * What this deliberately does NOT read: test fixtures. `factory.test.ts`,
+ * `okx-adapter.test.ts`, `mcp-server/index.test.ts` and the API integration
+ * test all build a `PaymentConfig` with their own numbers, and they are
+ * *supposed* to differ from production — a fixture that used the real price
+ * cannot see a hard-coded real price. That is measured, not assumed: with the
+ * fixture at `0.05`, replacing `priceFor`'s return with a literal `0.05`
+ * survives the whole suite (19/19 green); with the fixture at `0.13` the same
+ * mutation fails one test. The fixtures are not statements to a customer, so
+ * they are out of scope here, and making them agree would cost the only test
+ * that guards `priceFor` against a hard-coded price.
+ */
+function checkPrices(): Problem[] {
+  const problems: Problem[] = [];
+  // No `statements.length < N` guard here: `readPriceStatements()` reads every
+  // statement through `required()`, which throws rather than returning empty,
+  // so a zero-length list is impossible and a `<` guard could never fire. What
+  // *is* reachable is "the count changed", and `readPriceStatements()` asserts
+  // that itself, with an `!==` rather than a `<`.
+  const statements = readPriceStatements();
+
+  const agreed: Record<'quick' | 'full', string> = { quick: '', full: '' };
+  for (const tier of ['quick', 'full'] as const) {
+    const forTier = statements.filter((s) => s.tier === tier);
+    const values = [...new Set(forTier.map((s) => s.amount))];
+    agreed[tier] = values[0] ?? '';
+    if (values.length > 1) {
+      problems.push({
+        where: `docs-facts: the ${tier} audit price`,
+        message:
+          `stated ${values.length} different ways: ` +
+          forTier.map((s) => `${s.where} says ${s.amount}`).join('; ') +
+          '. A buyer reads one of these and the server charges by another. ' +
+          'Pick the number that should win and change every other statement to match.',
+      });
+    }
+  }
+
+  // Normalised the same way the atomic values are, so the free tier's `0`
+  // compares equal to `0.00` rather than reporting itself as a mismatch.
+  const allowed = new Set(
+    ['0', agreed.quick, agreed.full]
+      .filter((v) => v !== '')
+      .map((v) => Number(v).toFixed(2))
+  );
+  const snapshot = read('docs/OKX_REQUIREMENTS_SNAPSHOT.md');
+
+  const atomic: { where: string; raw: string }[] = [];
+  for (const m of snapshot.matchAll(/`service\[(\d)\]\.fee`\s*\|\s*`(\d+)`/g)) {
+    atomic.push({ where: `service[${m[1]}].fee`, raw: m[2] });
+  }
+  for (const m of snapshot.matchAll(/"maxAmountRequired": "(\d+)"/g)) {
+    atomic.push({ where: 'the 402 example in §5.5', raw: m[1] });
+  }
+  for (const m of snapshot.matchAll(/`maxAmountRequired: "(\d+)"`/g)) {
+    atomic.push({ where: 'the 402 prose in §5.5', raw: m[1] });
+  }
+
+  if (atomic.length < 3) {
+    problems.push({
+      where: 'docs-facts: prices',
+      message:
+        `only ${atomic.length} atomic registration value(s) were readable from ` +
+        'docs/OKX_REQUIREMENTS_SNAPSHOT.md, expected at least 3 (the free tier ' +
+        'plus two paid ones). This check is no longer covering the registration values.',
+    });
+    return problems;
+  }
+
+  for (const { where, raw } of atomic) {
+    const decimal = (Number(raw) / 10 ** PRICE_ATOMIC_DECIMALS).toFixed(2);
+    if (!allowed.has(decimal)) {
+      problems.push({
+        where: `docs/OKX_REQUIREMENTS_SNAPSHOT.md (${where})`,
+        message:
+          `registers ${raw} atomic units = ${decimal} USDT, which is not a price ` +
+          `this repository charges (${[...allowed].join(', ')}). The marketplace ` +
+          'would advertise one amount and the 402 challenge would ask for another.',
+      });
+    }
+  }
+
+  return problems;
+}
+
 function checkChangelogStructure(): Problem[] {
   const problems: Problem[] = [];
   const lines = read('CHANGELOG.md').split('\n');
@@ -712,6 +961,7 @@ const problems = [
   ...checkIndex(),
   ...checkCommandReferences(),
   ...checkChangelogStructure(),
+  ...checkPrices(),
 ];
 
 console.log('docs-facts: recompute and compare');

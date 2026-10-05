@@ -144,9 +144,15 @@ concurrency.
 
 ## 5. Domain, DNS, and TLS
 
-**Status:** `OPTIONAL`
-**Why:** HTTPS is required in production. The reverse-proxy templates
-in `docs/deployment/` use placeholder domains.
+**Status:** `REQUIRED before PAYMENT_MODE=okx can run in production`
+**Why:** HTTPS is required in production, and the domain is not cosmetic:
+it is what `OKX_PAYMENT_RESOURCE_URL` is built from, and that variable is
+a boot invariant when `PAYMENT_MODE=okx` (see item 2). Without a real
+domain there is no value to put there, so the API refuses to start
+rather than emitting a 402 challenge that names a resource the buyer
+cannot fetch. The reverse-proxy templates in `docs/deployment/` use
+placeholder domains. This item used to say `OPTIONAL`; it stopped being
+optional when the resource URL became a guard.
 
 **Action**
 
@@ -159,6 +165,9 @@ in `docs/deployment/` use placeholder domains.
      replace `api.example.com`, run `certbot --nginx -d api.example.com`,
      reload nginx.
 4. Verify: `curl https://api.example.com/health`.
+5. Set `OKX_PAYMENT_RESOURCE_URL=https://api.example.com/api/v1/audits`,
+   then run `pnpm preflight:production` and confirm this is no longer one
+   of the FAILs.
 
 **Do not**
 
@@ -169,18 +178,35 @@ in `docs/deployment/` use placeholder domains.
 
 ## 6. Marketplace listing submission
 
-**Status:** `BLOCKED on Beta + hero asset`
-**Why:** The marketplace requires Beta access (item 2) and a brand
-asset (item 7).
+**Status:** `BLOCKED on a production deployment` (item 5)
+**Why:** This item said `BLOCKED on Beta` until 2026-10-05, and item 2 has
+said `READY_TO_PUBLISH` since the marketplace went GA on 2026-06-30. Two
+items in the same document disagreed about whether the gate exists, which
+is the defect class `docs:check` exists for — except that these two are
+prose, so nothing could compare them.
+
+What actually blocks the submission is that an `A2MCP` service needs a
+publicly reachable `https://` endpoint, and there is no deployment yet:
+the domain (item 5) has to exist before `OKX_PAYMENT_RESOURCE_URL` can be
+set, and the API refuses to boot in production without it. Both brand
+assets exist — the listing banner is `docs/brand/hero.png` and the 1:1
+registration picture is `docs/brand/avatar.png` (item 7 explains why
+there are two).
 
 **Action**
 
-1. Once Beta is granted, copy the `MARKETPLACE_LISTING.md` English
-   and Chinese sections into the marketplace submission form.
-2. Upload the hero image (item 7).
-3. Set the price exactly as documented in `.env.example` (`PRICE_QUICK_SCAN`,
-   `PRICE_FULL_AUDIT`).
-4. Verify the listing preview matches the README.
+1. Deploy (item 5), then run `pnpm preflight:production` and confirm it
+   reports no FAILs.
+2. Copy the `MARKETPLACE_LISTING.md` English and Chinese sections into
+   the marketplace submission form.
+3. Upload the listing banner (`docs/brand/hero.png`).
+4. Register the prices exactly as `docs/OKX_REQUIREMENTS_SNAPSHOT.md`
+   §5.2–§5.4 gives them. Do not read them off `.env.example` by hand —
+   that file is one of the twelve places that state the same numbers, and
+   `pnpm docs:check` is what keeps every one of them in agreement. If it
+   passes, the number you read anywhere is the number the 402 challenge
+   will ask for.
+5. Verify the listing preview matches the README.
 
 **Do not**
 
@@ -190,19 +216,42 @@ asset (item 7).
 
 ---
 
-## 7. Hero image
+## 7. Brand assets (two of them, and they are not interchangeable)
 
-**Status:** `EXTERNAL_BLOCKED`
-**Why:** No brand asset is bundled with the repo. We do not generate
-a fake final image.
+**Status:** `DONE`
+**Why this item used to say `EXTERNAL_BLOCKED`:** it claimed no brand
+asset was bundled. That stopped being true when `docs/brand/hero.png`
+was committed — the item was never updated, and it also told the reader
+to `git add -f` because `.gitignore` excluded binaries. It does not;
+there is no such rule.
 
-**Action**
+**There are two assets, and the marketplace wants different shapes:**
 
-1. Read `docs/HERO_IMAGE_BRIEF.md` for the spec.
-2. Create a `1280×640` PNG/JPG matching the brief.
-3. Drop it under `docs/brand/hero.png` (the `.gitignore` excludes
-   binaries, so commit it explicitly with `git add -f`).
-4. Update `MARKETPLACE_LISTING.md` to reference the file.
+| Asset | File | Shape | Used for |
+| --- | --- | --- | --- |
+| Listing banner | `docs/brand/hero.png` | 1280 × 640 (2:1) | The listing page and the README front door |
+| ASP registration picture | `docs/brand/avatar.png` | 1:1 square | `onchainos agent create --picture` |
+
+The registration picture is **not** the banner. §1.2 of
+`docs/OKX_REQUIREMENTS_SNAPSHOT.md` asks for a 1:1 image at
+`--picture`; uploading the 2:1 banner there either gets rejected by
+`validate-listing` or gets centre-cropped, which cuts the wordmark off
+the left edge and the terminal off the right.
+
+**Action (already done — this is the record of what was produced)**
+
+1. `docs/HERO_IMAGE_BRIEF.md` is the spec for the banner.
+2. `docs/AVATAR_BRIEF.md` is the spec for the square.
+3. Both are committed and tracked. No `git add -f` is needed.
+
+**If you need to replace one**
+
+- Keep the shape. A 2:1 file in `--picture` is the failure this item
+  exists to prevent.
+- Keep it under 1 MB — the marketplace rejects anything larger.
+- `pnpm preflight:production` re-checks both files' dimensions and size
+  and fails with the number it measured, so you do not have to eyeball
+  it.
 
 ---
 

@@ -17,6 +17,10 @@ import { config as loadDotenv } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The resource-URL predicate, imported rather than copied. `env:check` reports
+// every problem instead of throwing on the first, so it cannot use
+// `loadConfig()` — but it can use the rule `loadConfig()` enforces.
+import { isPublicHttpsUrl } from '../apps/api/src/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -127,6 +131,18 @@ if (mode === 'okx') {
   if (!/^0x[a-fA-F0-9]{40}$/.test(process.env['OKX_PAYMENT_ADDRESS'] ?? '')) {
     err('OKX_PAYMENT_ADDRESS', 'must be a 0x-prefixed EVM address');
   }
+  // The URL the 402 challenge names as the thing being paid for. This is the
+  // same predicate `validateProductionConfig()` uses, imported rather than
+  // re-implemented: two copies of "is this URL usable" could disagree, and the
+  // one an operator reads is not the one that decides. The boot guard would
+  // catch it too, but a crash-looping container is a worse place to find out.
+  if (!isPublicHttpsUrl(process.env['OKX_PAYMENT_RESOURCE_URL'] ?? '')) {
+    err(
+      'OKX_PAYMENT_RESOURCE_URL',
+      'required when PAYMENT_MODE=okx: this deployment\'s own public https URL ' +
+        '(for example https://api.example.com/api/v1/audits)',
+    );
+  }
   // NOTE: OKX.AI Marketplace is GA as of 2026-06-30; ASPs self-register
   // via `onchainos agent register --role asp` (see docs/EXTERNAL_ACTIONS.md
   // item 2). The x402 challenge + EIP-3009 verification is wired and
@@ -222,13 +238,13 @@ if (errors.length === 0 && warnings.length === 0 && infos.length === 0) {
   console.log('OK — no findings');
 } else {
   for (const e of errors) {
-    console.log(`ERROR    ${e.field.padEnd(22)} ${e.message}`);
+    console.log(`ERROR    ${e.field.padEnd(24)} ${e.message}`);
   }
   for (const w of warnings) {
-    console.log(`WARNING  ${w.field.padEnd(22)} ${w.message}`);
+    console.log(`WARNING  ${w.field.padEnd(24)} ${w.message}`);
   }
   for (const i of infos) {
-    console.log(`INFO     ${i.field.padEnd(22)} ${i.message}`);
+    console.log(`INFO     ${i.field.padEnd(24)} ${i.message}`);
   }
 }
 console.log('─'.repeat(60));

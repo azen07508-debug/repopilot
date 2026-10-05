@@ -34,6 +34,7 @@
     "db:migrate": "pnpm --filter @repopilot/api db:migrate",
     "db:seed": "pnpm --filter @repopilot/api db:seed",
     "env:check": "tsx scripts/env-check.ts",
+    "preflight:production": "tsx scripts/preflight-production.ts",
     "intelligence:smoke": "tsx scripts/intelligence-smoke.mts",
     "verify:release": "tsx scripts/verify-release.ts",
     "docs:facts": "tsx scripts/docs-facts.ts --write",

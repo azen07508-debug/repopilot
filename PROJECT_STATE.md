@@ -4,7 +4,7 @@
 **Repository:** https://github.com/azen07508-debug/repopilot
 **Current version:** 0.1.0-rc.3
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-10-02 23:30 UTC
+**Last updated:** 2026-10-04 15:10 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-10-02 23:00 UTC)](#test-baseline-2026-10-02-2300-utc)
+- [Test baseline (2026-10-04 15:10 UTC)](#test-baseline-2026-10-04-1510-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -158,17 +158,37 @@ repopilot/
   - **STUB** boundary: when `recipientAddress` is empty (Beta not enabled),
     `OkxPaymentAdapter.isConfigured()` returns `false` and `buildPaymentAdapter()`
     in `packages/okx-adapter/src/factory.ts` MUST refuse to construct one.
-    The factory must never silently fall back to mock.
+    The factory must never silently fall back to mock. `factory.test.ts` pins
+    this with a table of ten rejected address shapes.
+  - `OKX_PAYMENT_RESOURCE_URL` is the deployment's own public https URL and is
+    what the 402 challenge puts in `accepts[].resource` — the field the buyer's
+    client reads to know what it is paying for. Required in production when
+    `PAYMENT_MODE=okx`; the unconfigured value is `PLACEHOLDER_RESOURCE`, an
+    RFC 2606 `.invalid` host that can never resolve. `env:check` and
+    `validateProductionConfig()` share one predicate (`isPublicHttpsUrl`).
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-10-02 23:00 UTC)
+## Test baseline (2026-10-04 15:10 UTC)
 
-- @repopilot/core: 833/833
-- @repopilot/okx-adapter: 16/16
-- @repopilot/api: 63/63 + 2 skipped (Postgres, run in CI)
-- @repopilot/mcp-server: 38/38
+- @repopilot/core: 905/905
+- @repopilot/okx-adapter: 41/41
+- @repopilot/api: 75/75 + 2 skipped (Postgres, run in CI)
+- @repopilot/mcp-server: 42/42
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 967 passed + 2 skipped (969 with the Postgres tests when CI is green)**
+- **Total: 1080 passed + 2 skipped (1082 with the Postgres tests when CI is green)**
+
+> The 967 → 1080 step is three separate things, in the order they landed.
+> The tier work (D-035) took core from 833 to 905: `tiers.test.ts` pins the
+> declared tier boundary, the identical-verdict property, the two-directional
+> consistency of `omittedSections`, and the absence of any limitation line
+> matching `/skip|deeper|thinner/i`. The payment path took `okx-adapter` from
+> 16 to 41: `factory.test.ts` went 3 → 19 with a ten-row table of rejected
+> addresses and three `priceFor` cases, and `okx-adapter.test.ts` went 6 → 15
+> with the comparison between the emitted 402 challenge and the one §5.5 of
+> `docs/OKX_REQUIREMENTS_SNAPSHOT.md` documents. And `apps/api` went 63 → 75,
+> which is the `config.test.ts` fixture being made complete: it had been
+> asserting a partial `AppConfig` with `as AppConfig` since the schema grew
+> past it, so nine fields were missing and nothing said so.
 
 > The 966 → 967 step is one test, and it closes a hole rather than covering
 > new code. `BILLING` is the map `get_repopilot_capabilities` returns, so it is
@@ -219,6 +239,14 @@ repopilot/
   skipped tests are the Postgres integration tests, which run in CI)
 - `pnpm build` (every workspace: <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end -->)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
+- `pnpm preflight:production` (the pre-registration self-check: `env:check` under
+  `NODE_ENV=production`, `loadConfig()` under the same `NODE_ENV`, the two brand
+  assets measured off disk, and `docs:check`. It **runs** the other checks
+  rather than re-implementing them, because a re-implementation is a copy that
+  can disagree. Run in a development checkout it reports two FAILs —
+  `PAYMENT_MODE=mock`, `AUDIT_QUEUE_DRIVER=inline` and the production-only
+  variables — which is the correct answer there and the list of what a
+  deployment must change)
 - `pnpm lint` (tsc + project-specific static rules; 0 issues)
 - `pnpm docker:check` (static review of the Dockerfile and the compose file;
   **exits non-zero** on any finding, so it is a gate rather than advice.
@@ -230,12 +258,17 @@ repopilot/
   schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm docs:check` (**exits non-zero** when a document disagrees with the code.
   Recomputes the generated blocks — MCP tool list and count, compose service
-  table, workspace package names and count, fixture count — and asserts four
+  table, workspace package names and count, fixture count — and asserts five
   invariants that carry no block: the `BILLING` map against the `server.tool()`
   registrations, `docs/INDEX.md` against the `docs/` directory, every
-  `pnpm <script>` a document names against the root `package.json`, and that
-  every markdown file is classified as either generated or deliberately not.
-  See D-033 and D-034. Verified by mutation: 12 mutations, 12 caught)
+  `pnpm <script>` a document names against the root `package.json`, that
+  every markdown file is classified as either generated or deliberately not,
+  and that all twelve statements of an audit price agree with each other and
+  with the atomic registration values.
+  See D-033, D-034 and D-036. Verified by mutation: 19 mutations, 19 caught
+  (12 for the block and scope checks, 7 for the price check — including
+  deleting one `add()` call, which is the one way the price check can silently
+  cover less than it used to)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff
@@ -606,11 +639,16 @@ These are NOT code TODOs and do not block the Release Candidate:
    `onchainos agent register --role asp` (GA since 2026-06-30; this is a
    single CLI call, not a code change). The `OkxPaymentAdapter` is fully
    wired and accepts `PAYMENT_MODE=okx` out of the box once a valid
-   `OKX_PAYMENT_ADDRESS` is set.
+   `OKX_PAYMENT_ADDRESS` and `OKX_PAYMENT_RESOURCE_URL` are set.
 3. Production GitHub Token not provided → anonymous 60 req/h in dev
 4. Production PostgreSQL credentials not provided → SQLite in dev
-5. Domain / DNS / TLS cert not configured → reverse-proxy templates only
-6. ~~Marketplace hero image asset not provided~~ → generated `docs/brand/hero.png`
-   (1280×640 PNG, 525 KB, see `docs/HERO_IMAGE_BRIEF.md`)
+5. Domain / DNS / TLS cert not configured → reverse-proxy templates only.
+   `OKX_PAYMENT_RESOURCE_URL` cannot be filled in until this is done, which is
+   why `pnpm preflight:production` reports it as the remaining FAIL.
+6. ~~Marketplace brand assets not provided~~ → both committed:
+   `docs/brand/hero.png` (1280×640, the 2:1 listing banner, see
+   `docs/HERO_IMAGE_BRIEF.md`) and `docs/brand/avatar.png` (1024×1024, the 1:1
+   `--picture` for ASP registration, see `docs/AVATAR_BRIEF.md`).
+   `preflight:production` measures both.
 
 See `docs/EXTERNAL_ACTIONS.md` for the user-side checklist.

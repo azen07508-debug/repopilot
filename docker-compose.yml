@@ -33,6 +33,13 @@ services:
       DATABASE_URL: postgresql://repopilot:repopilot@db:5432/repopilot
       PAYMENT_MODE: ${PAYMENT_MODE:-okx}
       OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
+      # Every process that calls `loadConfig()` runs the production guards,
+      # including this one-shot migration job — it never builds a payment
+      # adapter, but it still refuses to start without the payment config
+      # (R-02: fail at boot rather than half-start). So this has to be set
+      # here too, or `docker compose up` hangs on a migrate container that
+      # exited 1.
+      OKX_PAYMENT_RESOURCE_URL: ${OKX_PAYMENT_RESOURCE_URL:-}
     depends_on:
       db:
         condition: service_healthy
@@ -54,6 +61,10 @@ services:
       PAYMENT_MODE: ${PAYMENT_MODE:-okx}
       OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
       OKX_PAYMENT_NETWORK: ${OKX_PAYMENT_NETWORK:-xlayer}
+      # What the 402 challenge names as the thing being paid for. Must be this
+      # deployment's own public URL; the production guard rejects a reserved
+      # host, an empty value, or anything that is not https.
+      OKX_PAYMENT_RESOURCE_URL: ${OKX_PAYMENT_RESOURCE_URL:-}
       PRICE_QUICK_SCAN: ${PRICE_QUICK_SCAN:-0.02}
       PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.05}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
@@ -130,6 +141,9 @@ services:
       ALLOWED_REPO_HOSTS: github.com,raw.githubusercontent.com
       PAYMENT_MODE: ${PAYMENT_MODE:-okx}
       OKX_PAYMENT_ADDRESS: ${OKX_PAYMENT_ADDRESS:-}
+      # Same reason as the `migrate` service above: the worker calls
+      # `loadConfig()`, so it runs the production payment guards.
+      OKX_PAYMENT_RESOURCE_URL: ${OKX_PAYMENT_RESOURCE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       db:

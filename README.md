@@ -164,6 +164,7 @@ diagram.
 | `pnpm docker:check`         | Static Docker check (or full build if Docker is present)  |
 | `pnpm compose:check`        | Static docker-compose review                              |
 | `pnpm docs:check`           | Recompute the facts the docs state, and fail on divergence|
+| `pnpm preflight:production` | Pre-registration self-check: production config + assets   |
 | `pnpm verify:release`       | End-to-end smoke (env → lint → test → build → API → MCP)  |
 | `pnpm db:migrate`           | Apply DB migrations (SQLite + Postgres)                   |
 | `pnpm mcp`                  | Start the MCP server over stdio                           |
@@ -183,8 +184,12 @@ diagram.
 
 - OKX.AI Marketplace went GA on 2026-06-30. The `OkxPaymentAdapter` is
   fully wired (x402 v2 + EIP-3009 + EIP-712) and accepts `PAYMENT_MODE=okx`
-  with a valid `OKX_PAYMENT_ADDRESS`. To publish the marketplace listing,
-  run `onchainos agent register --role asp` (see
+  with a valid `OKX_PAYMENT_ADDRESS` and `OKX_PAYMENT_RESOURCE_URL` — the
+  second is this deployment's own public https URL, and the 402 challenge
+  shows it to the buyer as the resource being paid for. Both are required in
+  production; `pnpm preflight:production` reports what is still missing. To
+  publish the marketplace listing, run
+  `onchainos agent register --role asp` (see
   [docs/EXTERNAL_ACTIONS.md](docs/EXTERNAL_ACTIONS.md) item 2). The product
   still ships with `PAYMENT_MODE=mock` as the default so the full audit
   flow works without external services.

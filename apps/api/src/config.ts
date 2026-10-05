@@ -31,6 +31,11 @@ const ConfigSchema = z.object({
   OKX_PAYMENT_ADDRESS: z.string().default(''),
   OKX_PAYMENT_NETWORK: z.string().default('xlayer'),
   OKX_X402_VERSION: z.coerce.number().int().default(2),
+  // The URL this deployment is reachable at, placed in the 402 challenge's
+  // `accepts[].resource`. Empty in dev; production requires it (see
+  // `validateProductionConfig`) because a buyer's client reads this field to
+  // know what it is paying for.
+  OKX_PAYMENT_RESOURCE_URL: z.string().default(''),
 
   PRICE_QUICK_SCAN: z.string().default('0.02'),
   PRICE_FULL_AUDIT: z.string().default('0.05'),
@@ -73,6 +78,7 @@ const ConfigSchema = z.object({
 // Invariants:
 //   - production + PAYMENT_MODE=mock            => fail
 //   - production + PAYMENT_MODE=okx + empty addr => fail
+//   - production + PAYMENT_MODE=okx + no resource URL => fail
 //   - production + AUDIT_QUEUE_DRIVER=inline    => fail
 //
 // All error messages are scrubbed of any secret value (we only print the
@@ -89,6 +95,31 @@ export class ProductionConfigError extends Error {
   }
 }
 
+/**
+ * A resource URL is usable in a 402 challenge when it is https, has a host with
+ * a dot in it, and is not one of the reserved names that can never resolve.
+ *
+ * The `.invalid` case is the one that matters: the adapter's own placeholder
+ * uses it, so without this check an operator who sets the placeholder by hand
+ * would pass.
+ */
+export function isPublicHttpsUrl(raw: string): boolean {
+  const s = raw.trim();
+  if (!s.startsWith('https://')) return false;
+  let host: string;
+  try {
+    host = new URL(s).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host.includes('.')) return false;
+  if (host.endsWith('.invalid') || host.endsWith('.local') || host.endsWith('.internal')) {
+    return false;
+  }
+  if (host === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return false;
+  return true;
+}
+
 export function validateProductionConfig(cfg: AppConfig): void {
   if (cfg.NODE_ENV !== 'production') return;
   const issues: string[] = [];
@@ -100,6 +131,14 @@ export function validateProductionConfig(cfg: AppConfig): void {
   if (cfg.PAYMENT_MODE === 'okx' && cfg.OKX_PAYMENT_ADDRESS.trim() === '') {
     issues.push(
       'NODE_ENV=production with PAYMENT_MODE=okx requires OKX_PAYMENT_ADDRESS to be set.',
+    );
+  }
+  if (cfg.PAYMENT_MODE === 'okx' && !isPublicHttpsUrl(cfg.OKX_PAYMENT_RESOURCE_URL)) {
+    issues.push(
+      'NODE_ENV=production with PAYMENT_MODE=okx requires OKX_PAYMENT_RESOURCE_URL to be this ' +
+        'deployment\'s own public https URL (for example https://api.example.com/api/v1/audits). ' +
+        'It is what the 402 challenge shows the buyer as the thing being paid for; the ' +
+        'unconfigured value is a reserved .invalid host that can never resolve.',
     );
   }
   if (cfg.AUDIT_QUEUE_DRIVER === 'inline') {

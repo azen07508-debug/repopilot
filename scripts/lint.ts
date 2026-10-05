@@ -169,6 +169,15 @@ function checkFile(p: string): void {
         } else if (/^\.(then|catch)\b/.test(t)) {
           // Continuation of a multi-line call: walk back to find the
           // start of the call and exempt it.
+          //
+          // Known limitation: the walk-back only steps over lines that start
+          // with `,`, `.`, `word:` or `allowedHosts`. A `.then()` whose body is
+          // a block ends with `}))`, which is none of those, so the walk stops
+          // there and the call is flagged even when its head is `return …`.
+          // Hit by `scripts/preflight-production.ts` on 2026-10-04, which is
+          // why that function uses `async`/`await` — restructuring the caller
+          // is cheaper and better than widening this, and a `eslint-disable`
+          // comment here would be the start of turning the rule off.
           let j = i - 1;
           while (j >= 0 && /^\s*(allowedHosts|,|\.|\w+:)/.test(lines[j] ?? '')) j--;
           const start = (lines[j] ?? '').trim();

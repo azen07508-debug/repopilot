@@ -16,6 +16,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pnpm preflight:production` — the pre-registration checks, run as
+  production.** `env:check` and `docs:check` both existed, and neither ran
+  under `NODE_ENV=production`: `env:check` reads `.env`, so a development
+  checkout passes checks that a deployment fails, and the payment guards in
+  `validateProductionConfig()` were exercised only by unit tests. The script
+  runs five steps in the order an operator would do them — `env:check` with
+  `NODE_ENV=production` forced (every variable at once, including the ones the
+  API has a default for), `loadConfig()` under the same `NODE_ENV` (the four
+  invariants that stop the process booting), the two brand assets measured off
+  disk, and `docs:check` — and every failure prints what to do about it. Run in
+  a development checkout it reports two FAILs, `PAYMENT_MODE=mock` plus
+  `AUDIT_QUEUE_DRIVER=inline` and the production-only variables, which is the
+  correct answer there and is also the list of what a deployment must change.
+  It is deliberately not a second implementation of the other two checks: it
+  *runs* them, because a re-implementation is a copy that can disagree — both
+  callers share one `runGate()` helper for the same reason. One caveat, which
+  applies to every file in that directory: `scripts/` is not covered by the
+  typecheck gate (R-31), so this script's own types are checked by nothing but
+  its execution.
+- **`OKX_PAYMENT_RESOURCE_URL` — what the 402 challenge says the buyer is
+  paying for.** `accepts[].resource` was a hard-coded
+  `https://repopilot/api/v1/audits`: a syntactically valid https URL with no
+  TLD, "the kind of value nobody notices". It is now configuration. The
+  unconfigured value is `PLACEHOLDER_RESOURCE` =
+  `https://repopilot.invalid/api/v1/audits` — `.invalid` is reserved by
+  RFC 2606 and can never resolve, so "this is a placeholder" is a property of
+  the string rather than something a reader has to know. Production refuses to
+  start with `PAYMENT_MODE=okx` and no real URL; `isPublicHttpsUrl()` rejects
+  empty, non-https, hostless, `.invalid`/`.local`/`.internal`, `localhost` and
+  bare-IPv4 values, so an operator who pastes the placeholder by hand does not
+  pass. `CHALLENGE_DESCRIPTION` likewise replaces the templated
+  `` `RepoPilot ${mode} audit` `` with the tier names the listing sells.
+- **`docs/AVATAR_BRIEF.md` and `docs/brand/avatar.png` — the 1:1 picture ASP
+  registration asks for.** The registration takes two images of different
+  shapes and only one of them was specified. `--picture` wants a square; the
+  banner is 1280 × 640, so uploading it is rejected or centre-cropped, which
+  cuts the wordmark off the left edge and the terminal off the right. The new
+  brief opens with a two-column table whose only purpose is to stop the banner
+  being passed as `--picture`, and the asset is 1024 × 1024. Its size is
+  deliberately not written down in the brief: it *was* written down once, as
+  "282 KB", and was wrong within the hour — `preflight:production` measures it
+  instead.
 - **`free_check` — the free entry point, on the MCP surface.** The
   marketplace listing sells Free Check as "the entry point used by other AI
   agents to triage a repo before deciding to pay for a full audit", and MCP
@@ -644,6 +686,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Full Launch Audit price is `0.05` USDT in every place it is stated.**
+  It was `0.05` in the compiled default in `apps/api/src/config.ts` — the one
+  the running process charges — and `0.10` in `.env.example`,
+  `docker-compose.yml`, both languages of `MARKETPLACE_LISTING.md` and the §1.3
+  registration table. A buyer reading the listing and a buyer's client signing
+  the 402 challenge saw two different numbers. Aligned **down** to `0.05`
+  rather than up to `0.10`, because the registration table is the authority for
+  what is sold and re-registering a service is a human-side action, not a
+  commit. `docs:check` now fails if any of the twelve statements disagrees —
+  see Fixed.
+- **The 402 challenge names the tier the way the listing names it.**
+  `accepts[].description` was `` `RepoPilot ${mode} audit` ``, so a buyer who
+  paid for the "Full Launch Audit" saw a payment prompt for a "full audit" —
+  the internal `mode` value. `CHALLENGE_DESCRIPTION` now maps the tiers to
+  `RepoPilot Quick Scan` and `RepoPilot Full Launch Audit`, the strings
+  `MARKETPLACE_LISTING.md` sells.
+- **The banner is no longer called "the hero image".** There are two brand
+  assets and one word did not distinguish them. `MARKETPLACE_LISTING.md` now
+  has a "Brand assets" section listing both, `docs/HERO_IMAGE_BRIEF.md` says in
+  its header that it describes the 2:1 listing banner and points at its 1:1
+  sibling, and §5.1 of `docs/OKX_REQUIREMENTS_SNAPSHOT.md` says which file
+  `--picture` takes.
+- **`env:check` now checks `OKX_PAYMENT_RESOURCE_URL`.** It imports the same
+  `isPublicHttpsUrl` predicate `validateProductionConfig()` enforces rather
+  than copying the rules — two copies of "is this URL usable" could disagree,
+  and the copy an operator reads is not the one that decides. The check is
+  driven off the same value, so the two cannot drift. `docs/DEPLOYMENT.md`
+  listed this variable as something `env:check` rejects before `env:check`
+  knew about it; that is the same defect as a document that lags behind the
+  code, only pointing the other way. The report's field column also widened
+  from 22 to 24 characters, because `OKX_PAYMENT_RESOURCE_URL` is the first
+  name longer than the column.
 - **`FreeCheckOptions` lost three fields that did nothing.** `maxFiles`,
   `maxFileBytes` and `maxTotalBytes` were defaulted, stored on the instance,
   and never read by `run()` — while `apps/api` passed
@@ -950,6 +1024,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The documented 402 challenge and the emitted one had drifted in four
+  independent ways (R-36).** §5.5 of `docs/OKX_REQUIREMENTS_SNAPSHOT.md` is
+  the registration authority for the challenge shape, and nothing compared it
+  to `OkxPaymentAdapter.createChallenge`. So `resource` said
+  `https://<public-domain>/api/v1/audits` while the code hard-coded a host that
+  does not exist; `description` said `RepoPilot Quick Audit` while the code
+  emitted `RepoPilot quick audit`; `maxTimeoutSeconds` said `60` while the code
+  emitted `300`; and `asset` was in the emitted challenge and absent from the
+  document. A second hand-written copy of a machine-generated value can only
+  ever be wrong — the fix is a check that reads both and asserts equality, so
+  `okx-adapter.test.ts` now parses the §5.5 JSON block and compares the field
+  set and every environment-independent value against a freshly built
+  challenge. Verified by injection: seven defects, all caught — doc
+  `maxTimeoutSeconds`, doc quick `description`, doc `asset`, doc `mimeType`,
+  doc full `description`, code full `description`, code `network` — each
+  restored and sha256-verified. `asset` is still **unconfirmed** against a live
+  `validate-listing` and is recorded as such in the document and in `RISKS.md`.
+- **The price check read eight statements; there were twelve.** The count guard
+  was `statements.length < 8`, which `required()` can never reach: it throws
+  before the count is examined, so the guard was dead code — the same defect as
+  a config option nothing reads. It is now an `EXPECTED_STATEMENTS = 12`
+  assertion with `!==`. The twelve are the two defaults in
+  `apps/api/src/config.ts`, the two in `.env.example`, the two in
+  `docker-compose.yml`, two per language of `MARKETPLACE_LISTING.md`, and the
+  two registration prices in §1.3 of the snapshot. The old guard existed to
+  notice a shrinking check; deleting an `add()` call is the one way this check
+  can silently cover less, and `!== 12` is what notices it — injected and
+  confirmed: removing one `add()` prints `read 11 price statements, expected 12`.
+- **The price check deliberately does not read test fixtures, and that is
+  measured rather than assumed.** With the factory fixture at `0.05`, replacing
+  `priceFor`'s return value with a literal `0.05` survives the entire suite (19
+  of 19 green): a fixture that uses the production value cannot see a
+  hard-coded production value. `factory.test.ts`'s pricing block is therefore
+  `0.07` / `0.13`, and with the fixture at `0.13` the same mutation fails one
+  test. That is why `docs:check` reads the twelve sources above and not the
+  tests.
+- **The new production guard broke three existing tests, and the reason was a
+  cast.** `apps/api/src/config.test.ts`'s `baseConfig()` built a partial
+  `AppConfig` and asserted it with `as AppConfig`, so it had been missing nine
+  fields — `OKX_X402_VERSION`, all four `LLM_*`, the three `MAX_*` bounds and
+  `RATE_LIMIT_PER_MINUTE` — and nothing had noticed, because the one function
+  it feeds does not read them. Adding `OKX_PAYMENT_RESOURCE_URL` to the schema
+  therefore produced `TypeError: Cannot read properties of undefined (reading
+  'trim')` in three tests instead of a compile error. The fixture now names
+  every field and is checked with `satisfies AppConfig`, so the next config
+  field fails the build in the file whose job is to construct a config.
+  `config.test.ts` went from 8 tests to 20, including a nine-row table of
+  rejected resource URLs (`''`, whitespace, the adapter's own `.invalid`
+  placeholder, `http://`, `localhost`, `.local`, a host with no dot, a bare
+  IPv4 host, and a non-URL) and a case pinning that the guard does **not** fire
+  for `PAYMENT_MODE=mock`, which has no 402 challenge to put a resource in.
+- **`PAYMENT_MODE=okx` falling back to the mock adapter is now pinned by tests
+  (R-02's defence had no guard).** `buildPaymentAdapter` returns
+  `MockPaymentAdapter` when the address is unusable, which is correct for
+  development and catastrophic in production — a deployment that accepts unpaid
+  audits and never says so. `factory.test.ts` went from 3 tests to 19: a table
+  of ten realistic paste-mistakes (`''`, whitespace-only, `0x`, too short, too
+  long, no prefix, non-hex, the literal `0xYOUR_WALLET_ADDRESS_HERE`,
+  `repopilot.eth`, a BTC address) each asserted to be rejected, a stronger
+  "never returns an adapter for any rejected address" case asserting
+  `toEqual([])`, an error-message case asserting the message names
+  `PAYMENT_MODE=mock` and `docs/EXTERNAL_ACTIONS.md`, an upper-case-hex
+  acceptance case, and three `priceFor` cases. Verified by mutation: making the
+  fallback silent fails 12 tests, swapping the tiers fails 2, hard-coding the
+  full price fails 1.
+- **`docs/EXTERNAL_ACTIONS.md` item 7 said `EXTERNAL_BLOCKED` for an asset that
+  was already committed, and told the reader to `git add -f`.** There is no
+  `.gitignore` rule for binaries, so the instruction was wrong as well as the
+  status. Item 6's status said `BLOCKED on Beta + hero asset`, and its step 3
+  pointed at `.env.example` as the authority on price — the one file that was
+  wrong. Both corrected; item 7 is now a record of the two assets and what
+  replaces them.
+- **`docs:check` rejected the new brief.** `docs/AVATAR_BRIEF.md` was in
+  neither `BLOCK_DOCS` nor `BLOCK_FREE_DOCS`, so adding it turned the check
+  red. It is now a `BLOCK_FREE_DOCS` entry with the same reason as its sibling
+  — a design brief whose measurements are re-taken by `preflight:production`
+  rather than asserted in prose.
 - **The free check's test suite did not test the free check (R-35).** The
   "FreeCheck heuristics" cases built their own `README_NAMES`,
   `LICENSE_NAMES`, `LOCKFILE_PATTERNS` and `entries.find(...)` inside the
@@ -1444,6 +1595,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads `b?.delta ?? 0`, and what the test's own name — "breakdown records
   every applied rule" — already claimed. Found by reading a real audit's
   JSON, not by reading the code.
+
 ## [0.1.0-rc.3] - 2026-07-19
 
 ### Added

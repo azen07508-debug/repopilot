@@ -38,13 +38,19 @@ Mandatory fields (CLI accepts no aliases; `validate-listing` enforces limits):
 
 ### 1.3 Service (one of `A2A` or `A2MCP`)
 
-RepoPilot will register **two** services under a single ASP identity:
+RepoPilot will register **three** services under a single ASP identity — one
+free, used to get discovered, and two paid:
 
 | # | Service name | Type | Fee | Endpoint | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `RepoPilot Free Check` | A2MCP | `0` (free) | `https://<public-domain>/api/v1/free-check` | No x402. Get-acquisition. |
 | 2 | `RepoPilot Repository Audit (Quick)` | A2MCP | `0.02` USDT | `https://<public-domain>/api/v1/audits` | x402, `mode=quick` |
 | 3 | `RepoPilot Repository Audit (Full)` | A2MCP | `0.05` USDT | `https://<public-domain>/api/v1/audits` | x402, `mode=full` |
+
+The fee column is shown in decimal here because it is the price a buyer reads.
+The value the CLI is given is the atomic-unit string in §5.2–§5.4 (`20000` /
+`50000`). `pnpm docs:check` compares both forms against the rest of the
+repository.
 
 Service field rules (from §3 Step 2 of `identity-register.md`):
 
@@ -204,7 +210,12 @@ state}.rs`.
 | `--role` | `asp` | literal |
 | `--name` | `RepoPilot` | EN 3–25 chars; no test markers |
 | `--description` | `Audits public GitHub repositories and returns a launch-readiness report with evidence-backed findings, reproducible scoring, and ready-to-paste launch copy. Static analysis only; never executes repository code.` | ≤500 chars, one sentence |
-| `--picture` | `docs/brand/hero.png` (uploaded file) | ≤1 MB, PNG/JPEG/WebP, 1:1 |
+| `--picture` | `docs/brand/avatar.png` (uploaded file) | ≤1 MB, PNG/JPEG/WebP, 1:1 |
+
+`--picture` is the **1:1** registration picture, not the 2:1 listing banner
+(`docs/brand/hero.png`). Both are committed; `docs/AVATAR_BRIEF.md` and
+`docs/HERO_IMAGE_BRIEF.md` describe them. Uploading the banner here gets it
+rejected or centre-cropped, which removes the wordmark and the terminal.
 
 ### 5.2 Service #0 — `RepoPilot Free Check` (A2MCP, free, get-acquisition)
 
@@ -241,6 +252,11 @@ state}.rs`.
 
 ### 5.5 402 challenge shape (matches the live `accepts[]` schema)
 
+This block is compared against the challenge the adapter actually builds, by
+`packages/okx-adapter/src/okx-adapter.test.ts`. The field set and the
+environment-independent values must match, so a rename in one place and not the
+other fails the suite rather than reaching a buyer.
+
 ```json
 {
   "x402Version": 2,
@@ -250,10 +266,11 @@ state}.rs`.
       "network": "xlayer",
       "maxAmountRequired": "20000",
       "resource": "https://<public-domain>/api/v1/audits",
-      "description": "RepoPilot Quick Audit",
+      "description": "RepoPilot Quick Scan",
       "mimeType": "application/json",
-      "maxTimeoutSeconds": 60,
       "payTo": "<OKX_PAYMENT_ADDRESS>",
+      "maxTimeoutSeconds": 300,
+      "asset": "<USDT contract address on the network>",
       "extra": { "name": "RepoPilot", "version": "0.1.0" }
     }
   ]
@@ -261,17 +278,38 @@ state}.rs`.
 ```
 
 For `mode=full` the same challenge is emitted with
-`maxAmountRequired: "100000"` and `description: "RepoPilot Full Audit"`.
+`maxAmountRequired: "50000"` and `description: "RepoPilot Full Launch Audit"`.
 The free-check endpoint never emits a 402.
+
+Three things this block used to get wrong, all fixed 2026-10-04:
+
+- `resource` said `https://<public-domain>/api/v1/audits` while the code
+  hard-coded `https://repopilot/api/v1/audits` — a plausible-looking host that
+  does not exist. It is now `OKX_PAYMENT_RESOURCE_URL`, required in production.
+- `maxTimeoutSeconds` said `60`; the adapter emits `300`, matching the
+  challenge's own 5-minute `expiresAt`.
+- `description` said `RepoPilot Quick Audit`; the adapter emitted
+  `RepoPilot quick audit` — the internal `mode` value, lower-cased. It now
+  carries the tier name from `MARKETPLACE_LISTING.md`, so the payment prompt
+  names the tier the same way the listing sold it.
+
+`asset` is present in the emitted challenge but is not in §1.4's field list.
+The `exact` scheme needs the token contract, so either §1.4's list is not
+exhaustive or the field is extra. Not yet confirmed against a live
+`validate-listing`; recorded in `RISKS.md` rather than guessed at here.
 
 ### 5.6 Pre-registration checklist (human-side, see also `EXTERNAL_ACTIONS.md`)
 
 1. Replace every `<public-domain>` and `<OKX_PAYMENT_ADDRESS>` with the
    production values.
 2. Run `pnpm env:check` in production mode; confirm no findings.
-3. Run `pnpm verify:release` against the staging URL; confirm 15/15 green.
-4. Place `docs/brand/hero.png` (1 MB cap, 1:1) before the
-   `onchainos agent create` call.
+3. Run `pnpm verify:release` against the staging URL and confirm every step is
+   green. The count is not written down here on purpose — it changes when a step
+   is added, and a hand-written total is how this document drifted before.
+   `pnpm preflight:production` runs the whole pre-registration set and prints
+   what is still missing.
+4. Both brand assets are committed: `docs/brand/avatar.png` (1:1, the
+   `--picture`) and `docs/brand/hero.png` (2:1, the listing banner).
 5. Run `onchainos agent pre-check --role asp`; if `canCreate=false`,
    stop and switch wallets.
 6. Submit the values above to `onchainos agent create --role asp ...`.

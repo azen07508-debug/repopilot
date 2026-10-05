@@ -62,6 +62,8 @@ Architecture Decision Records (ADR-style, lightweight).
   — The scope of a check is part of the check
 - [D-035](#d-035--a-tier-changes-what-a-report-carries-never-what-it-measures)
   — A tier changes what a report carries, never what it measures
+- [D-036](#d-036--a-payload-an-external-party-reads-is-compared-not-duplicated)
+  — A payload an external party reads is compared, not duplicated
 
 ---
 
@@ -1703,3 +1705,117 @@ this, so the topology is checked in two places that do not need it:
     erased the evidence: the limitation sentence proved that a real tiering
     had been intended, and deleting it alone would have made the code and the
     listing agree on a smaller product than the one someone meant to build.
+
+---
+
+## D-036 — A payload an external party reads is compared, not duplicated
+
+- **Date:** 2026-10-04
+- **Status:** Accepted
+- **Context:** Two defects found in one session turned out to be one defect.
+
+  The first was the price. `PRICE_FULL_AUDIT` was stated as `0.10` in
+  `.env.example` and `0.05` in every other place that stated it. The running
+  process charges the `apps/api/src/config.ts` default, which was `0.05` — so
+  the number a buyer read on `MARKETPLACE_LISTING.md` and the number their
+  client would sign an EIP-3009 authorization for were different. Worse,
+  `docs/EXTERNAL_ACTIONS.md` instructed the operator to "set the price exactly
+  as documented in `.env.example`", pointing the runbook at the one wrong copy.
+  The failure mode is a failed payment on the first real sale.
+
+  The second was the 402 challenge. `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.5 is
+  the registration authority for `accepts[]`, and nothing compared it to
+  `OkxPaymentAdapter.createChallenge()`. It had drifted in **four** independent
+  ways: `resource` documented `https://<public-domain>/api/v1/audits` while the
+  code hard-coded `https://repopilot/api/v1/audits` — a syntactically valid
+  https URL with no TLD, "the kind of value nobody notices"; `description`
+  documented `RepoPilot Quick Audit` while the code emitted `RepoPilot quick
+  audit`, the internal `mode` value lower-cased; `maxTimeoutSeconds` documented
+  `60` while the code emitted `300`; and `asset` was in the emitted challenge
+  and absent from the document.
+
+  Both are the same thing: **a value that crosses a boundary — to a buyer, to
+  the marketplace, to a client library — exists as a machine-produced value and
+  as a hand-written copy, and nothing compares the two.** The hand-written copy
+  is not a second opinion; it is a statement that can only ever be wrong, and
+  it is read by the party with the least ability to work out which side is
+  right.
+
+- **Decision:** **For any payload an external party reads, either it is
+  generated from one source, or a check reads both sides and asserts they are
+  equal.** Concretely:
+  1. **The check reads the producer, not a third statement.** `docs:check`'s
+     price check reads the twelve places that state a price and compares them
+     to each other; `okx-adapter.test.ts` parses the §5.5 JSON block and
+     compares the field set and every environment-independent value against a
+     freshly built challenge. A document cannot disagree with a function it is
+     never compared to.
+  2. **A check that has not been injected has not been shown to work.** Every
+     check added here was verified by injecting the exact defect it exists for,
+     confirming it goes red, then restoring and sha256-verifying: seven
+     injections against the price, seven against the 402 shape, three against
+     the payment factory. (An eighth 402-shape injection — the documented
+     full-tier atomic amount — never applied, because the harness built its
+     search anchor with a shell-quoted backtick. That is a harness bug rather
+     than a coverage gap, and the path is covered by the price check's
+     membership assertion; recorded here so the count in this paragraph is not
+     read as "eight were tried and one was missed".)
+  3. **The scope of a check is asserted, not implied.** The price check's count
+     guard was `statements.length < 8`, which `required()` can never reach —
+     it throws first. Deleting an `add()` call is the one way the check can
+     silently cover less, so the count is now `EXPECTED_STATEMENTS = 12` with
+     `!==`. This is D-034 applied to a set instead of a document.
+  4. **A placeholder must be a property of the string, not knowledge the reader
+     has to have.** `resource` defaulted to a hard-coded
+     `https://repopilot/api/v1/audits`. It is now `PLACEHOLDER_RESOURCE` =
+     `https://repopilot.invalid/api/v1/audits`: RFC 2606 reserves `.invalid`
+     and it can never resolve, so "this is a placeholder" is visible in the
+     value. `isPublicHttpsUrl()` rejects it along with `.local`, `.internal`,
+     `localhost`, bare IPv4, non-https, hostless and empty — so an operator who
+     pastes the placeholder by hand does not pass production.
+  5. **A fixture must not use the production value.** Measured, not assumed:
+     with `factory.test.ts`'s fixture at `0.05`, replacing `priceFor`'s return
+     with a literal `0.05` survives the whole suite (19 of 19 green). With the
+     fixture at `0.13` the same mutation fails one test. This is also why
+     `docs:check` reads the twelve sources above and **not** the test files — a
+     fixture that used the production value would make the check agree with a
+     hard-coded one.
+
+- **Consequences:**
+  1. **`pnpm preflight:production` exists because a check that is not run in
+     the deployment's own configuration is not a check.** `env:check` reads
+     `.env`, so it passes in development for reasons that do not hold in
+     production. The script *runs* the existing checks rather than
+     re-implementing them (a re-implementation is a copy that can disagree),
+     and adds `loadConfig()` under `NODE_ENV=production` plus the two brand
+     assets measured off disk.
+  2. **`OKX_PAYMENT_RESOURCE_URL` is required in production.** A new env var
+     with a new guard, and it had to be added to `docker-compose.yml` for the
+     `migrate` and `worker` services too — every process that calls
+     `loadConfig()` runs the guards, so `docker compose up` otherwise hangs on
+     a migration container that exited 1.
+  3. **`CHALLENGE_DESCRIPTION` is the tier names from the listing.** The
+     payment prompt now names the tier the same way the thing that sold it
+     does.
+  4. **One thing is recorded as unconfirmed rather than guessed.** `asset` is
+     in the emitted challenge and not in §1.4's field list. Either that list is
+     not exhaustive or the field is extra. It is marked **unconfirmed** in the
+     snapshot and carried as a residual in `RISKS.md`, because the honest
+     version of "we do not know" is worth more than a confident sentence.
+
+- **Alternatives rejected.**
+  - **Generate §5.5 from the adapter.** The document is a snapshot of an
+    external party's requirements — it is the *input* the adapter must satisfy,
+    not a rendering of the adapter. Generating it would have deleted the
+    specification and kept the implementation.
+  - **Delete the hand-written copies and keep one.** Right answer where it is
+    possible, and it is what `report/tiers.ts` did for R-30. It is not possible
+    here: `.env.example`, `docker-compose.yml` and the listing are read by
+    people and tools that do not run the code, and the registration table is a
+    form field on a website.
+  - **A third document that states the canonical price.** That is the defect
+    with an extra copy. Two statements need a check that compares them, not a
+    third statement.
+  - **Trust the listing and repricing upward to `0.10`.** The registration is
+    the authority for what is sold and re-registering a service is a human-side
+    action; a commit cannot do it. Aligned down to `0.05` instead.

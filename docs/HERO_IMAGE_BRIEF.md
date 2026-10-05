@@ -1,10 +1,17 @@
 # RepoPilot — Hero Image Brief
 
 The OKX.AI Agent Marketplace listing needs a hero image. This brief
-describes exactly what the image should look like. No image is bundled
-with the repo; the asset must be supplied by the brand owner and
-dropped under `docs/brand/hero.png` (gitignored — commit with
-`git add -f`).
+describes exactly what the image should look like.
+
+**Status:** the banner described here is committed at
+`docs/brand/hero.png` (1280 × 640, 513 KB, tracked by git — `.gitignore`
+has no rule for binaries, so no `git add -f` is involved). The brief is
+kept because it is the spec you edit against if the banner is ever
+replaced, and because `pnpm preflight:production` checks the committed
+file against it.
+
+This file describes the **2:1 listing banner**. The ASP registration
+picture is a separate **1:1** asset — see `docs/AVATAR_BRIEF.md`.
 
 ## Required dimensions
 
@@ -82,17 +89,30 @@ product.
 
 ## Acceptance checklist
 
-- [ ] 1280 × 640 px, sRGB
-- [ ] File size ≤ 1 MB
-- [ ] Left half: "RepoPilot" wordmark, "GitHub Repository Readiness
+Checked against the committed `docs/brand/hero.png` on 2026-10-04:
+
+- [x] 1280 × 640 px, sRGB
+- [x] File size ≤ 1 MB (measured 513 KB)
+- [x] Left half: "RepoPilot" wordmark, "GitHub Repository Readiness
       Audit" subtitle
-- [ ] Right half: terminal window with a clearly fictional
+- [x] Right half: terminal window with a clearly fictional
       audit snippet
-- [ ] Black/white with at most one accent color
-- [ ] No forbidden text
-- [ ] No third-party logos
-- [ ] Saved as `docs/brand/hero.png` and committed with
-      `git add -f`
+- [x] Black/white with at most one accent color
+- [x] No forbidden text
+- [x] No third-party logos
+- [x] Committed at `docs/brand/hero.png`
+
+Two deviations from the rules above, recorded rather than silently
+accepted:
+
+1. The background is not flat — it carries a soft radial glow. The
+   style rules say "no gradients". The glow is subtle and the image
+   reads as monochrome, but it is a deviation.
+2. The terminal block repeats its last line ("Report ready. Download
+   JSON") twice.
+
+Neither breaks a marketplace rule; both are visible at listing size.
+Replace the banner if either bothers you.
 
 ## When the image is ready
 

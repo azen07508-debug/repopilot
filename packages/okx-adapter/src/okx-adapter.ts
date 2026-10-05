@@ -45,13 +45,19 @@
  *          "scheme": "exact",
  *          "network": "xlayer",
  *          "maxAmountRequired": "<atomic units>",
- *          "resource": "https://repopilot/api/v1/audits",
+ *          "resource": "<OKX_PAYMENT_RESOURCE_URL>",
  *          "description": "RepoPilot Quick Scan",
  *          "mimeType": "application/json",
  *          "payTo": "<OKX_PAYMENT_ADDRESS>",
- *          "maxTimeoutSeconds": 300
+ *          "maxTimeoutSeconds": 300,
+ *          "asset": "<USDT contract on the network>"
  *        }]
  *      }
+ *
+ *    The field set and the environment-independent values here are pinned by
+ *    `okx-adapter.test.ts` against §5.5 of
+ *    `docs/OKX_REQUIREMENTS_SNAPSHOT.md`, so the documented challenge and the
+ *    emitted one cannot drift apart without a test going red.
  *
  * 2. The buyer's `onchainos` CLI signs an EIP-3009 `TransferWithAuthorization`
  *    payload and replays the request with the `X-PAYMENT` header.
@@ -92,6 +98,21 @@ export interface OkxPaymentAdapterOptions {
   network: string;
   /** x402 protocol version (currently 1 or 2). */
   x402Version: 1 | 2;
+  /**
+   * The URI the buyer is paying for, put in `accepts[].resource`.
+   *
+   * Set this to the deployment's own public URL, e.g.
+   * `https://api.example.com/api/v1/audits`. When it is absent the challenge
+   * carries `PLACEHOLDER_RESOURCE` below, which uses the RFC 2606 reserved
+   * `.invalid` TLD — a host that can never resolve, so "this is a placeholder"
+   * is a property of the string rather than something a reader has to know.
+   *
+   * `validateProductionConfig()` refuses to start in production with
+   * `PAYMENT_MODE=okx` and no resource URL, so the placeholder cannot reach a
+   * buyer. It used to be `https://repopilot/api/v1/audits` — a host that looks
+   * plausible and does not exist, which is the kind of value nobody notices.
+   */
+  resourceUrl?: string;
   /** Underlying RPC used to read the on-chain `authorizationUsed` flag. */
   rpcUrl?: string;
   /** Token contract address (defaults to USDT on the chosen network). */
@@ -99,6 +120,28 @@ export interface OkxPaymentAdapterOptions {
   /** Token decimals (default 6 for USDT). */
   tokenDecimals?: number;
 }
+
+/**
+ * What `accepts[].resource` carries when no public URL is configured. `.invalid`
+ * is reserved by RFC 2606 and is guaranteed never to resolve, so this string
+ * cannot be mistaken for a working endpoint.
+ */
+export const PLACEHOLDER_RESOURCE = 'https://repopilot.invalid/api/v1/audits';
+
+/**
+ * The `accepts[].description` for each tier.
+ *
+ * These are the tier names from `MARKETPLACE_LISTING.md`, which is what the
+ * buyer read before paying. The challenge used to say `RepoPilot quick audit` —
+ * the internal `mode` value, lower-cased — so the payment prompt named the tier
+ * differently from the listing that sold it. `docs/OKX_REQUIREMENTS_SNAPSHOT.md`
+ * §5.5 documents these strings and `okx-adapter.test.ts` compares the two, so a
+ * rename has to happen in both places or the suite fails.
+ */
+export const CHALLENGE_DESCRIPTION: Record<string, string> = {
+  quick: 'RepoPilot Quick Scan',
+  full: 'RepoPilot Full Launch Audit',
+};
 
 const USDT_BY_NETWORK: Record<string, { token: string; decimals: number; chainId: number }> = {
   xlayer: { token: '0x55d398326f99059fF775485246999027B3197955', decimals: 6, chainId: 196 },
@@ -137,7 +180,9 @@ export class OkxPaymentAdapter implements PaymentAdapter {
     const decimals = this.opts.tokenDecimals ?? meta.decimals;
     const token = this.opts.tokenAddress ?? meta.token;
     const atomicAmount = toAtomic(input.quote.amount, decimals);
-    const resource = 'https://repopilot/api/v1/audits';
+    const resource = this.opts.resourceUrl?.trim() || PLACEHOLDER_RESOURCE;
+    const description =
+      CHALLENGE_DESCRIPTION[input.quote.mode] ?? `RepoPilot ${input.quote.mode}`;
     const challenge: PaymentChallenge = {
       paymentId,
       quote: input.quote,
@@ -149,7 +194,7 @@ export class OkxPaymentAdapter implements PaymentAdapter {
             network: this.opts.network,
             maxAmountRequired: atomicAmount,
             resource,
-            description: `RepoPilot ${input.quote.mode} audit`,
+            description,
             mimeType: 'application/json',
             payTo: this.opts.recipientAddress,
             maxTimeoutSeconds: 300,
