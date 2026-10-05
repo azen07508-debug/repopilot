@@ -1055,6 +1055,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The paid service defaulted to the cheaper report it does not sell.** The
+  listing, the OKX snapshot and the MCP tool descriptions all sell one 1 USDT
+  service whose report carries a deployment plan and launch copy, and
+  `CreateAuditInputSchema` defaulted `mode` to `quick` — so a caller that
+  omitted the field paid the same USDT and received the verdict alone. Four
+  places declared that default (the core schema, both MCP tools, the web form)
+  and all four now say `full`. `mode` still selects the report and never the
+  price (D-035); `quick` stays available as an explicit opt-out for a caller
+  that wants the verdict alone. This was deferred for two batches because it
+  silently changes what every existing caller receives — which is the fix, not
+  a side effect of it. It now has a test
+  (`packages/core/src/schemas/inputs.test.ts`), because a one-line default is
+  exactly the change that comes back: nothing else in the suite read the
+  default, so reverting it would have been silent.
 - **`README.md` still sold the retired positioning, and still repeated the
   retired `mode` claim.** The GitHub front door described RepoPilot as "a
   structured launch-readiness report" under the tagline "a launch-ready plan

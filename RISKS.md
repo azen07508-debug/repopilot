@@ -55,8 +55,8 @@ Active risks the team is aware of and how they are mitigated.
   — A test that re-implements the code under test asserts nothing about it
 - [R-36](#r-36--a-document-cannot-disagree-with-a-function-it-is-never-compared-to)
   — A document cannot disagree with a function it is never compared to
-- [R-37](#r-37--the-paid-service-is-sold-as-modefull-and-the-server-defaults-to-quick)
-  — The paid service is sold as `mode=full` and the server defaults to `quick`
+- [R-37](#r-37--the-paid-service-is-sold-as-modefull-and-the-server-defaulted-to-quick)
+  — The paid service is sold as `mode=full` and the server defaulted to `quick`
 - [R-38](#r-38--the-llm-provider-is-wired-from-config-and-never-read)
   — The LLM provider is wired from config and never read
 
@@ -1484,39 +1484,47 @@ the check).
 
 ---
 
-## R-37 — The paid service is sold as `mode=full` and the server defaults to `quick`
+## R-37 — The paid service is sold as `mode=full` and the server defaulted to `quick`
 
 **Severity:** Medium **Likelihood:** Medium
+**Status:** **Fixed 2026-10-05.** The default is `full`; `quick` is an explicit
+opt-out. Pinned by `packages/core/src/schemas/inputs.test.ts`.
 
 **The defect.** With one price (D-037), the registration copy names `mode=full`
 because the service description promises the deployment plan and the launch
-copy. `CreateAuditInputSchema` in `packages/core/src/schemas/inputs.ts` defaults
-`mode` to `quick`, which omits both. The promise therefore holds only if the
-caller reads the description and sends the field; a caller that omits it pays
-the same 1 USDT and receives less.
+copy. `CreateAuditInputSchema` in `packages/core/src/schemas/inputs.ts` defaulted
+`mode` to `quick`, which omits both. The promise therefore held only if the
+caller read the description and sent the field; a caller that omitted it paid
+the same 1 USDT and received less.
 
-**Why it is not fixed by changing the default.** Defaulting to `full` is one
-line and would make the default match the promise. It is deferred rather than
-rejected: it silently changes the report every existing caller gets — including
-`apps/web`'s form default and the MCP tool's declared default — and a behaviour
-change of that shape deserves its own decision rather than riding along with a
-price change. See D-037, "alternatives rejected".
+**Why it was deferred rather than fixed with the price change.** Defaulting to
+`full` is one line, but it silently changes the report every existing caller
+gets — including `apps/web`'s form default and both MCP tools' declared default
+— and a behaviour change of that shape deserved its own decision rather than
+riding along with a price change. D-037 declined to smuggle it in; the decision
+was taken separately on 2026-10-05.
 
-**Why it is recorded rather than left implicit.** It has the same shape as R-36:
-a promise on one side and a producer on the other, with nothing comparing them.
-The difference is that these two *can* be reconciled by a sentence, because the
-caller is an AI agent reading the description rather than a buyer reading a
-listing.
+**Why it was recorded rather than left implicit.** It has the same shape as
+R-36: a promise on one side and a producer on the other, with nothing comparing
+them. The difference is that these two *can* be reconciled by a sentence,
+because the caller is an AI agent reading the description rather than a buyer
+reading a listing.
 
-**Mitigation.** §5.4 of `docs/OKX_REQUIREMENTS_SNAPSHOT.md` states the default,
-the difference and which mode is sold, in the same section as the registration
-values. `docs/API.md` and the MCP tool descriptions say the same thing. A caller
-that ignores all three gets the verdict alone at the full price — a smaller loss
-than a wrong price, but still a loss.
+**What the fix touched.** Four declarations of the default, and nothing else:
+`CreateAuditInputSchema`, the two MCP tool schemas (`audit_github_repository`,
+`reaudit_repository`), and `apps/web`'s form state. §5.4 of
+`docs/OKX_REQUIREMENTS_SNAPSHOT.md`, `docs/API.md`'s request table and `README`
+now state `full` as the default.
 
-**Upgrade path.** Default `mode` to `full` in `CreateAuditInputSchema`, keep
-`quick` as an explicit opt-out, and update the MCP tool descriptions, the web
-form's default and §5.4. That is the change D-037 declined to smuggle in.
+**The check, and why it is not optional.** Nothing else in the suite read the
+default, so reverting the line would have been silent — which is the whole
+failure mode. `inputs.test.ts` asserts the default is `full` and that an
+explicit `quick` still parses. A one-line change that nothing observes is a
+one-line change that comes back.
+
+**Related.** R-36 (a document cannot disagree with a function it is never
+compared to), D-035 (a tier changes what a report carries), D-037 (one price,
+one product).
 
 **Related.** R-36 (a document cannot disagree with a function it is never
 compared to), D-035 (a tier changes what a report carries), D-037 (one price,

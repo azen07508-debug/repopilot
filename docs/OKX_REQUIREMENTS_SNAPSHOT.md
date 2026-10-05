@@ -266,13 +266,15 @@ given report does not have, so a reader never has to infer it from `auditMode`.
 | `mode=quick` | omitted | omitted |
 | `mode=full` | included | included (`includeLaunchCopy=false` drops it) |
 
-**The server default is `quick`.** `CreateAuditInputSchema` in
+**The server default is `full`.** `CreateAuditInputSchema` in
 `packages/core/src/schemas/inputs.ts` supplies it, so a caller that omits the
-field gets the verdict alone. That is why §5.3 line 2 names `mode=full`: the
-paid service promises the deployment plan and the launch copy, and a buyer who
-pays 1 USDT should not receive less than the description they paid against.
-Naming the mode in the registration copy is what keeps the default from being a
-trap rather than a decision.
+field receives the shape §5.3 line 2 sells. It defaulted to `quick` until
+2026-10-05, which meant a buyer who paid 1 USDT and omitted the field received
+less than the description they paid against — the deployment plan and the
+launch copy are named in that description (R-37). Naming the mode in the
+registration copy is no longer load-bearing for that, but it stays: a caller
+reading the description should be able to see which shape is sold without
+inferring it from a default. `quick` remains available as an explicit opt-out.
 
 ### 5.5 402 challenge shape (matches the live `accepts[]` schema)
 

@@ -42,7 +42,18 @@ export type FreeCheckInput = z.infer<typeof FreeCheckInputSchema>;
 
 export const CreateAuditInputSchema = z.object({
   repoUrl: RepoUrlSchema,
-  mode: AuditModeSchema.default('quick'),
+  /**
+   * Defaults to `full` — the shape the paid service is sold as.
+   *
+   * It defaulted to `quick` until 2026-10-05. With one price (D-037) that meant
+   * a caller who omitted the field paid the same 1 USDT and received less than
+   * the service description promised: the deployment plan and the launch copy
+   * are named in the copy the buyer reads before paying (R-37). `mode` still
+   * selects the report and never the price (D-035); this only makes the default
+   * agree with what is being sold. `quick` stays available as an explicit
+   * opt-out for a caller that wants the verdict alone.
+   */
+  mode: AuditModeSchema.default('full'),
   target: AuditTargetSchema.default('open_source'),
   outputLanguage: OutputLanguageSchema.default('en'),
   includeLaunchCopy: z.boolean().default(true),

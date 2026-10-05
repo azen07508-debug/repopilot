@@ -1902,6 +1902,11 @@ this, so the topology is checked in two places that do not need it:
      against, so the description names the mode rather than relying on a
      default the buyer cannot see. Recorded in §5.4 of the snapshot next to the
      table it applies to.
+     **Resolved 2026-10-05 (R-37):** the default is now `full`, so the copy and
+     the producer agree instead of the copy compensating for the producer. The
+     mode stays named in the description — a caller should be able to see which
+     shape is sold without inferring it from a default — but that sentence is no
+     longer load-bearing.
 
 - **Consequences:**
   1. **The price check got smaller and stricter at the same time.** It read
@@ -1954,6 +1959,11 @@ this, so the topology is checked in two places that do not need it:
     change because it silently changes the report every existing caller gets —
     including the web UI's own default — and that is a behaviour change that
     deserves its own decision rather than riding along with a price change.
+    **Taken 2026-10-05 (R-37), on its own.** The decision arrived: the default
+    is `full` in `CreateAuditInputSchema` and in both MCP tool schemas, the web
+    form starts on `full`, and `quick` is an explicit opt-out.
+    `inputs.test.ts` pins the default, because a one-line change that nothing
+    observes is a one-line change that comes back.
   - **Leave the free check's "0-100 score" alone.** It is technically a 0-100
     number. It is not the same quantity, and the listing put the two side by
     side under one name in a product sold on reproducibility.

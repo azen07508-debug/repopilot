@@ -245,9 +245,9 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
       repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
       mode: z
         .enum(['quick', 'full'])
-        .default('quick')
+        .default('full')
         .describe(
-          'Report shape, not price: quick returns the verdict alone, full adds the deployment plan and launch copy. Same price either way.'
+          'Report shape, not price: quick returns the verdict alone, full adds the deployment plan and launch copy. Same price either way. Defaults to full — the shape the paid service is sold as.'
         ),
       target: z
         .enum(['hackathon', 'open_source', 'production'])
@@ -278,8 +278,10 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
       repo_url: z.string().url().describe('The same public GitHub URL you audited before'),
       mode: z
         .enum(['quick', 'full'])
-        .default('quick')
-        .describe('Report shape, not price: full adds the deployment plan and launch copy. Same price either way.'),
+        .default('full')
+        .describe(
+          'Report shape, not price: full adds the deployment plan and launch copy. Same price either way. Defaults to full — the shape the paid service is sold as.'
+        ),
       target: z.enum(['hackathon', 'open_source', 'production']).default('open_source'),
       output_language: z.enum(['en', 'zh-CN']).default('en'),
       include_launch_copy: z.boolean().default(false),
