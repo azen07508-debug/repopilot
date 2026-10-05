@@ -255,37 +255,21 @@ the left edge and the terminal off the right.
 
 ---
 
-## 8. LLM provider (optional upgrade)
-
-**Status:** `OPTIONAL`
-**Why:** The MVP runs with `LLM_PROVIDER=noop` and produces
-template-based copy. Upgrading to an OpenAI-compatible endpoint
-improves the natural-language quality of the summary and launch copy.
-
-**Action**
-
-1. Get an API key from your provider (OpenAI, Azure OpenAI, Together,
-   etc.).
-2. Set in `.env`:
-   ```
-   LLM_PROVIDER=openai-compatible
-   LLM_API_KEY=...
-   LLM_BASE_URL=https://api.openai.com/v1
-   LLM_MODEL=gpt-4o-mini
-   ```
-3. Restart the API. The first audit should produce a noticeably
-   richer `summary` and `launchCopy`.
-
-**Do not**
-
-- Do not give the LLM a role that writes scores or evidence (it is
-  not allowed to)
-
----
-
 ## What is *not* on this list
 
 - Code work: see `BACKLOG.md` and `docs/RELEASE_CHECKLIST.md`
+- **The LLM provider.** This was item 8: set `LLM_PROVIDER=openai-compatible`
+  plus a key, base URL and model, restart, and expect a richer `summary` and
+  `launchCopy` on the first gate. That is not what happens. The provider is
+  built from those variables and passed into `buildApp`, but no code path reads
+  it — `PipelineInput` carries only the two provenance strings, and
+  `polishFixPlanSet()` with `task: 'polish'` is the only LLM call site in the
+  repository. Setting the variables changes nothing about a report, while
+  `pnpm env:check` still makes you supply all three. So it is code work,
+  tracked in `BACKLOG.md`; the measurement is in RISKS.md R-38. Until it lands,
+  leaving `LLM_PROVIDER` unset is the honest configuration rather than a
+  degraded one. The boundary holds whenever it is wired: the LLM may never
+  write a score, a priority or a piece of evidence.
 - The OKX adapter stub: it is intentional and documented in
   `README_OKX.md`
 - The mock payment: it is the default and is part of the product

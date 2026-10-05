@@ -75,6 +75,14 @@ Tracked work, in priority order, updated as items are completed.
   `start:api`, `start:worker` scripts. `verify:release` and
   the existing `pnpm dev` flow stay on combined mode for
   backward compatibility. 4 new tests in `src/worker.test.ts`.
+- [ ] **Wire the LLM provider, or delete it.** `AppDeps.llmProvider` is built
+  from `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` and read by no code path;
+  `PipelineInput` carries only the two provenance strings, and
+  `polishFixPlanSet()` is the only LLM call site. Either thread it into the
+  pipeline for `task: 'summary'` / `'launch_copy'` (and record the provider in
+  `analyzerProvenance` from the actual provider, and bump the cache
+  `keyVersion`) or remove the provider, the two prompt branches and the env
+  validation. Measured in RISKS.md R-38.
 - [ ] **End-to-end Postgres CI job for the queue.** Exercise
   PgBossAuditQueue end-to-end against the CI Postgres service
   container (enqueue + work + completed + retry). Currently the
@@ -98,3 +106,9 @@ Tracked work, in priority order, updated as items are completed.
 - [ ] VSCode extension embedding MCP server
 - [ ] Re-pop analysis (compare current vs previous commit)
 - [ ] Multi-repo scan (org-level)
+- [ ] **A check that `RISKS.md`'s Contents lists every `## R-NN` heading, and
+  nothing else.** R-36 and R-37 were both added to the body without reaching
+  the Contents, and nothing noticed — the same defect as the duplicated
+  `### Changed` in `CHANGELOG.md`, in the one file that is deliberately
+  block-free. Fix the instance by hand (done) and then make it a check, with
+  its own injection test, rather than a convention.

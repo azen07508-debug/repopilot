@@ -766,12 +766,23 @@ function readPriceStatements(): PriceStatement[] {
  * `okx-adapter.test.ts`, `mcp-server/index.test.ts` and the API integration
  * test all build a `PaymentConfig` with their own numbers, and they are
  * *supposed* to differ from production — a fixture that used the real price
- * cannot see a hard-coded real price. That is measured, not assumed: with the
- * fixture at `0.05`, replacing `priceFor`'s return with a literal `0.05`
- * survives the whole suite (19/19 green); with the fixture at `0.13` the same
- * mutation fails one test. The fixtures are not statements to a customer, so
- * they are out of scope here, and making them agree would cost the only test
- * that guards `priceFor` against a hard-coded price.
+ * cannot see a hard-coded real price. The fixtures are not statements to a
+ * customer, so they are out of scope here.
+ *
+ * An earlier version of this comment went further and claimed the off-production
+ * fixture is what *makes* `priceFor` discriminating, citing a measurement:
+ * "with the fixture at `0.05`, replacing `priceFor`'s return with a literal
+ * `0.05` survives the whole suite (19/19 green); with the fixture at `0.13` the
+ * same mutation fails one test." The second half was false. Re-measured
+ * 2026-10-05: with `PRICING` at `0.13`, replacing `priceFor`'s body with
+ * `return { amount: '0.13', currency: 'USDT' }` survived all 39 tests in the
+ * package. An off-production fixture only stops a function hard-coding the
+ * *production* value; every test in that block passed `PRICING.audit` in and
+ * asserted `PRICING.audit` out, which a literal satisfies. What guards
+ * `priceFor` is a test that feeds it **two** differently priced configs, added
+ * along with this correction. A fixture carrying one price cannot be that
+ * guard — which is the actual reason the fixtures stay out of this check, and
+ * not the cost of a guard this check was never providing.
  */
 function checkPrices(): Problem[] {
   const problems: Problem[] = [];

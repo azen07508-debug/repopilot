@@ -177,6 +177,13 @@ Architecture Decision Records (ADR-style, lightweight).
 - **Decision:** `LLM_PROVIDER=noop` (default) routes all LLM calls to
   `NoopLlmProvider`, which uses template-generated `summary` and
   `launchCopy`. `OpenAICompatibleProvider` exists for opt-in.
+- **Corrected 2026-10-05 (measured; see RISKS.md R-38):** "exists for opt-in"
+  was too strong. `OpenAICompatibleProvider` is implemented and unit-tested,
+  but the provider the API builds from `LLM_PROVIDER` is passed into `buildApp`
+  and read by no code path, so there is no opt-in to perform — setting the
+  variables changes no output. The first half of the decision still holds and
+  is the half that matters: `noop` is the only path that runs, and the report
+  is deterministic.
 - **Consequences:** The MVP has zero LLM cost in dev or production. The
   report is always schema-valid. LLM is purely an upgrade, not a
   dependency.

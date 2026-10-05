@@ -16,7 +16,7 @@ Active risks the team is aware of and how they are mitigated.
 - [R-10](#r-10--log-redaction-bypass) — Log redaction bypass
 - [R-11](#r-11--marketplace-hero--branding-not-provided) — Marketplace hero / branding not provided
 - [R-12](#r-12--pii-leakage-from-the-audited-repo) — PII leakage from the audited repo
-- [R-13](#r-13--long-running-full-audits-time-out) — Long-running `full` audits time out
+- [R-13](#r-13--a-gate-on-a-large-repository-times-out) — A gate on a large repository times out
 - [R-14](#r-14--docker-sandbox-not-available-in-dev) — Docker sandbox not available in dev
 - [R-15](#r-15--user-shares-real-okx-keys-in-chat) — User shares real OKX keys in chat
 - [R-16](#r-16--inline-audit-queue-used-in-production-in-process-no-durability)
@@ -53,6 +53,12 @@ Active risks the team is aware of and how they are mitigated.
   — The MCP server cannot be installed outside its own checkout
 - [R-35](#r-35--a-test-that-re-implements-the-code-under-test-asserts-nothing-about-it)
   — A test that re-implements the code under test asserts nothing about it
+- [R-36](#r-36--a-document-cannot-disagree-with-a-function-it-is-never-compared-to)
+  — A document cannot disagree with a function it is never compared to
+- [R-37](#r-37--the-paid-service-is-sold-as-modefull-and-the-server-defaults-to-quick)
+  — The paid service is sold as `mode=full` and the server defaults to `quick`
+- [R-38](#r-38--the-llm-provider-is-wired-from-config-and-never-read)
+  — The LLM provider is wired from config and never read
 
 ---
 
@@ -207,12 +213,18 @@ proceeds without it.
 evidence pointer. Secret values are masked. We do not surface raw file
 content in the report.
 
-## R-13 — Long-running `full` audits time out
+## R-13 — A gate on a large repository times out
 
 **Severity:** Low
 **Likelihood:** High for large repos
-**Mitigation:** 30 s default timeout in the fetcher. Documented in
-`/api/v1/capabilities.limits`. P1 backlog item adds a queue.
+**Mitigation:** 30 s per-request timeout in the fetcher
+(`packages/core/src/git/fetcher.ts`). The size limits that bound a gate are
+in `/api/v1/capabilities.limits` (`DEFAULT_LIMITS`: 2000 files, 1 MiB per
+file, 50 MiB total). The gate is queued rather than synchronous — see R-16
+for the durability caveat. This entry used to be titled "Long-running `full`
+audits time out", which named a mode dependence that does not exist: both
+modes read the same archive and the same commit history, so the repository's
+size is what bounds a gate, not the mode (R-30, D-035).
 
 ## R-14 — Docker sandbox not available in dev
 
@@ -1509,3 +1521,55 @@ form's default and §5.4. That is the change D-037 declined to smuggle in.
 **Related.** R-36 (a document cannot disagree with a function it is never
 compared to), D-035 (a tier changes what a report carries), D-037 (one price,
 one product).
+
+---
+
+## R-38 — The LLM provider is wired from config and never read
+
+**Severity:** Low **Likelihood:** Confirmed
+
+**The defect.** `apps/api/src/server.ts` builds a provider from `LLM_PROVIDER`
+/ `LLM_API_KEY` / `LLM_MODEL` (`defaultLlmProvider()`) and passes it into
+`buildApp` as `AppDeps.llmProvider` at both call sites. Nothing reads it.
+Measured 2026-10-05: searching the whole repository for the identifier outside
+the declaration and those two call sites returns no hits, and the only
+LLM-shaped values that reach the pipeline are the literals
+`llmProviderName: 'noop'` / `llmProviderConfigured: false` written in
+`apps/api/src/services/audit-worker.ts` and
+`apps/api/src/services/job-service.ts`. `PipelineInput` carries those two
+strings and no provider object, so the pipeline has no way to call one.
+
+**Why it matters.** The failure mode is an operator spending money and
+believing it worked. `docs/EXTERNAL_ACTIONS.md` §8 told them to set four env
+vars, restart, and expect "a noticeably richer `summary` and `launchCopy`" on
+the first gate. None of that happens: `ReportBuilder.build()` fills both
+fields from `templateSummary()` / `templateLaunchCopy()`, and `prompts.ts`'s
+`'summary'` and `'launch_copy'` branches are constructed nowhere —
+`polishFixPlanSet()` with `task: 'polish'` is the only LLM call site in the
+repository. It is worse than a no-op: `scripts/env-check.ts` *errors* when
+`LLM_PROVIDER=openai-compatible` and the key, base URL or model is missing, so
+the gate demands a credential for a capability that does nothing.
+
+**Why it is recorded rather than wired.** Wiring it is not a one-liner. It
+changes the content of every report, the `analyzerProvenance` a buyer can
+read, the cache key (`keyVersion`), and the cost of every gate — and the
+product is sold at one USDT with "no LLM in the scoring" as part of its pitch.
+That is a product decision, so the env var, the provider class and the two
+prompt branches are left in place and the misleading instruction was removed
+instead. See BACKLOG.md.
+
+**Mitigation.** `README.md` and `docs/EXTERNAL_ACTIONS.md` §8 now say the hook
+exists and is unit-tested but is consumed by no code path, so an operator is
+not sent to buy a key that does nothing. `preflight:production` still
+validates the three variables when they are set; they are simply inert.
+
+**Upgrade path.** Thread the provider into `PipelineInput`, call it for
+`'summary'` and `'launch_copy'` in the builder, record the provider name in
+`analyzerProvenance` from the actual provider rather than from a literal, bump
+the cache `keyVersion`, and add a test that a configured provider changes the
+report and a failing one falls back to the template.
+
+**Related.** R-26 (a check that never runs), R-28 (a green tick over a
+capability the repository does not have), R-31 (a gate that does not cover
+what it claims), and the `prompts.ts` header comment, which still describes
+the unwired intent.

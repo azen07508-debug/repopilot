@@ -8,10 +8,20 @@ import { OkxPaymentAdapter } from './okx-adapter.js';
  * The pricing block in these fixtures is deliberately NOT the production
  * price. If a fixture used the production amount and the factory hard-coded
  * that amount, every assertion below would still pass and the bug would ship.
- * Keeping the fixture off the production value is what makes `priceFor`
- * discriminating. The production number is checked by `pnpm docs:check`, which
- * compares every place it is stated — that check owns the count, so this
- * comment deliberately does not repeat it.
+ *
+ * That is necessary and it is **not** sufficient — worth spelling out, because
+ * this comment used to claim it was ("keeping the fixture off the production
+ * value is what makes `priceFor` discriminating"). It only stops the function
+ * hard-coding the *production* value. It does nothing about a function that
+ * hard-codes the *fixture* value, and a fixture cannot see that. Measured, not
+ * assumed: with `PRICING` at `0.13`, replacing `priceFor`'s body with
+ * `return { amount: '0.13', currency: 'USDT' }` survived all 39 tests in this
+ * package. The guard is the test further down that feeds it two differently
+ * priced configs; a fixture carrying one price cannot be that guard.
+ *
+ * The production number is checked by `pnpm docs:check`, which compares every
+ * place it is stated — that check owns the count, so this comment deliberately
+ * does not repeat it.
  */
 const PRICING = {
   audit: { amount: '0.13', currency: 'USDT' } as const,

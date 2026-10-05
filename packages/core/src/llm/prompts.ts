@@ -1,10 +1,18 @@
 /**
  * Prompt construction for the LLM provider.
  *
- * The prompts are short and structured. We pass the deterministic scores
- * and findings to the LLM and ask it to (a) write a 3-sentence summary and
- * (b) draft launch copy. The LLM is forbidden from inventing data: it must
- * base its output on the JSON we provide.
+ * The prompts are short and structured. We pass the deterministic scores and
+ * findings to the LLM and ask it to rephrase them. The LLM is forbidden from
+ * inventing data: it must base its output on the JSON we provide.
+ *
+ * **Which branches are live.** Only `'polish'`. `polishFixPlanSet()` calls it,
+ * and it may rewrite the fix plan's `why` sentence and nothing else. The
+ * `'summary'` and `'launch_copy'` branches below are written but constructed by
+ * no caller: the report's `summary` and `launchCopy` come from
+ * `templateSummary()` / `templateLaunchCopy()` inside `ReportBuilder.build()`,
+ * and the provider object itself is not read by any code path in the API or the
+ * MCP server (RISKS.md R-38). They are kept because they are the prompts that
+ * wiring would need — delete them if the wiring is removed instead.
  */
 import type { LLMGenerateInput } from './provider.js';
 

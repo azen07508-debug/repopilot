@@ -1055,6 +1055,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`README.md` still sold the retired positioning, and still repeated the
+  retired `mode` claim.** The GitHub front door described RepoPilot as "a
+  structured launch-readiness report" under the tagline "a launch-ready plan
+  out", long after the product became a release gate everywhere else
+  (`MARKETPLACE_LISTING.md`, the OKX snapshot, `accepts[].description`, the MCP
+  tool descriptions, the web UI). Worse, its "Known limitations" still carried
+  `` `mode: 'full'` takes longer than `quick`: it reads commit history and scans
+  more files `` — the R-30 claim D-035 retired, and false: `scanHistory()` in
+  `packages/core/src/pipeline.ts` runs for both modes and takes `input.mode`
+  only so it can record it in the report. The bullet now states the property
+  instead and points at `tiers.ts`. R-13's title was renamed for the same
+  reason — it read "Long-running `full` audits time out", naming a mode
+  dependence that does not exist.
+- **Two comments claimed a fixture property that is false.** `factory.test.ts`
+  said "keeping the fixture off the production value is what makes `priceFor`
+  discriminating", and `checkPrices()` in `scripts/docs-facts.ts` said the same
+  with a measurement attached: "with the fixture at `0.13` the same mutation
+  fails one test". The second half was wrong. Re-measured 2026-10-05: replacing
+  `priceFor`'s body with `return { amount: '0.13', currency: 'USDT' }` survived
+  all 39 tests in the package. An off-production fixture only stops a function
+  hard-coding the *production* value; every test in that block passed
+  `PRICING.audit` in and asserted `PRICING.audit` out, which a literal
+  satisfies. Both comments now say what is true and where the guard actually
+  is, and the guard was re-verified after the correction: the same injection
+  now fails 1 of 40.
+- **`docs/EXTERNAL_ACTIONS.md` item 8 sent an operator to buy an API key that
+  does nothing (R-38).** It read: set `LLM_PROVIDER=openai-compatible` plus a
+  key, base URL and model, restart, and "the first audit should produce a
+  noticeably richer `summary` and `launchCopy`". Measured: `AppDeps.llmProvider`
+  is built by `defaultLlmProvider()` and passed into `buildApp`, and no code
+  path reads it; `PipelineInput` carries only the two provenance strings, and
+  `polishFixPlanSet()` with `task: 'polish'` is the only LLM call site in the
+  repository. `prompts.ts`'s `'summary'` and `'launch_copy'` branches are
+  constructed nowhere, so `ReportBuilder.build()` always fills both fields from
+  its templates. The item was removed from the operator list — it is code work,
+  now in `BACKLOG.md` — the measurement is recorded as R-38, D-009 carries the
+  correction, and `README.md` and `prompts.ts` say the same. Deliberately not
+  wired in this change: it would alter every report, the `analyzerProvenance` a
+  buyer reads, the cache key and the cost of every gate, which is a product
+  decision rather than a documentation fix.
+- **`RISKS.md`'s Contents list was missing two of its own entries.** R-36 and
+  R-37 were both added to the body without reaching the top of the file, so the
+  document claimed a set it did not have — the same defect as the duplicated
+  `### Changed` in this file, in the one document that is deliberately
+  block-free. Both are listed now, alongside R-38, and a check that this cannot
+  happen again sits in `BACKLOG.md` rather than resting on a convention.
 - **The documented 402 challenge and the emitted one had drifted in four
   independent ways (R-36).** §5.5 of `docs/OKX_REQUIREMENTS_SNAPSHOT.md` is
   the registration authority for the challenge shape, and nothing compared it

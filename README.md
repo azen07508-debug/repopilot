@@ -1,13 +1,18 @@
 # RepoPilot
 
-**One repo in. A launch-ready plan out.**
+**One repo in. A ship-or-block verdict out.**
 
-RepoPilot is the quality layer for agents that ship code. Point it at a
-public GitHub repository and get a structured launch-readiness report —
-evidence-backed findings, explainable scoring, and ready-to-paste launch
-copy — plus a **fix plan per finding** that an agent can act on directly.
+RepoPilot is a release gate for public GitHub repositories. Give it a repo
+URL and it returns a ship-or-block verdict with the findings that block the
+gate — documentation gaps, reproducibility problems, deployment blockers,
+Web3 configuration issues — each carrying file-and-line evidence, plus the
+prioritised fixes that clear it.
 
-It closes the loop: audit → fix plan → fix → re-audit → compare. The
+Ask for `mode: 'full'` and the same report also carries the deployment plan
+and the launch copy you ship with. The measurement is identical either way,
+and so is the price.
+
+It closes the loop: gate → fix plan → fix → re-gate → compare. The
 comparison attributes score movement rule by rule and splits findings
 into resolved, new and still-open. Built for Web3 developers, hackathon
 contestants, and other AI agents.
@@ -37,15 +42,21 @@ audit. It does not custody funds or read private keys.
   server exposes <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end -->
   tools and marks which of them are free, so any MCP-compatible client
   can drive the whole loop.
-- **No surprise charges.** Reading a fix plan or a comparison is free;
-  only running an audit costs anything. A `MockPaymentAdapter` is the
-  default, the real `OkxPaymentAdapter` is opt-in. See
+- **No surprise charges, and no tiers.** A read-only triage probe is free
+  (`POST /api/v1/free-check`, or `free_check` over MCP), and so is reading a
+  fix plan or a comparison — only running a gate costs anything. A gate
+  costs one price whatever `mode` you ask for: `mode` selects how much of
+  the report you receive, never what is measured or what it costs. The
+  number is in [`MARKETPLACE_LISTING.md`](MARKETPLACE_LISTING.md), which
+  `pnpm docs:check` keeps in step with the server. A `MockPaymentAdapter` is
+  the default, the real `OkxPaymentAdapter` is opt-in. See
   [`docs/EXTERNAL_ACTIONS.md`](docs/EXTERNAL_ACTIONS.md) for the
   Beta gate.
 - **No execution, and no LLM in the scoring.** The pipeline reads text
   only. Binary files are skipped, prompt-injection patterns are reported
-  as findings, and the LLM (when enabled) may only rewrite natural
-  language — never a score, a priority or a piece of evidence.
+  as findings, and the LLM boundary is drawn so that even an enabled LLM
+  may only rewrite natural language — never a score, a priority or a piece
+  of evidence.
 
 ## Quick start
 
@@ -73,7 +84,8 @@ docker run --rm -p 4000:4000 \
   repopilot:0.1.0-rc.3
 ```
 
-A first audit takes 5–15 seconds for a typical `mode: 'quick'`:
+A gate takes 5–15 seconds for a typical public repository. The examples below
+ask for `mode: 'quick'` — the verdict alone — to keep the responses small:
 
 ```bash
 # 1. Submit a repo for audit (returns 402 with a payment challenge)
@@ -191,18 +203,26 @@ diagram.
   publish the marketplace listing, run
   `onchainos agent register --role asp` (see
   [docs/EXTERNAL_ACTIONS.md](docs/EXTERNAL_ACTIONS.md) item 2). The product
-  still ships with `PAYMENT_MODE=mock` as the default so the full audit
-  flow works without external services.
-- `mode: 'full'` takes longer than `quick`: it reads commit history and
-  scans more files, so a very large repository (> 50 MiB / 2000 files)
-  can exceed the audit timeout. The audit is queued, not synchronous —
-  `POST /api/v1/audits` answers **202** and a worker process runs the
-  pipeline. In the default combined shape that worker lives in the API
-  process; the split production shape runs it as its own service (see
-  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
-- The LLM is optional. With `LLM_PROVIDER=noop` the `summary` and
-  `launchCopy` are template-generated; scores are always
-  rule-based.
+  still ships with `PAYMENT_MODE=mock` as the default so the whole gate flow
+  works without external services.
+- **`mode` selects the report, not the measurement.** Both modes run every
+  analyzer over the same archive and read the same commit history; `full`
+  only *adds* two report sections — the deployment plan and the launch copy
+  — and costs the same. The declaration and the consistency test that pins
+  it are in
+  [`packages/core/src/report/tiers.ts`](packages/core/src/report/tiers.ts).
+  What does bound a gate is the repository, not the mode: a very large one
+  (> 50 MiB / 2000 files) can exceed the audit timeout. The gate is queued,
+  not synchronous — `POST /api/v1/audits` answers **202** and a worker
+  process runs the pipeline. In the default combined shape that worker
+  lives in the API process; the split production shape runs it as its own
+  service (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+- **The report is deterministic, and the LLM hook is not wired up.** Every
+  score is rule-based, and `summary` / `launchCopy` are generated from
+  templates. `@repopilot/core` ships an `OpenAICompatibleProvider` that is
+  unit-tested, but no code path in the API or the MCP server consumes it:
+  setting `LLM_PROVIDER` today changes nothing about a report. Wiring it is
+  code work, tracked in [BACKLOG.md](BACKLOG.md) — not an operator step.
 
 ## License
 
