@@ -16,9 +16,9 @@ const en = {
   langToggle: '中文',
   langToggleTo: 'Switch to Chinese',
 
-  heroTitle: 'One repo in. A launch-ready plan out.',
+  heroTitle: 'One repo in. A ship-or-block verdict out.',
   heroSubtitle:
-    'Paste a public GitHub URL. Get a launch-readiness report with documented evidence, prioritized blockers and acceptance criteria. Static analysis only. Your repository code is never executed.',
+    'Paste a public GitHub URL. Get a ship-or-block verdict with documented evidence, prioritized blockers and the fixes that clear the gate. Static analysis only. Your repository code is never executed.',
   /**
    * Shown once a report exists, in place of the hero. The marketing headline
    * was previously the page's `h1` even after an audit, so the document
@@ -26,13 +26,13 @@ const en = {
    */
   rerunTitle: 'Audit another repository',
   /** The document's own name, above the repo title. Used once, not per section. */
-  reportTitleLabel: 'Launch-readiness report',
+  reportTitleLabel: 'Release gate report',
 
   formRepoUrl: 'GitHub repository URL',
   formRepoPlaceholder: 'https://github.com/owner/repo',
-  formMode: 'Mode',
-  modeQuick: 'Quick Scan',
-  modeFull: 'Full Launch Audit',
+  formMode: 'Report',
+  modeQuick: 'Verdict only',
+  modeFull: 'Verdict + launch materials',
   formTarget: 'Target',
   targetOpenSource: 'Open Source',
   targetHackathon: 'Hackathon',
@@ -43,15 +43,14 @@ const en = {
   formIncludeLaunchCopy: 'Include launch copy',
   formTry: 'Try',
   actionRun: 'Run audit',
-  actionRunQuick: 'Run Quick Scan',
-  actionRunFull: 'Run Full Audit',
+  actionRunQuick: 'Run gate',
+  actionRunFull: 'Run gate with launch materials',
   actionRunning: 'Auditing',
 
   statusApiOk: 'API ok',
   statusDbOk: 'DB ok',
   statusPayment: 'payment',
-  statusQuickScan: 'Quick Scan',
-  statusFullAudit: 'Full Audit',
+  statusAudit: 'Audit',
   statusMaxFiles: 'Max files',
   statusRate: 'Rate',
   statusMockPayment: 'Mock payment (dev only)',
@@ -152,17 +151,17 @@ const zhCN: Dict = {
   langToggle: 'English',
   langToggleTo: '切换为英文',
 
-  heroTitle: '输入一个仓库，输出一份可上线的方案。',
+  heroTitle: '输入一个仓库，输出一个「能不能发版」的结论。',
   heroSubtitle:
-    '粘贴一个公开 GitHub 仓库地址，得到一份带证据、按优先级排列阻塞项、并附验收标准的发布就绪度报告。仅做静态分析，绝不执行被审计仓库的代码。',
+    '粘贴一个公开 GitHub 仓库地址，得到「可发版 / 被阻塞」的结论，以及带证据的阻塞项和清除门禁所需的修复。仅做静态分析，绝不执行被审计仓库的代码。',
   rerunTitle: '再审计一个仓库',
-  reportTitleLabel: '发布就绪度报告',
+  reportTitleLabel: '发版门禁报告',
 
   formRepoUrl: 'GitHub 仓库地址',
   formRepoPlaceholder: 'https://github.com/owner/repo',
-  formMode: '扫描模式',
-  modeQuick: '快速扫描',
-  modeFull: '完整发布审计',
+  formMode: '报告范围',
+  modeQuick: '只要结论',
+  modeFull: '结论 + 发布材料',
   formTarget: '目标场景',
   targetOpenSource: '开源项目',
   targetHackathon: '黑客松',
@@ -173,15 +172,14 @@ const zhCN: Dict = {
   formIncludeLaunchCopy: '包含发布文案',
   formTry: '试试',
   actionRun: '开始审计',
-  actionRunQuick: '运行快速扫描',
-  actionRunFull: '运行完整审计',
+  actionRunQuick: '运行门禁',
+  actionRunFull: '运行门禁（含发布材料）',
   actionRunning: '审计中',
 
   statusApiOk: '接口正常',
   statusDbOk: '数据库正常',
   statusPayment: '支付方式',
-  statusQuickScan: '快速扫描',
-  statusFullAudit: '完整审计',
+  statusAudit: '审计',
   statusMaxFiles: '文件上限',
   statusRate: '频率',
   statusMockPayment: '模拟支付（仅开发环境）',

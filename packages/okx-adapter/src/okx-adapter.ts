@@ -46,7 +46,7 @@
  *          "network": "xlayer",
  *          "maxAmountRequired": "<atomic units>",
  *          "resource": "<OKX_PAYMENT_RESOURCE_URL>",
- *          "description": "RepoPilot Quick Scan",
+ *          "description": "RepoPilot Release Gate",
  *          "mimeType": "application/json",
  *          "payTo": "<OKX_PAYMENT_ADDRESS>",
  *          "maxTimeoutSeconds": 300,
@@ -129,19 +129,21 @@ export interface OkxPaymentAdapterOptions {
 export const PLACEHOLDER_RESOURCE = 'https://repopilot.invalid/api/v1/audits';
 
 /**
- * The `accepts[].description` for each tier.
+ * The `accepts[].description` the buyer reads on the payment prompt.
  *
- * These are the tier names from `MARKETPLACE_LISTING.md`, which is what the
- * buyer read before paying. The challenge used to say `RepoPilot quick audit` —
- * the internal `mode` value, lower-cased — so the payment prompt named the tier
- * differently from the listing that sold it. `docs/OKX_REQUIREMENTS_SNAPSHOT.md`
- * §5.5 documents these strings and `okx-adapter.test.ts` compares the two, so a
- * rename has to happen in both places or the suite fails.
+ * It is the paid service name from `MARKETPLACE_LISTING.md` — what the buyer
+ * read before paying. The challenge used to say `RepoPilot quick audit`, the
+ * internal `mode` value lower-cased, so the prompt named the tier differently
+ * from the listing that sold it.
+ *
+ * It no longer varies by `mode`. There is one paid service at one price, and
+ * `mode` selects what the report carries rather than what is bought, so a
+ * challenge that named a mode would be naming something the buyer did not
+ * choose. `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.5 documents this string and
+ * `okx-adapter.test.ts` compares the two, so a rename has to happen in both
+ * places or the suite fails.
  */
-export const CHALLENGE_DESCRIPTION: Record<string, string> = {
-  quick: 'RepoPilot Quick Scan',
-  full: 'RepoPilot Full Launch Audit',
-};
+export const CHALLENGE_DESCRIPTION = 'RepoPilot Release Gate';
 
 const USDT_BY_NETWORK: Record<string, { token: string; decimals: number; chainId: number }> = {
   xlayer: { token: '0x55d398326f99059fF775485246999027B3197955', decimals: 6, chainId: 196 },
@@ -181,8 +183,6 @@ export class OkxPaymentAdapter implements PaymentAdapter {
     const token = this.opts.tokenAddress ?? meta.token;
     const atomicAmount = toAtomic(input.quote.amount, decimals);
     const resource = this.opts.resourceUrl?.trim() || PLACEHOLDER_RESOURCE;
-    const description =
-      CHALLENGE_DESCRIPTION[input.quote.mode] ?? `RepoPilot ${input.quote.mode}`;
     const challenge: PaymentChallenge = {
       paymentId,
       quote: input.quote,
@@ -194,7 +194,7 @@ export class OkxPaymentAdapter implements PaymentAdapter {
             network: this.opts.network,
             maxAmountRequired: atomicAmount,
             resource,
-            description,
+            description: CHALLENGE_DESCRIPTION,
             mimeType: 'application/json',
             payTo: this.opts.recipientAddress,
             maxTimeoutSeconds: 300,

@@ -75,7 +75,7 @@ function boot(options: Parameters<typeof installFakeApi>[0] = {}): FakeApi {
 }
 
 function submit(user: ReturnType<typeof userEvent.setup>) {
-  return user.click(screen.getByRole('button', { name: /Run Quick Scan/i }));
+  return user.click(screen.getByRole('button', { name: /Run gate/i }));
 }
 
 /** The `status` field of every status-GET answer, in order. */
@@ -244,7 +244,7 @@ describe('GET statusUrl: the queued → processing → completed loop', () => {
     const heading = await screen.findByRole('heading', { name: REPO_HEADING });
     expect(heading.tagName).toBe('H1');
     expect(screen.getByText('43.5')).toBeTruthy();
-    expect(screen.getByText('Launch-readiness report')).toBeTruthy();
+    expect(screen.getByText('Release gate report')).toBeTruthy();
 
     // The report's subject outranks the pitch: exactly one h1, and it is the
     // repository. Before the fix the marketing headline was the page's h1 and

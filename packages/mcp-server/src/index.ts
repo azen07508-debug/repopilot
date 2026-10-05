@@ -4,7 +4,7 @@
  * Exposes fourteen tools, split by cost:
  *
  *   Paid (they run the pipeline):
- *   - audit_github_repository: run a Quick Scan or Full Launch Audit
+ *   - audit_github_repository: gate a repo — the verdict, plus the launch materials in `full`
  *   - reaudit_repository: run a fresh audit of a repo you already audited
  *
  *   Free (no analysis pipeline, no LLM, no scan for findings):
@@ -185,7 +185,7 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
    */
   async function runPaidAudit(input: CreateAuditInput, quoteKey: string): Promise<unknown> {
     const job = jobStore.create(input);
-    const price = priceFor(opts.payment, input.mode);
+    const price = priceFor(opts.payment);
     const challenge = await paymentAdapter.createChallenge({
       quote: { ...price, mode: input.mode },
       quoteKey,
@@ -240,10 +240,15 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
 
   server.tool(
     'audit_github_repository',
-    'Audit a public GitHub repository. Returns a structured launch-readiness report with documented evidence, prioritized blockers, and acceptance criteria. Static analysis only — never executes repository code.',
+    'Gate a public GitHub repository for release. Returns a ship-or-block verdict with documented evidence, prioritized blockers, and acceptance criteria. Static analysis only — never executes repository code.',
     {
       repo_url: z.string().url().describe('Public GitHub URL, e.g. https://github.com/owner/repo'),
-      mode: z.enum(['quick', 'full']).default('quick').describe('Quick Scan (fast) or Full Launch Audit'),
+      mode: z
+        .enum(['quick', 'full'])
+        .default('quick')
+        .describe(
+          'Report shape, not price: quick returns the verdict alone, full adds the deployment plan and launch copy. Same price either way.'
+        ),
       target: z
         .enum(['hackathon', 'open_source', 'production'])
         .default('open_source')
@@ -271,7 +276,10 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
     'Run a fresh audit of a repository you audited before, after making changes. Paid — it runs the pipeline again. Pair it with compare_audits to see what your fix actually changed.',
     {
       repo_url: z.string().url().describe('The same public GitHub URL you audited before'),
-      mode: z.enum(['quick', 'full']).default('quick'),
+      mode: z
+        .enum(['quick', 'full'])
+        .default('quick')
+        .describe('Report shape, not price: full adds the deployment plan and launch copy. Same price either way.'),
       target: z.enum(['hackathon', 'open_source', 'production']).default('open_source'),
       output_language: z.enum(['en', 'zh-CN']).default('en'),
       include_launch_copy: z.boolean().default(false),
@@ -602,8 +610,7 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
           rateLimitPerMinute: DEFAULT_LIMITS.rateLimitPerMinute,
         },
         pricing: {
-          quickScan: opts.payment.pricing.quickScan,
-          fullAudit: opts.payment.pricing.fullAudit,
+          audit: opts.payment.pricing.audit,
         },
         paymentMode: opts.payment.mode,
         billing: BILLING,

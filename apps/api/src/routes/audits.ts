@@ -240,7 +240,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       // jobId. We create the queued job WITHOUT a paymentId and
       // attach it on the second POST.
       const queued = await deps.service.create(input, idempotencyKey, parsedRepo);
-      const price = priceFor(deps.payment, input.mode);
+      const price = priceFor(deps.payment);
       const adapter = deps.service.getPaymentAdapter();
       const challenge = await adapter.createChallenge({
         quote: { ...price, mode: input.mode },

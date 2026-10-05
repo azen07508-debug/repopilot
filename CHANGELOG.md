@@ -696,6 +696,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what is sold and re-registering a service is a human-side action, not a
   commit. `docs:check` now fails if any of the twelve statements disagrees —
   see Fixed.
+- **One price for an audit: `1` USDT. The second paid tier is gone.** There
+  were two — `0.02` for `mode=quick` and `0.05` for `mode=full` — and the
+  difference did not buy analysis. Both modes run every analyzer over the same
+  commit and produce the same scores, blockers and findings; `full` adds the
+  deployment plan and the launch copy. The registration copy said so itself:
+  the expensive tier's own description read "runs the same analysis as the
+  quick audit and adds the launch materials". An agent comparing the two
+  therefore picked the cheaper one, and the gap priced report sections rather
+  than work — a price depending on a difference the buyer cannot see is not a
+  tier, it is a fence. `PRICE_QUICK_SCAN` / `PRICE_FULL_AUDIT` are replaced by
+  a single `PRICE_AUDIT`; `priceFor()` no longer takes a `mode` (it returned a
+  different amount per mode, while `mode` selects only what the report
+  carries); the snapshot registers two services instead of three; and
+  `docs:check` compares six price statements instead of twelve. See D-037.
+- **The product is positioned as a release gate, not an audit report.**
+  "Launch-readiness report" described a document; the thing a buyer wants is an
+  answer to "can this ship". The listing, the ASP description, the service
+  descriptions, the `accepts[]` name and the web UI's copy now say
+  ship-or-block: `RepoPilot Release Gate` (EN) / `发版门禁` (ZH), one paid
+  service at one price, plus the free triage check. `CHALLENGE_DESCRIPTION` is
+  a single string rather than a `mode`-keyed map, because the payment prompt
+  used to name a tier the buyer had not chosen — and with one price there is
+  only one thing to name.
+- **`mode` is documented as a report-shape knob, and the paid service names the
+  mode it is sold as.** With one price, "Quick Scan" and "Full Launch Audit"
+  named products that no longer exist. `docs/API.md`'s tiers table no longer
+  carries prices, `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.4 states what each
+  mode carries, and the registration copy names `mode=full` — because the
+  server default is `quick`, and a buyer who pays 1 USDT should not receive
+  less than the description they paid against. The MCP tool descriptions say
+  the same thing: report shape, not price.
 - **The 402 challenge names the tier the way the listing names it.**
   `accepts[].description` was `` `RepoPilot ${mode} audit` ``, so a buyer who
   paid for the "Full Launch Audit" saw a payment prompt for a "full audit" —
@@ -1041,25 +1072,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doc full `description`, code full `description`, code `network` — each
   restored and sha256-verified. `asset` is still **unconfirmed** against a live
   `validate-listing` and is recorded as such in the document and in `RISKS.md`.
-- **The price check read eight statements; there were twelve.** The count guard
-  was `statements.length < 8`, which `required()` can never reach: it throws
-  before the count is examined, so the guard was dead code — the same defect as
-  a config option nothing reads. It is now an `EXPECTED_STATEMENTS = 12`
-  assertion with `!==`. The twelve are the two defaults in
-  `apps/api/src/config.ts`, the two in `.env.example`, the two in
-  `docker-compose.yml`, two per language of `MARKETPLACE_LISTING.md`, and the
-  two registration prices in §1.3 of the snapshot. The old guard existed to
-  notice a shrinking check; deleting an `add()` call is the one way this check
-  can silently cover less, and `!== 12` is what notices it — injected and
-  confirmed: removing one `add()` prints `read 11 price statements, expected 12`.
+  Two of those seven — the `full`-tier description pair — no longer exist now
+  that there is one service and one description; the comparison is a single
+  value, and `okx-adapter.test.ts` asserts it holds for both modes.
+- **The free check and the paid audit both claimed to return "a 0-100 score",
+  and they are different quantities.** The free check returns
+  `Math.round(passed / 5 * 100)`, so the only values it can take are `0`, `20`,
+  `40`, `60`, `80` or `100` — a five-item pass count wearing a percentage sign.
+  The paid audit returns a weighted multi-dimension score; measured,
+  `octocat/Hello-World` is 45.2. Both were advertised as "plus a 0-100 score",
+  in a product whose selling point is that the score is reproducible. The free
+  check now describes what it actually returns — five pass/fail checks and the
+  detected stack — and the readiness score belongs to the paid gate alone.
+- **The price check's count guard was dead code.** It read
+  `statements.length < 8`, which `required()` can never reach: it throws before
+  the count is examined, so the guard could not fire — the same defect as a
+  config option nothing reads. It is now an `EXPECTED_STATEMENTS` assertion with
+  `!==`. The old guard existed to notice a shrinking check; deleting an `add()`
+  call is the one way this check can silently cover less, and `!==` is what
+  notices it — injected and confirmed: removing one `add()` prints
+  `read 5 price statements, expected 6`.
+- **The price check reads every place this repository asserts a price, and
+  there are six.** The compiled default in `apps/api/src/config.ts`, the entry
+  in `.env.example`, the default in `docker-compose.yml`, one per language of
+  `MARKETPLACE_LISTING.md`, and the registration price in §1.3 of the snapshot.
+  It was twelve while there were two tiers — one price means one statement per
+  location. The worked example payloads in `docs/API.md` and
+  `docs/MCP_CLIENT_SETUP.md` are deliberately out of scope and
+  `readPriceStatements()` says why: they illustrate shape, and a buyer never
+  reads their numbers.
 - **The price check deliberately does not read test fixtures, and that is
   measured rather than assumed.** With the factory fixture at `0.05`, replacing
-  `priceFor`'s return value with a literal `0.05` survives the entire suite (19
-  of 19 green): a fixture that uses the production value cannot see a
-  hard-coded production value. `factory.test.ts`'s pricing block is therefore
-  `0.07` / `0.13`, and with the fixture at `0.13` the same mutation fails one
-  test. That is why `docs:check` reads the twelve sources above and not the
-  tests.
+  `priceFor`'s return value with a literal `0.05` survives the entire suite: a
+  fixture that uses the production value cannot see a hard-coded production
+  value. `factory.test.ts`'s pricing block is therefore `0.13` — a value the
+  server does not charge. That is why `docs:check` reads the six statements
+  above and not the tests.
+- **Keeping the fixture off the production price was necessary and not
+  sufficient, and only injecting the defect showed it.** With the fixture at
+  `0.13`, replacing `priceFor`'s body with `return { amount: '0.13', currency:
+  'USDT' }` *still* survived the whole suite — 39 of 39 green — because every
+  test in the block passed a config priced at `PRICING.audit` and asserted the
+  result equalled `PRICING.audit`, which the literal satisfies too. The fix is a
+  test that passes **two** configs with different prices and asserts each comes
+  back; the same mutation now fails one test. A fixture that differs from
+  production stops the function hard-coding *production*; it does not stop it
+  hard-coding the fixture.
 - **The new production guard broke three existing tests, and the reason was a
   cast.** `apps/api/src/config.test.ts`'s `baseConfig()` built a partial
   `AppConfig` and asserted it with `as AppConfig`, so it had been missing nine

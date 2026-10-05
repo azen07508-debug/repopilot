@@ -42,17 +42,19 @@ export const DEFAULT_LIMITS = {
 };
 
 /**
- * The two tiers' prices.
+ * The audit price. One price, one tier.
  *
- * The full audit was 0.10 and is now 0.05. The 5x gap described the
- * difference the listing claimed — "the deeper reproducibility and Web3
- * analyzers" — which the code never implemented. Once the tiers were
- * separated by what they deliver rather than by claimed analysis depth
- * (RISKS.md R-30), the honest multiple was the one the deliverables
- * support: a deployment plan and a set of launch copy, not a second
- * analysis. Both tiers run the same analyzers over the same archive.
+ * There used to be two: 0.02 for `quick` and 0.05 for `full`. Both ran every
+ * analyzer over the same archive (RISKS.md R-30), so the 2.5x bought the
+ * deployment plan and the launch copy — report sections, not analysis. The
+ * registration copy said so itself ("Runs the same analysis as the quick audit
+ * and adds the launch materials"), which meant the expensive tier advertised
+ * its own irrelevance and any agent comparing the two picked the cheap one.
+ *
+ * `mode` still selects what the report carries (D-035). It no longer selects
+ * what it costs, because a price that depends on a difference the buyer cannot
+ * see is not a tier, it is a fence.
  */
 export const DEFAULT_PRICING = {
-  quickScan: { amount: '0.02', currency: 'USDT' },
-  fullAudit: { amount: '0.05', currency: 'USDT' },
+  audit: { amount: '1', currency: 'USDT' },
 };

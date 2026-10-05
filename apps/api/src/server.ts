@@ -369,8 +369,7 @@ export function defaultPaymentConfig(): PaymentConfig {
       resourceUrl: cfg.OKX_PAYMENT_RESOURCE_URL,
     },
     pricing: {
-      quickScan: { amount: cfg.PRICE_QUICK_SCAN, currency: 'USDT' },
-      fullAudit: { amount: cfg.PRICE_FULL_AUDIT, currency: 'USDT' },
+      audit: { amount: cfg.PRICE_AUDIT, currency: 'USDT' },
     },
   };
 }

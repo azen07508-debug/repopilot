@@ -105,8 +105,7 @@ export function makeCapabilities(overrides: Partial<Capabilities> = {}): Capabil
     outputs: { report: 'Report' },
     limits: { maxFiles: 400, maxFileBytes: 262144, maxTotalBytes: 20971520, rateLimitPerMinute: 30 },
     pricing: {
-      quickScan: { amount: '0.5', currency: 'USDT' },
-      fullAudit: { amount: '2', currency: 'USDT' },
+      audit: { amount: '1', currency: 'USDT' },
     },
     paymentMode: 'mock',
     ...overrides,

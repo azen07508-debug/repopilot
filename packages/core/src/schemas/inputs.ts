@@ -160,9 +160,12 @@ export const CapabilitiesSchema = z.object({
     maxTotalBytes: z.number(),
     rateLimitPerMinute: z.number(),
   }),
+  /**
+   * One price for the audit. `mode` selects what the report carries, not what
+   * it costs — see `DEFAULT_PRICING` for why the second tier went away.
+   */
   pricing: z.object({
-    quickScan: z.object({ amount: z.string(), currency: z.string() }),
-    fullAudit: z.object({ amount: z.string(), currency: z.string() }),
+    audit: z.object({ amount: z.string(), currency: z.string() }),
   }),
   paymentMode: z.enum(['mock', 'okx']),
 });

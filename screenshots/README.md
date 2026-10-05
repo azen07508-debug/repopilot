@@ -31,7 +31,7 @@ with no README, no LICENSE, no lockfile, no CI. A useful negative baseline.
 | `mcp-audit-octocat-Hello-World-quick-*.json` | Full JSON response from `audit_github_repository` (mode=`quick`). |
 | `mcp-audit-octocat-Hello-World-quick-*.md`   | Human-readable Markdown render of the same report. |
 | `mcp-audit-octocat-Hello-World-quick-*.html` | HTML render used for the screenshot. |
-| `mcp-audit-octocat-Hello-World-full-*.json`  | Same, but `mode=full`. The two tiers measure the same thing and differ in what they carry — see `../MARKETPLACE_LISTING.md`. These files predate that fix, so the `quick` ones still show the retired limitation sentence; they are a record of what the tool said at the time and are left as written. |
+| `mcp-audit-octocat-Hello-World-full-*.json`  | Same, but `mode=full`. Both modes measure the same thing and differ only in what they carry — see the Tiers section of `../docs/API.md`. These files predate that fix, so the `quick` ones still show the retired limitation sentence; they are a record of what the tool said at the time and are left as written. |
 | `mcp-audit-octocat-Hello-World-full-*.md`    | Markdown render of the full report. |
 | `mcp-audit-octocat-Hello-World-full-*.html`  | HTML render of the full report. |
 | `mcp-audit-octocat-Hello-World-full.png`           | Viewport-sized screenshot (top of the report). |

@@ -33,9 +33,13 @@ export interface PaymentConfig {
      */
     resourceUrl?: string;
   };
+  /**
+   * One price for the audit. It used to be one per `mode`; the two modes run
+   * the same analysis, so the difference priced report sections (see
+   * `DEFAULT_PRICING` in `@repopilot/core`).
+   */
   pricing: {
-    quickScan: { amount: string; currency: 'USDT' };
-    fullAudit: { amount: string; currency: 'USDT' };
+    audit: { amount: string; currency: 'USDT' };
   };
 }
 
@@ -62,9 +66,12 @@ export function buildPaymentAdapter(cfg: PaymentConfig): PaymentAdapter {
   return new MockPaymentAdapter();
 }
 
-export function priceFor(
-  cfg: PaymentConfig,
-  mode: 'quick' | 'full',
-): { amount: string; currency: 'USDT' } {
-  return mode === 'full' ? cfg.pricing.fullAudit : cfg.pricing.quickScan;
+/**
+ * The price of an audit. It does not take a `mode`: `quick` and `full` run the
+ * same analyzers over the same archive, so the mode selects what the report
+ * carries, not what it costs. It used to take one and return a different
+ * amount per mode — a 2.5x premium for report sections.
+ */
+export function priceFor(cfg: PaymentConfig): { amount: string; currency: 'USDT' } {
+  return cfg.pricing.audit;
 }

@@ -65,8 +65,7 @@ services:
       # deployment's own public URL; the production guard rejects a reserved
       # host, an empty value, or anything that is not https.
       OKX_PAYMENT_RESOURCE_URL: ${OKX_PAYMENT_RESOURCE_URL:-}
-      PRICE_QUICK_SCAN: ${PRICE_QUICK_SCAN:-0.02}
-      PRICE_FULL_AUDIT: ${PRICE_FULL_AUDIT:-0.05}
+      PRICE_AUDIT: ${PRICE_AUDIT:-1}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       # Loopback only, deliberately. The public entry point is the `web`

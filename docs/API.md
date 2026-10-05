@@ -70,8 +70,7 @@ Service metadata, inputs/outputs, limits, pricing.
     "rateLimitPerMinute": 60
   },
   "pricing": {
-    "quickScan":  { "amount": "0.02", "currency": "USDT" },
-    "fullAudit":  { "amount": "0.05", "currency": "USDT" }
+    "audit": { "amount": "1", "currency": "USDT" }
   },
   "paymentMode": "mock"
 }
@@ -212,12 +211,14 @@ Start a new audit. Idempotent on `X-PAYMENT`.
 
 ### Tiers
 
-`mode` selects what the report **carries**, never what it measures. Both tiers
-run every analyzer over the same commit and produce the same scores, blockers
-and findings — a score has to be a property of the repository, not of the price
-paid, or two audits of the same commit would disagree.
+`mode` selects what the report **carries**, never what it measures, and never
+what it costs. Both tiers run every analyzer over the same commit and produce
+the same scores, blockers and findings — a score has to be a property of the
+repository, not of the price paid, or two audits of the same commit would
+disagree. There is one paid service at one price; the tiers differ in the
+deliverable, not in the bill.
 
-| | `quick` (0.02 USDT) | `full` (0.05 USDT) |
+| | `quick` | `full` |
 |---|---|---|
 | scores, blockers, documentation gaps, security findings, quality and fixture findings | yes | yes |
 | detected stack, history-scan scope, launch checklist, recommended tasks | yes | yes |
@@ -260,14 +261,14 @@ Returns **402 Payment Required** with a `PaymentChallenge`:
   "status": "queued",
   "payment": {
     "paymentId": "mock_xxx",
-    "amount": "0.02",
+    "amount": "1",
     "currency": "USDT",
     "accepts": [
       {
         "scheme": "mock",
-        "maxAmountRequired": "0.02",
+        "maxAmountRequired": "1",
         "resource": "https://repopilot/api/v1/audits",
-        "description": "RepoPilot Quick Scan"
+        "description": "RepoPilot Release Gate"
       }
     ]
   }

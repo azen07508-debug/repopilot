@@ -260,8 +260,7 @@ describe('API integration', () => {
         mode: 'mock',
         okx: { recipientAddress: '', network: 'xlayer', x402Version: 2 },
         pricing: {
-          quickScan: { amount: '0.02', currency: 'USDT' },
-          fullAudit: { amount: '0.10', currency: 'USDT' },
+          audit: { amount: '0.02', currency: 'USDT' },
         },
       },
       allowedHosts: ['github.com', 'raw.githubusercontent.com'],
@@ -289,10 +288,10 @@ describe('API integration', () => {
   it('GET /api/v1/capabilities returns the schema', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/capabilities' });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { name: string; paymentMode: string; pricing: { quickScan: { amount: string } } };
+    const body = res.json() as { name: string; paymentMode: string; pricing: { audit: { amount: string } } };
     expect(body.name).toBe('RepoPilot');
     expect(body.paymentMode).toBe('mock');
-    expect(body.pricing.quickScan.amount).toBe('0.02');
+    expect(body.pricing.audit.amount).toBe('0.02');
   });
 
   it('POST /api/v1/audits rejects bad URLs with 400', async () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { OkxPaymentAdapter, PLACEHOLDER_RESOURCE } from './okx-adapter.js';
+import { OkxPaymentAdapter, PLACEHOLDER_RESOURCE, CHALLENGE_DESCRIPTION } from './okx-adapter.js';
 
 describe('OkxPaymentAdapter', () => {
   it('is not configured when recipient is missing', () => {
@@ -126,15 +126,18 @@ describe('the 402 challenge names what the buyer is paying for', () => {
     expect(accepts['resource']).toBe(PLACEHOLDER_RESOURCE);
   });
 
-  it('names the tier the way the listing names it', async () => {
+  it('names the service the way the listing names it, whatever the mode', async () => {
     // The challenge used to say "RepoPilot quick audit" — the internal `mode`
     // value, lower-cased. A buyer who read "Quick Scan" on the listing then saw
-    // a different name on the payment prompt.
+    // a different name on the payment prompt. There is one paid service now, so
+    // the prompt carries one name: `mode` selects what the report carries, not
+    // what is bought, and a challenge naming a mode would name something the
+    // buyer never chose.
     expect((await acceptsOf(adapter(), 'quick', '0.02'))['description']).toBe(
-      'RepoPilot Quick Scan'
+      CHALLENGE_DESCRIPTION
     );
-    expect((await acceptsOf(adapter(), 'full', '0.05'))['description']).toBe(
-      'RepoPilot Full Launch Audit'
+    expect((await acceptsOf(adapter(), 'full', '0.02'))['description']).toBe(
+      CHALLENGE_DESCRIPTION
     );
   });
 });
@@ -198,22 +201,25 @@ describe('the emitted challenge matches the documented one', () => {
     }
   });
 
-  it('agrees on the quick price and description', async () => {
+  it('agrees on the price and description', async () => {
+    // The documented amount is a string of atomic units and the quote is
+    // decimal, so the decimal is *derived from the document* rather than
+    // written here — a hand-copied price in a test is the thing this whole
+    // check exists to avoid, and a fixture that happened to equal the real
+    // price could not see a hard-coded real price.
+    //
+    // So this pins the *scaling*: the adapter turns the documented price into
+    // the documented atomic string. Whether the documented price is the one the
+    // server actually charges is `docs-facts`' job — `checkPrices()` compares
+    // it against the compiled default in `apps/api/src/config.ts` and against
+    // the listing. Neither check subsumes the other: this one would stay green
+    // if the doc and the config moved together, and that one would stay green
+    // if the adapter stopped scaling.
     const documented = documentedAccepts();
-    const emitted = await acceptsOf(adapter(), 'quick', '0.02');
-    expect(emitted['maxAmountRequired']).toBe(documented['maxAmountRequired']);
+    const documentedAtomic = String(documented['maxAmountRequired']);
+    const documentedDecimal = String(Number(documentedAtomic) / 10 ** 6);
+    const emitted = await acceptsOf(adapter(), 'quick', documentedDecimal);
+    expect(emitted['maxAmountRequired']).toBe(documentedAtomic);
     expect(emitted['description']).toBe(documented['description']);
-  });
-
-  it('agrees on the full price and description', async () => {
-    // §5.5 states the full tier in prose rather than a second JSON block.
-    const section = snapshot.slice(snapshot.indexOf('### 5.5'));
-    const fullAmount = /`maxAmountRequired: "(\d+)"`/.exec(section)?.[1];
-    const fullDescription = /`description: "([^"]+)"`/.exec(section)?.[1];
-    expect(fullAmount).toBeDefined();
-    expect(fullDescription).toBeDefined();
-    const emitted = await acceptsOf(adapter(), 'full', '0.05');
-    expect(emitted['maxAmountRequired']).toBe(fullAmount);
-    expect(emitted['description']).toBe(fullDescription);
   });
 });

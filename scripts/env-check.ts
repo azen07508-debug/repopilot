@@ -42,8 +42,7 @@ const RequiredInProduction = {
   CORS_ORIGINS: 'https://your-domain.example',
   ALLOWED_REPO_HOSTS: 'github.com,raw.githubusercontent.com',
   PAYMENT_MODE: 'mock',
-  PRICE_QUICK_SCAN: '0.02',
-  PRICE_FULL_AUDIT: '0.05',
+  PRICE_AUDIT: '1',
 };
 
 const KNOWN_SECRET_KEYS = [

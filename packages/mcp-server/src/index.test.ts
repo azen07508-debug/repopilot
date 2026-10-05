@@ -12,8 +12,7 @@ const payment: PaymentConfig = {
   mode: 'mock',
   okx: { recipientAddress: '', network: 'xlayer', x402Version: 2 },
   pricing: {
-    quickScan: { amount: '0.02', currency: 'USDT' },
-    fullAudit: { amount: '0.10', currency: 'USDT' },
+    audit: { amount: '0.02', currency: 'USDT' },
   },
 };
 

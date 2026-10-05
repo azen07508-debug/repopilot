@@ -243,7 +243,7 @@ function renderMarkdown(
   lines.push(`3. \`POST /api/v1/audits\` returns a real **x402 v2** challenge with:`);
   lines.push(`   - \`payTo\` = the configured recipient (your X Layer wallet)`);
   lines.push(`   - \`asset\` = USDT contract on X Layer (0x55d3…79955)`);
-  lines.push(`   - \`maxAmountRequired\` correctly scaled from \`PRICE_QUICK_SCAN\` (0.02 USDT = 20000 atomic)`);
+  lines.push(`   - \`maxAmountRequired\` correctly scaled from \`PRICE_AUDIT\` (1 USDT = 1000000 atomic)`);
   lines.push(`4. The challenge expires in 5 minutes and includes a clear \`nextAction\` telling the buyer how to settle.`);
   return lines.join('\n');
 }

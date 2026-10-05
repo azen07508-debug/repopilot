@@ -37,8 +37,11 @@ const ConfigSchema = z.object({
   // know what it is paying for.
   OKX_PAYMENT_RESOURCE_URL: z.string().default(''),
 
-  PRICE_QUICK_SCAN: z.string().default('0.02'),
-  PRICE_FULL_AUDIT: z.string().default('0.05'),
+  // One price for the audit, in USDT. It used to be one per `mode`
+  // (PRICE_QUICK_SCAN / PRICE_FULL_AUDIT); both modes run the same analysis, so
+  // the difference priced report sections rather than work. See
+  // `DEFAULT_PRICING` in `@repopilot/core`.
+  PRICE_AUDIT: z.string().default('1'),
 
   LLM_PROVIDER: z.string().default(''),
   LLM_API_KEY: z.string().default(''),

@@ -309,7 +309,7 @@ deploy if any of the following is missing or wrong:
   public https URL. It is the `resource` field of the 402 challenge — what the
   buyer's client reads to know what it is paying for — so a reserved or
   unresolvable host is rejected)
-- `PRICE_QUICK_SCAN` and `PRICE_FULL_AUDIT`
+- `PRICE_AUDIT`
 
 The script never prints the values of any var whose name suggests a
 secret.

@@ -1775,11 +1775,13 @@ this, so the topology is checked in two places that do not need it:
      pastes the placeholder by hand does not pass production.
   5. **A fixture must not use the production value.** Measured, not assumed:
      with `factory.test.ts`'s fixture at `0.05`, replacing `priceFor`'s return
-     with a literal `0.05` survives the whole suite (19 of 19 green). With the
-     fixture at `0.13` the same mutation fails one test. This is also why
-     `docs:check` reads the twelve sources above and **not** the test files — a
-     fixture that used the production value would make the check agree with a
-     hard-coded one.
+     with a literal `0.05` survives the whole suite. The fixture is `0.13` and
+     the production price is `1`. This is also why `docs:check` reads the price
+     statements and **not** the test files — a fixture that used the production
+     value would make the check agree with a hard-coded one. (D-037 reduced the
+     statements from twelve to six, and found that a fixture off the production
+     price is necessary but not sufficient: a literal equal to the *fixture*
+     survived too, and the fix was a test with two differently-priced configs.)
 
 - **Consequences:**
   1. **`pnpm preflight:production` exists because a check that is not run in
@@ -1819,3 +1821,132 @@ this, so the topology is checked in two places that do not need it:
   - **Trust the listing and repricing upward to `0.10`.** The registration is
     the authority for what is sold and re-registering a service is a human-side
     action; a commit cannot do it. Aligned down to `0.05` instead.
+    **Corrected by D-037:** this reasoning assumed a registration existed to be
+    the authority. None had happened — `docs/EXTERNAL_ACTIONS.md` item 2 was
+    `READY_TO_PUBLISH`, not `DONE` — so the price was free to change and the
+    "align to the authority" argument had nothing to align to.
+
+---
+
+## D-037 — One price, one product: a difference the buyer cannot see is not a tier
+
+- **Date:** 2026-10-05
+- **Status:** Accepted
+- **Context:** There were two paid tiers. `PRICE_QUICK_SCAN` was `0.02` and
+  `PRICE_FULL_AUDIT` was `0.05`, and `priceFor(cfg, mode)` returned a different
+  amount per mode. The two modes ran **every analyzer over the same commit** and
+  produced the same scores, blockers and findings — D-035 had already
+  established that, and `tiers.test.ts` pins it. The only difference was
+  `deploymentPlan` and `launchCopy`: report sections, not work.
+
+  The listing stated the difference and stated it against itself. The expensive
+  tier's own description read:
+
+  > "Complete launch audit: blockers, task breakdown, deployment plan, and
+  > ready-to-paste launch copy. **Runs the same analysis as the quick audit and
+  > adds the launch materials.**"
+
+  An agent comparing the two services reads that sentence and picks the cheaper
+  one. The tier that was supposed to be the product was documented as a
+  superset of a cheaper thing that measured identically. So the price gap did
+  not sell a better analysis; it priced report sections, and it priced them
+  against a copy that told the buyer not to pay.
+
+  The numbers did not work either. `0.05` USDT is about ¥0.36 per audit; at a
+  thousand audits a month that is ¥360/month, which is below the cost of a
+  buyer deciding whether to buy. A price that low does not signal cheapness, it
+  signals that nobody thought about it.
+
+  And the positioning had a defect the price was hiding. Two different
+  quantities were both advertised as "a 0-100 score":
+
+  | | free check | paid audit |
+  |---|---|---|
+  | what it is | `Math.round(passed / 5 * 100)` | weighted, multi-dimension |
+  | possible values | `0`, `20`, `40`, `60`, `80`, `100` | any decimal (`octocat/Hello-World` = 45.2) |
+
+  The product's selling point is that a score is a property of the repository,
+  reproducible by anyone. Two quantities under one name, in the same listing,
+  is the opposite of that claim.
+
+- **Decisions:**
+  1. **One paid tier, `1` USDT.** `DEFAULT_PRICING` is `{ audit: { amount: '1',
+     currency: 'USDT' } }`; `PRICE_QUICK_SCAN` and `PRICE_FULL_AUDIT` are
+     replaced by `PRICE_AUDIT`.
+  2. **`priceFor()` does not take a `mode`.** It used to, and returned a
+     different amount per mode. `mode` still selects what the report carries
+     (D-035); it no longer selects what it costs. The `quote` the buyer sees
+     still carries `mode`, because it still describes the report they will get.
+  3. **The product is a release gate.** The ASP description, both languages of
+     the listing, the two service descriptions, `accepts[].description` and the
+     web UI now sell an answer to "can this ship" rather than a document called
+     a launch-readiness report. The paid service is `RepoPilot Release Gate`
+     (EN) / `发版门禁` (ZH); the free tier is unchanged and is the triage step
+     in front of it.
+  4. **The free check stops claiming a score.** It returns five pass/fail
+     checks and the detected stack. The 0-100 readiness score belongs to the
+     paid gate alone, which is the one that computes a weighted one.
+  5. **`CHALLENGE_DESCRIPTION` is one string, not a `mode`-keyed map.** The
+     payment prompt used to name a tier; with one price there is one thing to
+     name, and naming a `mode` would name something the buyer did not choose.
+  6. **The registration copy names `mode=full`.** The server default is
+     `quick`, which omits the deployment plan and the launch copy. A buyer who
+     pays 1 USDT should not receive less than the description they paid
+     against, so the description names the mode rather than relying on a
+     default the buyer cannot see. Recorded in §5.4 of the snapshot next to the
+     table it applies to.
+
+- **Consequences:**
+  1. **The price check got smaller and stricter at the same time.** It read
+     twelve statements across two tiers; it reads six across one, and it is now
+     a single agreement check rather than a loop over two keys — a loop over one
+     key is only a place for a second key to reappear by accident.
+  2. **The count assertion had to be re-derived, not re-typed.** Deleting an
+     `add()` call is the one way this check can shrink silently, so
+     `EXPECTED_STATEMENTS = 6` is asserted with `!==`. Injected and confirmed:
+     removing one `add()` prints `read 5 price statements, expected 6`.
+  3. **The §5.5 comparison test now derives its input from the document.** It
+     passed a fixture amount and compared the result to the documented atomic
+     value; with one price that fixture no longer matched, and the fix was to
+     read the decimal off the documented atomic string rather than write a
+     second price into the test. Whether the documented price is the one the
+     server charges is `docs-facts`' job; whether the adapter scales it
+     correctly is the adapter test's. Neither subsumes the other.
+  4. **`docs/API.md` no longer states a price in its tiers table.** The
+     boundary `readPriceStatements()` draws is now explicit: it reads every
+     place the repository *asserts* a price, and not the worked example payloads
+     in `docs/API.md` and `docs/MCP_CLIENT_SETUP.md`, whose numbers illustrate
+     shape and are kept in step by hand.
+  5. **The word "tier" now means report shape.** `packages/core/src/report/`
+     still calls them tiers and that is left alone — renaming it would touch
+     every test for no safety gain — but `report/tiers.ts` says what the word
+     means now and that nothing in the module reads or writes a price.
+  6. **A fixture off the production price is necessary but not sufficient.**
+     With `factory.test.ts`'s fixture at `0.13`, replacing `priceFor`'s body
+     with a literal `0.13` still survived the whole suite — every test in the
+     block compared against that same fixture, so the literal satisfied all of
+     them. `factory.test.ts` gained a test that passes two configs with
+     different prices and asserts each comes back; the mutation now fails one
+     test. Found by injecting the defect, not by reading the test.
+
+- **Alternatives rejected.**
+  - **Keep two tiers and raise the expensive one.** It would price report
+    sections higher, which is what the tier already did. Raising the number does
+    not fix a description that tells the buyer to pick the other one.
+  - **Keep two tiers and make `full` run more analysis.** That is the honest
+    version of the two-tier story and it is the one D-035 forecloses: a score
+    that depends on what you paid is not comparable between two people looking
+    at the same commit, and comparability is the product.
+  - **Remove `mode` entirely.** With one price and one product, the knob has no
+    commercial meaning left. But `auditMode` is a field on the public `Report`
+    schema (`1.2`) and `omittedSections` is derived from it; deleting it is a
+    report-format migration, not a repricing. The knob stays as a report-shape
+    parameter and is documented as one.
+  - **Default `mode` to `full` instead of naming it in the copy.** One line of
+    code, and it would make the default match the promise. Rejected for this
+    change because it silently changes the report every existing caller gets —
+    including the web UI's own default — and that is a behaviour change that
+    deserves its own decision rather than riding along with a price change.
+  - **Leave the free check's "0-100 score" alone.** It is technically a 0-100
+    number. It is not the same quantity, and the listing put the two side by
+    side under one name in a product sold on reproducibility.

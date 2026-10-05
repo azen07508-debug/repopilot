@@ -2,6 +2,10 @@
 
 > Ready-to-paste copy for the OKX.AI Agent Marketplace. Two languages,
 > identical information.
+>
+> The price stated here is the price the 402 challenge asks for. `pnpm
+> docs:check` compares the two, so a reworded heading fails the gate instead of
+> silently matching nothing.
 
 ## English
 
@@ -9,50 +13,51 @@
 RepoPilot
 
 ### Tagline
-One repo in. A launch-ready plan out.
+One repo in. A ship-or-block verdict out.
 
 ### Description
-RepoPilot audits public GitHub repositories for documentation gaps,
-reproducibility problems, deployment blockers, Web3 configuration issues
-and hackathon submission readiness. It returns structured evidence,
-prioritized fixes and executable acceptance criteria. Static analysis
-only. It does not execute repository code or provide formal security
-audits.
+RepoPilot is a release gate for public GitHub repositories. Give it a repo URL
+and it returns a ship-or-block verdict with the findings that block the gate —
+documentation gaps, reproducibility problems, deployment blockers, Web3
+configuration issues, hackathon submission readiness — each carrying
+file-and-line evidence, plus the prioritised fixes that clear it and the
+materials you ship with. Static analysis only. It does not execute repository
+code or provide formal security audits.
 
-### Pricing tiers
+### Pricing
 
 **Free Check — 0 USDT**
-A no-account, no-payment read-only repository health probe. Returns
-five boolean checks (README, LICENSE, .env.example, lockfile, CI) plus
-a 0-100 score. No evidence, no task list, no launch copy. Always
-returns HTTP 200 (or a 4xx/502 if the repo is unreachable). This is
-the entry point used by other AI agents to triage a repo before
-deciding to pay for a full audit — and it is on both channels an agent
-might use: `POST /api/v1/free-check` over HTTP, `free_check` over MCP.
+A no-account, no-payment read-only triage probe. Returns five pass/fail
+checks (README, LICENSE, .env.example, lockfile, CI) and the stack it
+detects. No findings, no evidence, and no readiness score — that is what
+the paid gate computes. Always returns HTTP 200 (or a 4xx/502 if the repo
+is unreachable). This is the entry point other AI agents use to decide
+whether a repo is worth gating, and it is on both channels an agent might
+use: `POST /api/v1/free-check` over HTTP, `free_check` over MCP.
 
-**Quick Scan — 0.02 USDT**
-The readiness verdict: stack detection, README / LICENSE / .env.example
-checks, lockfile and CI presence, secret hygiene, and an overall
-launch-readiness score — plus every blocker, gap and security finding
-behind that score, with evidence (file, line, reason). No code execution.
+**Release Gate — 1 USDT**
+The verdict, and everything behind it: stack detection, documentation /
+reproducibility / security-hygiene / deployment-readiness checks, a
+deterministic 0-100 readiness score, every blocking finding with evidence
+(file, line, reason), the prioritised fixes that clear the gate, a
+step-by-step deployment plan (environment, tests, container or host, TLS,
+observability) and ready-to-paste launch copy (one-sentence pitch, short
+description, announcement post). No code execution.
 
-**Full Launch Audit — 0.05 USDT**
-The same verdict, plus the materials you ship with: a step-by-step
-deployment plan (environment, tests, container or host, TLS, observability)
-and ready-to-paste launch copy (one-sentence pitch, short description,
-announcement post).
-
-Both tiers run the same analysis over the same commit and produce the same
-scores, blockers and findings. The full audit adds deliverables; it does not
-look deeper. That is deliberate — a score has to be a property of the
-repository, not of what you paid, or two people comparing notes about the
-same repo would get two different answers.
+One price, one product. There is no cheaper tier and no deeper tier — the same
+analyzers run over the same commit and produce the same numbers for every
+caller. A score has to be a property of the repository, not of what you paid,
+or two people comparing notes about the same repo would get two different
+answers. The request's `mode` selects how much of the report you receive, not
+what is measured, and it costs the same either way; the service is sold as
+`mode=full`.
 
 ### What you get
 - A JSON `Report` validated against the RepoPilot `1.2` schema
   (`@repopilot/core`).
-- Scores for documentation, reproducibility, security hygiene and
-  deployment readiness, each with a deterministic rule breakdown.
+- A ship-or-block verdict, and scores for documentation, reproducibility,
+  security hygiene and deployment readiness, each with a deterministic rule
+  breakdown.
 - A list of blockers with **evidence** (file, line, reason).
 - A launch checklist and a prioritised task list.
 - A launch copy block (one-sentence pitch, short description, X post).
@@ -83,41 +88,40 @@ same repo would get two different answers.
 RepoPilot
 
 ### 一句话定位
-一个 GitHub 链接进去，一份可执行的上线计划出来。
+一个 GitHub 链接进去，一个「能不能发版」的结论出来。
 
 ### 描述
-RepoPilot 审计公开的 GitHub 仓库，覆盖文档缺口、可复现性问题、部署阻塞、
-Web3 配置问题与黑客松提交准备度。它返回结构化的证据、优先级排序的修复
-建议以及可验收标准。RepoPilot 只做静态分析，不执行仓库代码，也不提供
-正式的安全审计。
+RepoPilot 是公开 GitHub 仓库的发版门禁。给它一个仓库地址，它给出「可发版 / 被阻塞」
+的结论，以及挡住门禁的每一条发现——文档缺口、可复现性问题、部署阻塞、Web3 配置
+问题、黑客松提交准备度——每条都附带文件与行号的证据，外加清除门禁所需的优先级
+修复清单和发布所需材料。RepoPilot 只做静态分析，不执行仓库代码，也不提供正式的
+安全审计。
 
-### 价格档
+### 价格
 
 **免费快查 — 0 USDT**
-无需账户、无需付费的只读仓库健康探测。返回五个布尔检查项（README、
-LICENSE、.env.example、lockfile、CI）以及 0-100 的评分。不含证据、不含任务
-清单、不含发布文案。始终返回 HTTP 200（或仓库不可达时的 4xx/502）。
-该接口是其他 AI Agent 用来在决定付费做完整审计前先做初筛的入口，
-且两条通道都可用：HTTP 走 `POST /api/v1/free-check`，MCP 走 `free_check`。
+无需账户、无需付费的只读初筛探测。返回五个通过/未通过的检查项（README、
+LICENSE、.env.example、lockfile、CI）以及识别到的技术栈。不含发现项、不含证据，
+也不给出就绪度评分——那是付费门禁算的。始终返回 HTTP 200（或仓库不可达时的
+4xx/502）。该接口是其他 AI Agent 用来判断某个仓库是否值得做门禁的入口，且两条
+通道都可用：HTTP 走 `POST /api/v1/free-check`，MCP 走 `free_check`。
 
-**快速扫描 — 0.02 USDT**
-就绪度结论：技术栈识别、README / LICENSE / .env.example 检查、lockfile
-与 CI 存在性、密钥卫生、整体上线就绪度评分，以及支撑这个评分的每一个
-阻塞项、文档缺口与安全发现，全部带证据（文件、行号、原因）。不执行任何代码。
+**发版门禁 — 1 USDT**
+结论，以及支撑结论的全部证据：技术栈识别、文档 / 可复现性 / 安全卫生 / 部署就绪度
+四类检查、确定性的 0-100 就绪度评分、每一条带证据（文件、行号、原因）的阻塞性
+发现、清除门禁所需的优先级修复清单、一份分步部署计划（环境、测试、容器或主机、
+TLS、可观测性），以及可直接粘贴的发布文案（一句话介绍、短描述、发布贴）。
+不执行任何代码。
 
-**完整上线审计 — 0.05 USDT**
-同一份结论，外加你要用来发布的材料：一份分步部署计划（环境、测试、
-容器或主机、TLS、可观测性），以及可直接粘贴的发布文案（一句话介绍、
-短描述、发布贴）。
-
-两个档位对同一个 commit 跑同一套分析，给出相同的评分、阻塞项与发现。
-完整审计增加的是交付物，不是更深的分析。这是刻意的——评分必须是仓库的
-属性，而不是你付了多少钱的属性，否则两个人对同一个仓库会对不上答案。
+一个价格，一个产品。没有更便宜的档位，也没有更深的档位——同一套分析器跑同一个
+commit，对每个调用者给出相同的数字。评分必须是仓库的属性，而不是你付了多少钱的
+属性，否则两个人对同一个仓库会对不上答案。请求里的 `mode` 决定你收到报告的多少，
+不决定测什么，且两种取值价格相同；本服务按 `mode=full` 售卖。
 
 ### 输出内容
 - 一份符合 RepoPilot `1.2` 架构（`@repopilot/core`）的 JSON 报告。
-- 文档、可复现性、安全卫生、部署就绪度四类评分，每一项都附带可解释的
-  规则明细。
+- 一个「可发版 / 被阻塞」的结论，以及文档、可复现性、安全卫生、部署就绪度四类
+  评分，每一项都附带可解释的规则明细。
 - 阻塞项列表，每条都附带 **证据**（文件、行号、原因）。
 - 上线清单与优先级排序的任务列表。
 - 发布文案（一句话简介、短描述、X 帖子）。

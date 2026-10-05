@@ -68,8 +68,7 @@ export function registerCapabilitiesRoutes(app: FastifyInstance, opts: Capabilit
         rateLimitPerMinute: DEFAULT_LIMITS.rateLimitPerMinute,
       },
       pricing: {
-        quickScan: opts.payment.pricing.quickScan,
-        fullAudit: opts.payment.pricing.fullAudit,
+        audit: opts.payment.pricing.audit,
       },
       paymentMode: opts.payment.mode,
       cache: {

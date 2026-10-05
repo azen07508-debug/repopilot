@@ -54,17 +54,13 @@ onchainos agent pre-check --role asp
 # Create the ASP identity
 onchainos agent create --role asp \
   --name "RepoPilot" \
-  --description "Launch-readiness audits for public GitHub repositories" \
+  --description "Release gate for public GitHub repositories" \
   --avatar ./repopilot-avatar.png
 
-# Add services (the two tiers in MARKETPLACE_LISTING.md)
+# Add services (the two in MARKETPLACE_LISTING.md — one free, one paid)
 onchainos agent add-service --agent-id <agentId> \
-  --name "Quick Scan" --type fixed-price \
-  --amount 0.02 --symbol USDT --description "Fast launch-readiness report"
-
-onchainos agent add-service --agent-id <agentId> \
-  --name "Full Launch Audit" --type fixed-price \
-  --amount 0.05 --symbol USDT --description "Same analysis as Quick Scan, plus the deployment plan and launch copy"
+  --name "Release Gate" --type fixed-price \
+  --amount 1 --symbol USDT --description "Ship-or-block verdict with evidence, fixes, deployment plan and launch copy"
 ```
 
 Then **activate** the listing:
@@ -99,9 +95,9 @@ When `PAYMENT_MODE=okx`, the API:
        {
          "scheme": "exact",
          "network": "xlayer",
-         "maxAmountRequired": "20000",
-         "resource": "https://repopilot/api/v1/audits",
-         "description": "RepoPilot Quick Scan",
+        "maxAmountRequired": "1000000",
+        "resource": "https://repopilot/api/v1/audits",
+        "description": "RepoPilot Release Gate",
          "mimeType": "application/json",
          "payTo": "0xYourRecipientAddress",
          "maxTimeoutSeconds": 300,
@@ -134,8 +130,7 @@ When `PAYMENT_MODE=okx`, the API:
 Prices are set via environment variables, **not** hard-coded:
 
 ```sh
-PRICE_QUICK_SCAN=0.02   # USDT
-PRICE_FULL_AUDIT=0.05   # USDT
+PRICE_AUDIT=1   # USDT
 ```
 
 The adapter converts these to atomic units using the per-network USDT
@@ -146,10 +141,9 @@ decimals (default 6).
 After activation, submit the listing in the OKX.AI console:
 
 - **Name:** RepoPilot
-- **Tagline:** One repo in. A launch-ready plan out.
+- **Tagline:** One repo in. A ship-or-block verdict out.
 - **Description:** see `MARKETPLACE_LISTING.md`
-- **Pricing tiers:** Quick Scan (0.02 USDT) and Full Launch Audit
-  (0.05 USDT)
+- **Pricing:** Release Gate (1 USDT), plus a free triage check
 - **Endpoint:** A2MCP URL pointing at the operator's stdio launcher
   (operator-specific)
 - **Agent ID:** `<agentId>` from `agent activate`

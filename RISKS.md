@@ -1429,8 +1429,9 @@ and `0.05` in every other place that stated it, and
 the 402 amount comes from that variable, so a buyer reading `0.05` on the
 listing would sign an EIP-3009 authorization for `0.05` and be challenged for
 `0.10`: the first real sale fails at the payment step. That one now has a
-check that compares all twelve statements of the two prices
-(`readPriceStatements()` in `scripts/docs-facts.ts`). The 402 shape was the
+check that compares every statement of the price (`readPriceStatements()` in
+`scripts/docs-facts.ts`) — twelve of them while there were two tiers, six now
+that there is one (D-037). The 402 shape was the
 next question, and its answer was "nothing compares them".
 
 **The rule.** For any payload an external party reads — a price, a challenge, a
@@ -1441,11 +1442,14 @@ be wrong.
 **Mitigation.** `okx-adapter.test.ts` reads §5.5 out of the snapshot, extracts
 the `accepts[0]` object, and asserts the field set and every
 environment-independent value against the challenge the adapter actually
-builds. Six injections were run against it and all six are caught: changing
-`maxTimeoutSeconds` to `60`, rewording either `description`, deleting `asset`,
-renaming `mimeType`, and changing the full tier's `maxAmountRequired`. Two
-code-side injections (renaming the full description, hard-coding the network)
-are caught as well, so the check is not one-directional.
+builds. Injections were run against it and all are caught: changing
+`maxTimeoutSeconds` to `60`, rewording the `description`, deleting `asset`,
+renaming `mimeType`, and changing `maxAmountRequired`. Two
+code-side injections (hard-coding the `description`, hard-coding the network)
+are caught as well, so the check is not one-directional. D-037 removed the
+second service, so the two injections that targeted a `full`-tier description
+no longer exist — there is one description, and the test asserts it for both
+modes.
 
 `resource` became `OKX_PAYMENT_RESOURCE_URL`, and the unconfigured value became
 `https://repopilot.invalid/api/v1/audits`. `.invalid` is reserved by RFC 2606 and
@@ -1465,3 +1469,43 @@ question cannot be answered by accident — someone has to decide and change bot
 R-28 (a green tick over a capability the repository does not have), D-033 (a
 document states no fact it can derive), D-034 (the scope of a check is part of
 the check).
+
+---
+
+## R-37 — The paid service is sold as `mode=full` and the server defaults to `quick`
+
+**Severity:** Medium **Likelihood:** Medium
+
+**The defect.** With one price (D-037), the registration copy names `mode=full`
+because the service description promises the deployment plan and the launch
+copy. `CreateAuditInputSchema` in `packages/core/src/schemas/inputs.ts` defaults
+`mode` to `quick`, which omits both. The promise therefore holds only if the
+caller reads the description and sends the field; a caller that omits it pays
+the same 1 USDT and receives less.
+
+**Why it is not fixed by changing the default.** Defaulting to `full` is one
+line and would make the default match the promise. It is deferred rather than
+rejected: it silently changes the report every existing caller gets — including
+`apps/web`'s form default and the MCP tool's declared default — and a behaviour
+change of that shape deserves its own decision rather than riding along with a
+price change. See D-037, "alternatives rejected".
+
+**Why it is recorded rather than left implicit.** It has the same shape as R-36:
+a promise on one side and a producer on the other, with nothing comparing them.
+The difference is that these two *can* be reconciled by a sentence, because the
+caller is an AI agent reading the description rather than a buyer reading a
+listing.
+
+**Mitigation.** §5.4 of `docs/OKX_REQUIREMENTS_SNAPSHOT.md` states the default,
+the difference and which mode is sold, in the same section as the registration
+values. `docs/API.md` and the MCP tool descriptions say the same thing. A caller
+that ignores all three gets the verdict alone at the full price — a smaller loss
+than a wrong price, but still a loss.
+
+**Upgrade path.** Default `mode` to `full` in `CreateAuditInputSchema`, keep
+`quick` as an explicit opt-out, and update the MCP tool descriptions, the web
+form's default and §5.4. That is the change D-037 declined to smuggle in.
+
+**Related.** R-36 (a document cannot disagree with a function it is never
+compared to), D-035 (a tier changes what a report carries), D-037 (one price,
+one product).

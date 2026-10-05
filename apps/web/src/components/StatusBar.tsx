@@ -6,8 +6,7 @@ export function StatusBar({ health, caps }: { health: Health | null; caps: Capab
   if (!caps) return null;
   return (
     <div className="statusbar" style={{ marginBottom: 20 }}>
-      <span className="pill">{t.statusQuickScan}: {caps.pricing.quickScan.amount} {caps.pricing.quickScan.currency}</span>
-      <span className="pill">{t.statusFullAudit}: {caps.pricing.fullAudit.amount} {caps.pricing.fullAudit.currency}</span>
+      <span className="pill">{t.statusAudit}: {caps.pricing.audit.amount} {caps.pricing.audit.currency}</span>
       <span className="pill">{t.statusMaxFiles}: {caps.limits.maxFiles}</span>
       <span className="pill">{t.statusRate}: {caps.limits.rateLimitPerMinute}/min</span>
       {health?.paymentMode === 'mock' && <span className="pill warn">{t.statusMockPayment}</span>}

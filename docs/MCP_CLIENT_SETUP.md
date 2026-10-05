@@ -151,9 +151,8 @@ export OKX_PAYMENT_ADDRESS="0x..."
 export OKX_PAYMENT_NETWORK="xlayer"
 export OKX_X402_VERSION="2"
 
-# Optional price overrides, in USDT.
-export PRICE_QUICK_SCAN="0.02"
-export PRICE_FULL_AUDIT="0.05"
+# Optional price override, in USDT.
+export PRICE_AUDIT="1"
 
 # Optional log level (logs go to stderr).
 export LOG_LEVEL="info"
@@ -369,7 +368,7 @@ retries:
   "jobId": "job_8a3b9d...",
   "paymentId": "mock_xxx",
   "challenge": "...",
-  "price": { "amount": "0.02", "currency": "USDT" },
+  "price": { "amount": "1", "currency": "USDT" },
   "nextAction": "Call onchainos payment pay --payment-id <id> --yes, then call get_audit_status with the same paymentId."
 }
 ```

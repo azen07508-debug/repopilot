@@ -6,15 +6,15 @@ import { OkxPaymentAdapter } from './okx-adapter.js';
 
 /**
  * The pricing block in these fixtures is deliberately NOT the production
- * price. If a fixture used `0.05` and the factory hard-coded `0.05`, every
- * assertion below would still pass and the bug would ship. Keeping the
- * fixture off the production value is what makes `priceFor` discriminating.
- * The production numbers are checked by `pnpm docs:check`, which compares
- * the nine places they are actually stated.
+ * price. If a fixture used the production amount and the factory hard-coded
+ * that amount, every assertion below would still pass and the bug would ship.
+ * Keeping the fixture off the production value is what makes `priceFor`
+ * discriminating. The production number is checked by `pnpm docs:check`, which
+ * compares every place it is stated — that check owns the count, so this
+ * comment deliberately does not repeat it.
  */
 const PRICING = {
-  quickScan: { amount: '0.07', currency: 'USDT' } as const,
-  fullAudit: { amount: '0.13', currency: 'USDT' } as const,
+  audit: { amount: '0.13', currency: 'USDT' } as const,
 };
 
 const mockConfig: PaymentConfig = {
@@ -130,18 +130,36 @@ describe('buildPaymentAdapter — okx mode refuses to degrade to mock', () => {
 });
 
 describe('priceFor', () => {
-  it('returns the full audit price for mode=full', () => {
-    expect(priceFor(okxConfig, 'full')).toEqual(PRICING.fullAudit);
+  it('returns the configured audit price', () => {
+    expect(priceFor(okxConfig)).toEqual(PRICING.audit);
   });
 
-  it('returns the quick scan price for mode=quick', () => {
-    expect(priceFor(okxConfig, 'quick')).toEqual(PRICING.quickScan);
+  it('reads the price off the config, not off a constant', () => {
+    // Two configs, two prices — and that is the whole point. Every other test
+    // in this block passes a config whose price is `PRICING.audit` and asserts
+    // the result equals `PRICING.audit`, which a hard-coded literal also
+    // satisfies. Measured, not assumed: replacing the function body with
+    // `return { amount: '0.13', currency: 'USDT' }` survived the entire suite
+    // (39 of 39 green) until this test existed. Keeping the fixture off the
+    // production price is necessary but not sufficient; the function has to be
+    // shown reading two different ones.
+    const other: PaymentConfig = {
+      ...okxConfig,
+      pricing: { audit: { amount: '0.29', currency: 'USDT' } },
+    };
+    expect(priceFor(other)).toEqual({ amount: '0.29', currency: 'USDT' });
+    expect(priceFor(okxConfig)).toEqual({ amount: '0.13', currency: 'USDT' });
   });
 
-  it('prices the same in both modes', () => {
+  it('prices the same on every payment rail', () => {
     // The rail must not change the price. If it ever does, this fails and
     // someone decides deliberately instead of discovering it in a listing.
-    expect(priceFor(mockConfig, 'full')).toEqual(priceFor(okxConfig, 'full'));
-    expect(priceFor(mockConfig, 'quick')).toEqual(priceFor(okxConfig, 'quick'));
+    //
+    // There is no per-mode test any more, and there cannot be: `priceFor` no
+    // longer takes a mode. It used to return 0.02 for quick and 0.05 for full,
+    // for two modes that run the same analyzers over the same archive. The
+    // parameter is gone rather than kept and ignored, so reintroducing a
+    // per-mode price is a signature change someone has to argue for.
+    expect(priceFor(mockConfig)).toEqual(priceFor(okxConfig));
   });
 });

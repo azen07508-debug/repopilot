@@ -3,6 +3,13 @@
  *
  * **A tier changes what the report delivers, never what it measures.**
  *
+ * A note on the word, since it used to cost money: "tier" here means *report
+ * shape*, and it has not meant a price since the second paid tier was removed
+ * (see `DEFAULT_PRICING`). There is one paid service at one price; `quick` and
+ * `full` are the two shapes of the report that price buys. Nothing in this
+ * module reads or writes a price, and nothing that reads a price should read
+ * `mode`.
+ *
  * Both tiers run every analyzer over the same archive and produce the same
  * numbers. That is not a limitation being documented, it is the property the
  * product is sold on: the score is a property of the repository, so two

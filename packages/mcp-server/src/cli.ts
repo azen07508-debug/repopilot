@@ -22,12 +22,8 @@ const payment: PaymentConfig = {
     x402Version: (Number(process.env['OKX_X402_VERSION']) === 1 ? 1 : 2) as 1 | 2,
   },
   pricing: {
-    quickScan: {
-      amount: process.env['PRICE_QUICK_SCAN'] ?? DEFAULT_PRICING.quickScan.amount,
-      currency: 'USDT',
-    },
-    fullAudit: {
-      amount: process.env['PRICE_FULL_AUDIT'] ?? DEFAULT_PRICING.fullAudit.amount,
+    audit: {
+      amount: process.env['PRICE_AUDIT'] ?? DEFAULT_PRICING.audit.amount,
       currency: 'USDT',
     },
   },

@@ -25,8 +25,8 @@ if (cfg.PAYMENT_MODE === 'okx') {
 if (!cfg.ALLOWED_REPO_HOSTS.length) {
   issues.push('ALLOWED_REPO_HOSTS is empty; SSRF defense would block all requests.');
 }
-if (!/^\d+(\.\d+)?$/.test(cfg.PRICE_QUICK_SCAN) || !/^\d+(\.\d+)?$/.test(cfg.PRICE_FULL_AUDIT)) {
-  issues.push('PRICE_QUICK_SCAN / PRICE_FULL_AUDIT must be decimal strings.');
+if (!/^\d+(\.\d+)?$/.test(cfg.PRICE_AUDIT)) {
+  issues.push('PRICE_AUDIT must be a decimal string.');
 }
 
 if (issues.length === 0) {

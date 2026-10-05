@@ -171,11 +171,21 @@ repopilot/
 ## Test baseline (2026-10-04 15:10 UTC)
 
 - @repopilot/core: 905/905
-- @repopilot/okx-adapter: 41/41
+- @repopilot/okx-adapter: 40/40
 - @repopilot/api: 75/75 + 2 skipped (Postgres, run in CI)
 - @repopilot/mcp-server: 42/42
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 1080 passed + 2 skipped (1082 with the Postgres tests when CI is green)**
+- **Total: 1079 passed + 2 skipped (1081 with the Postgres tests when CI is green)**
+
+> The 1080 → 1079 step is the repricing (D-037), and it moves in both
+> directions. `okx-adapter` went 41 → 40: one test deleted, because
+> `okx-adapter.test.ts`'s "the full tier's price and description" case compared
+> §5.5's prose line for a second service that no longer exists, and
+> `factory.test.ts`'s per-mode `priceFor` case cannot exist when `priceFor`
+> takes no mode. It then went 39 → 40 on the way back: injecting the defect
+> showed that a hard-coded `0.13` survived every test in the `priceFor` block,
+> because they all compared against that one fixture — so the block gained a
+> test that passes two differently-priced configs and asserts each comes back.
 
 > The 967 → 1080 step is three separate things, in the order they landed.
 > The tier work (D-035) took core from 833 to 905: `tiers.test.ts` pins the
@@ -263,12 +273,15 @@ repopilot/
   registrations, `docs/INDEX.md` against the `docs/` directory, every
   `pnpm <script>` a document names against the root `package.json`, that
   every markdown file is classified as either generated or deliberately not,
-  and that all twelve statements of an audit price agree with each other and
+  and that all six statements of an audit price agree with each other and
   with the atomic registration values.
-  See D-033, D-034 and D-036. Verified by mutation: 19 mutations, 19 caught
-  (12 for the block and scope checks, 7 for the price check — including
-  deleting one `add()` call, which is the one way the price check can silently
-  cover less than it used to)
+  See D-033, D-034, D-036 and D-037. Verified by mutation: 16 injections, 16
+  caught (12 for the block and scope checks, measured 2026-10-04 and untouched
+  by the repricing; 4 for the price check, re-measured 2026-10-05 after the
+  count changed from twelve to six — a disagreement, a deleted `add()` call
+  which is the one way the check can silently cover less, an atomic value that
+  is not a price the repository charges, and a reworded anchor that
+  `required()` refuses to read past)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff
