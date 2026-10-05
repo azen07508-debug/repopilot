@@ -262,6 +262,12 @@ export async function buildApp(
     payment: deps.payment,
     cacheEnabled,
     cacheTtlSeconds,
+    limits: {
+      maxFiles: cfg.MAX_FILES,
+      maxFileBytes: cfg.MAX_FILE_BYTES,
+      maxTotalBytes: cfg.MAX_TOTAL_BYTES,
+      rateLimitPerMinute: cfg.RATE_LIMIT_PER_MINUTE,
+    },
   });
   registerAuditRoutes(app, {
     service,

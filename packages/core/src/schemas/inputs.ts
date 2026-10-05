@@ -165,6 +165,27 @@ export const CapabilitiesSchema = z.object({
   outputs: z.object({
     report: z.string(),
   }),
+  /**
+   * The routes this service exposes and whether each one costs money.
+   *
+   * This block, and `cache` below, were written in
+   * `apps/api/src/routes/capabilities.ts` from the beginning and reached no
+   * client at all. `CapabilitiesSchema.parse()` takes `unknown`, so a key the
+   * schema does not declare is dropped silently — no error, and no type error
+   * either, because an object literal passed to `parse()` is not checked
+   * against the schema's type. Both are declared here now, and the route
+   * annotates its payload with `Capabilities` so the next omission is a
+   * compile error instead of a missing field.
+   */
+  endpoints: z.record(
+    z.string(),
+    z.object({
+      method: z.string(),
+      path: z.string(),
+      description: z.string(),
+      requiresPayment: z.boolean(),
+    })
+  ),
   limits: z.object({
     maxFiles: z.number(),
     maxFileBytes: z.number(),
@@ -179,5 +200,21 @@ export const CapabilitiesSchema = z.object({
     audit: z.object({ amount: z.string(), currency: z.string() }),
   }),
   paymentMode: z.enum(['mock', 'okx']),
+  /**
+   * Cache behaviour, so an agent can tell when a repeat audit of the same
+   * commit is served from the cache rather than recomputed.
+   *
+   * `isolation` lists the inputs that make two audits different entries. The
+   * API generates it from `CACHE_KEY_FIELDS`, which sits beside
+   * `buildCacheKey()` and is used to build the key, so the published scope
+   * cannot describe something narrower than the key actually uses.
+   */
+  cache: z.object({
+    enabled: z.boolean(),
+    ttlSeconds: z.number(),
+    keyVersion: z.string(),
+    scope: z.string(),
+    isolation: z.array(z.string()),
+  }),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;

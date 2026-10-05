@@ -583,7 +583,7 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
 
   server.tool(
     'get_repopilot_capabilities',
-    'Return RepoPilot capabilities: name, version, supported inputs/outputs, limits, pricing, and which tools are free or paid.',
+    'Return RepoPilot capabilities: name, version, supported inputs/outputs, limits, pricing, and which tools are free or paid. `limits`, `pricing` and `paymentMode` describe this process, so they can differ from the deployed HTTP API; `endpoints` is empty and `cache.enabled` is false because this server speaks stdio JSON-RPC and holds no audit cache — read `GET /api/v1/capabilities` for the deployed route list.',
     {},
     async () => {
       const caps: Capabilities & { billing: typeof BILLING } = {
@@ -605,6 +605,17 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
           report:
             `JSON document conforming to @repopilot/core Report schema (${REPORT_VERSION}): blockers, scores, evidence, deployment plan, launch copy.`,
         },
+        /**
+         * Empty, and truthfully so.
+         *
+         * `CapabilitiesSchema` requires this block, and this server has no
+         * routes: it speaks stdio JSON-RPC, and the surface it does expose is
+         * the tool list that `billing` marks free or paid. Reporting `{}`
+         * rather than inventing an `mcp` entry with a fake `method`/`path`
+         * keeps the shape identical to `GET /api/v1/capabilities` without
+         * telling a client to call an HTTP route that does not exist.
+         */
+        endpoints: {},
         limits: {
           maxFiles: DEFAULT_LIMITS.maxFiles,
           maxFileBytes: DEFAULT_LIMITS.maxFileBytes,
@@ -615,6 +626,28 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
           audit: opts.payment.pricing.audit,
         },
         paymentMode: opts.payment.mode,
+        /**
+         * No cache here, stated rather than omitted.
+         *
+         * The audit cache is `apps/api/src/services/cache-service.ts`, keyed on
+         * an HTTP request; nothing in this process memoises an audit. The block
+         * is still reported because a client that reads both surfaces should
+         * see one shape, and because a missing key cannot be told apart from a
+         * server built before the field existed — whereas `enabled: false`
+         * answers the question an agent actually has: calling the paid tool
+         * twice on the same commit will run the pipeline twice.
+         *
+         * `keyVersion: 'none'` and `ttlSeconds: 0` are the "not applicable"
+         * values, not a claim about the API's cache. `isolation: []` says the
+         * same thing: nothing is separated because nothing is stored.
+         */
+        cache: {
+          enabled: false,
+          ttlSeconds: 0,
+          keyVersion: 'none',
+          scope: 'none — this server holds no audit cache',
+          isolation: [],
+        },
         billing: BILLING,
       };
       return textResult(caps);

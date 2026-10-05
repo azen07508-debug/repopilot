@@ -1065,6 +1065,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`/api/v1/capabilities` silently published two thirds of what it declared.**
+  `endpoints` — the four routes, and which of them is the one that costs money —
+  and `cache` were written in the route from the day it existed and reached no
+  client at all. `CapabilitiesSchema.parse()` takes `unknown`, so a key the
+  schema does not declare is dropped without an error, and without a type error
+  either, because an object literal passed to `parse()` is not checked against
+  the schema's type. Both are declared in the schema now, and the route
+  annotates its payload as `Capabilities`, which turns the next omission into a
+  compile error instead of a missing field. The three fields that *did* publish
+  were copies of constants that live elsewhere: `limits` reported
+  `DEFAULT_LIMITS` from `@repopilot/core` — the library default — while
+  `server.ts` and `worker.ts` build the pipeline from `cfg.MAX_*`, so an
+  operator who set `MAX_FILES=200` still published `2000` to an agent sizing a
+  repository against the published number; `cache.keyVersion` was a literal
+  copy of `'v1'`; and `cache.isolation` listed four of the eight fields
+  `buildCacheKey()` hashes, omitting `owner` and `repo`, which reads as "two
+  different repositories share a cache entry". The limits now come from the same
+  `cfg.*` the pipeline uses, `keyVersion` is read from `cache-service.ts`, and
+  `isolation` is `CACHE_KEY_FIELDS` — exported from beside `buildCacheKey()` and
+  used to build the key, so the published scope cannot be narrower than the key.
+  Pinned by `apps/api/src/tests/capabilities.test.ts`; nothing had asserted any
+  of it, which is why all of it survived. Two of the three were proved by
+  mutation: with the route publishing a literal `2000` and the old four-name
+  `isolation` list, exactly the two tests aimed at those fields fail; dropping
+  `endpoints` from the schema makes `tsc` report `TS2353` at every site that
+  declares it. Because `buildCacheKey()` now builds its payload from
+  `CACHE_KEY_FIELDS`, its output is pinned byte-for-byte by a golden key
+  computed from the literal it used to contain — every other test in that file
+  compares two calls to each other and would have followed the change. The same
+  file gained the case it never had: `owner` and `repo` are isolated. Those are
+  the two fields the published list omitted, and they were also the only two
+  fields in the key that no test ever varied — the two gaps were the same gap. Declaring the two blocks is also what
+  made the MCP tool a compile error: `get_repopilot_capabilities` builds the
+  same `Capabilities` shape, and it now reports `endpoints: {}` and
+  `cache.enabled: false` because it is true of that process — it speaks stdio
+  JSON-RPC and holds no audit cache, so a repeat call runs the pipeline again.
+  Empty and `false` rather than omitted, so a client reading both surfaces sees
+  one shape and can tell "no cache here" from "this server predates the field".
+  `docs/MCP_CLIENT_SETUP.md` said the tool returns "the same payload" as the
+  HTTP route, which was never true of `limits`/`pricing`/`paymentMode` either;
+  it now says which blocks describe the process and which describe the service.
 - **The paid service defaulted to the cheaper report it does not sell.** The
   listing, the OKX snapshot and the MCP tool descriptions all sell one 1 USDT
   service whose report carries a deployment plan and launch copy, and

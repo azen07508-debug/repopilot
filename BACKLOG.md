@@ -123,3 +123,20 @@ Tracked work, in priority order, updated as items are completed.
   going to catch it. Running a block needs a live service and is out of reach;
   comparing a documented response body against the route's own JSON schema is
   not, and that is the half worth building.
+- [ ] **The MCP `capabilities` tool reports its own limits, and an agent may
+  read them as the service's.** `packages/mcp-server/src/index.ts` publishes
+  `DEFAULT_LIMITS`, which is the correct answer for that process — it builds
+  `AuditPipeline` without passing `maxFiles`/`maxFileBytes`/`maxTotalBytes`, so
+  the library defaults are what it enforces. The defect is the one the HTTP
+  endpoint had before 2026-10-05, one layer out: a caller that reads the MCP
+  tool to size a repository, then sends it to the paid API, is using numbers
+  from a different process. The tool description now says so, which is a
+  mitigation and not a fix. It needs a decision rather than a patch: read
+  `GET /api/v1/capabilities` from the configured base URL, drop the block, or
+  rename the key so it cannot be mistaken for the service's. The three answers
+  differ in what an agent learns, so it is recorded instead of guessed at. The
+  other two blocks were answerable and are answered: `endpoints` is `{}` and
+  `cache.enabled` is `false`, because both are true of this process — it
+  exposes no HTTP routes and holds no audit cache — and reporting them beats
+  omitting them, which cannot be told apart from a server built before the
+  fields existed.

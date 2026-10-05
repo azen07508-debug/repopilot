@@ -523,8 +523,18 @@ changes.
 
 ### `get_repopilot_capabilities`
 
-Returns the same payload as `GET /api/v1/capabilities`, plus a
-`billing` map marking every tool free or paid.
+Returns the same *shape* as `GET /api/v1/capabilities`, plus a `billing`
+map marking every tool free or paid. Two blocks are worth reading before
+you compare the two surfaces:
+
+- `limits`, `pricing` and `paymentMode` describe **this process**. They
+  are what the MCP server is configured with, which is not necessarily
+  what the deployed HTTP API enforces.
+- `endpoints` and `cache` describe the **HTTP service**. This server
+  speaks stdio JSON-RPC, so it reports no routes and no cache: an agent
+  that calls the paid tool twice on the same commit will run the pipeline
+  twice here, whatever the API's cache does. Read the HTTP
+  `/capabilities` for the deployed route list.
 
 **Input**: none
 
@@ -535,8 +545,16 @@ Returns the same payload as `GET /api/v1/capabilities`, plus a
   "name": "RepoPilot",
   "version": "0.1.0",
   "paymentMode": "mock",
+  "endpoints": {},
   "limits": { "...": "..." },
   "pricing": { "...": "..." },
+  "cache": {
+    "enabled": false,
+    "ttlSeconds": 0,
+    "keyVersion": "none",
+    "scope": "none — this server holds no audit cache",
+    "isolation": []
+  },
   "billing": {
     "audit_github_repository":    { "paid": true,  "reason": "Runs the analysis pipeline." },
     "reaudit_repository":         { "paid": true,  "reason": "Runs the analysis pipeline." },

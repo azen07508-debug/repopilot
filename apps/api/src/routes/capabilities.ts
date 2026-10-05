@@ -5,20 +5,43 @@ import type { FastifyInstance } from 'fastify';
 import {
   CapabilitiesSchema,
   CORE_VERSION,
-  DEFAULT_LIMITS,
   REPORT_VERSION,
+  type Capabilities,
 } from '@repopilot/core';
 import type { PaymentConfig } from '@repopilot/okx-adapter';
+import { CACHE_KEY_FIELDS, KEY_VERSION } from '../services/cache-service.js';
 
 export interface CapabilitiesDeps {
   payment: PaymentConfig;
   cacheEnabled: boolean;
   cacheTtlSeconds: number;
+  /**
+   * The bounds this deployment actually enforces.
+   *
+   * These used to be read from `DEFAULT_LIMITS` in `@repopilot/core`, which is
+   * the library's default and not this process's configuration: an operator who
+   * set `MAX_FILES=200` still saw `2000` published here, and an agent that
+   * sized a repository against the published number would be wrong about the
+   * thing it was buying. `server.ts` and `worker.ts` both build the pipeline
+   * from `cfg.MAX_*`, so these are passed from the same place.
+   */
+  limits: {
+    maxFiles: number;
+    maxFileBytes: number;
+    maxTotalBytes: number;
+    rateLimitPerMinute: number;
+  };
 }
 
 export function registerCapabilitiesRoutes(app: FastifyInstance, opts: CapabilitiesDeps) {
   app.get('/api/v1/capabilities', async () => {
-    return CapabilitiesSchema.parse({
+    // Annotated, not inferred. `parse()` takes `unknown`, so without this the
+    // literal below is checked against nothing and a key the schema does not
+    // declare is dropped from the response in silence. `endpoints` and `cache`
+    // were both lost that way, from the day this route was written. With the
+    // annotation, adding a field here without adding it to
+    // `CapabilitiesSchema` is a `tsc` error rather than a missing field.
+    const payload: Capabilities = {
       name: 'RepoPilot',
       version: CORE_VERSION,
       inputs: {
@@ -62,10 +85,10 @@ export function registerCapabilitiesRoutes(app: FastifyInstance, opts: Capabilit
         },
       },
       limits: {
-        maxFiles: DEFAULT_LIMITS.maxFiles,
-        maxFileBytes: DEFAULT_LIMITS.maxFileBytes,
-        maxTotalBytes: DEFAULT_LIMITS.maxTotalBytes,
-        rateLimitPerMinute: DEFAULT_LIMITS.rateLimitPerMinute,
+        maxFiles: opts.limits.maxFiles,
+        maxFileBytes: opts.limits.maxFileBytes,
+        maxTotalBytes: opts.limits.maxTotalBytes,
+        rateLimitPerMinute: opts.limits.rateLimitPerMinute,
       },
       pricing: {
         audit: opts.payment.pricing.audit,
@@ -74,10 +97,15 @@ export function registerCapabilitiesRoutes(app: FastifyInstance, opts: Capabilit
       cache: {
         enabled: opts.cacheEnabled,
         ttlSeconds: opts.cacheTtlSeconds,
-        keyVersion: 'v1',
+        // Read from `cache-service.ts` rather than typed out. `keyVersion` was
+        // a copy of the literal `'v1'`, and `isolation` listed four of the
+        // eight fields `buildCacheKey()` hashes — omitting `owner` and `repo`,
+        // which reads as "two different repositories share a cache entry".
+        keyVersion: KEY_VERSION,
         scope: 'paid audits only',
-        isolation: ['mode', 'target', 'outputLanguage', 'commitSha'],
+        isolation: [...CACHE_KEY_FIELDS],
       },
-    });
+    };
+    return CapabilitiesSchema.parse(payload);
   });
 }

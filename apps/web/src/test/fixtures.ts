@@ -103,11 +103,26 @@ export function makeCapabilities(overrides: Partial<Capabilities> = {}): Capabil
       outputLanguage: 'en | zh-CN',
     },
     outputs: { report: 'Report' },
+    // Two entries, not four: a fixture that mirrors the real list is a second
+    // copy of it. What a rendering test needs is the shape, and the shape is
+    // a map of route name to a method/path/description/requiresPayment record.
+    endpoints: {
+      freeCheck: { method: 'POST', path: '/free', description: 'free', requiresPayment: false },
+      audits: { method: 'POST', path: '/paid', description: 'paid', requiresPayment: true },
+    },
     limits: { maxFiles: 400, maxFileBytes: 262144, maxTotalBytes: 20971520, rateLimitPerMinute: 30 },
     pricing: {
       audit: { amount: '1', currency: 'USDT' },
     },
     paymentMode: 'mock',
+    cache: {
+      enabled: true,
+      ttlSeconds: 60,
+      // Not `v1`: the fixture's job is to be obviously not production.
+      keyVersion: 'v0-fixture',
+      scope: 'paid audits only',
+      isolation: ['mode'],
+    },
     ...overrides,
   };
 }

@@ -80,9 +80,49 @@ describe('buildCacheKey', () => {
   it('is stable for the same inputs', () => {
     expect(buildCacheKey(base)).toBe(buildCacheKey(base));
   });
+  /**
+   * The exact string, not just self-consistency.
+   *
+   * Every test below this one compares two calls to each other, so all of them
+   * keep passing if the key changes shape — the tests move with the code. That
+   * is fine until the key is *generated* rather than written out, which is what
+   * happened when `CACHE_KEY_FIELDS` was extracted so `/api/v1/capabilities`
+   * could publish the same list the key is built from. A key that silently
+   * changed would invalidate every stored entry, and "the payload is
+   * byte-identical" would be a claim nobody checked.
+   *
+   * The expected value was computed from the literal this function used to
+   * contain, before the change — not by running the new implementation, which
+   * would have made this assertion circular. It also pins the field *order*,
+   * because `JSON.stringify` follows insertion order: reordering
+   * `CACHE_KEY_FIELDS` is a behaviour change, and this is where that shows up.
+   */
+  it('produces the exact key it produced before the field list was extracted', () => {
+    expect(buildCacheKey(base)).toBe(
+      'v1:34afea4b83a2532717c736479d7a830ba7a867bca28a112e6030a77e423daf3a',
+    );
+  });
   it('changes when commitSha changes', () => {
     expect(buildCacheKey({ ...base, commitSha: 'abc123' })).not.toBe(
       buildCacheKey({ ...base, commitSha: 'def456' }),
+    );
+  });
+  /**
+   * The two fields the published `cache.isolation` list omitted.
+   *
+   * `owner` and `repo` were in the key from the start and were never varied by
+   * a test — the four cases below covered `commitSha`, `mode`, `target` and
+   * `outputLanguage`, which is exactly the subset the capabilities payload
+   * advertised. Nothing compared the two lists, so the missing pair survived in
+   * both places at once. If these two ever stop isolating, two repositories
+   * share one cache entry and a buyer is served another project's report.
+   */
+  it('isolates owner and repo', () => {
+    expect(buildCacheKey({ ...base, owner: 'octocat' })).not.toBe(
+      buildCacheKey({ ...base, owner: 'someone-else' }),
+    );
+    expect(buildCacheKey({ ...base, repo: 'Hello-World' })).not.toBe(
+      buildCacheKey({ ...base, repo: 'hello-world' }),
     );
   });
   it('Quick and Full are isolated', () => {

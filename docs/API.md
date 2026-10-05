@@ -46,7 +46,8 @@ This endpoint is not rate-limited.
 
 ## `GET /api/v1/capabilities`
 
-Service metadata, inputs/outputs, limits, pricing.
+Service metadata: inputs/outputs, the endpoints and which of them requires
+payment, the limits **this deployment** enforces, pricing, and cache behaviour.
 
 **Response**
 
@@ -63,6 +64,32 @@ Service metadata, inputs/outputs, limits, pricing.
   "outputs": {
     "report": "JSON document conforming to the RepoPilot Report schema (1.2)."
   },
+  "endpoints": {
+    "freeCheck": {
+      "method": "POST",
+      "path": "/api/v1/free-check",
+      "description": "Free, no-payment, read-only pre-flight. Returns top blockers, score, and recommendation without producing a full report.",
+      "requiresPayment": false
+    },
+    "audits": {
+      "method": "POST",
+      "path": "/api/v1/audits",
+      "description": "Paid full audit. Requires payment via X-PAYMENT (mock or OKX x402).",
+      "requiresPayment": true
+    },
+    "capabilities": {
+      "method": "GET",
+      "path": "/api/v1/capabilities",
+      "description": "This endpoint. Public; no auth, no payment.",
+      "requiresPayment": false
+    },
+    "health": {
+      "method": "GET",
+      "path": "/health",
+      "description": "Liveness probe.",
+      "requiresPayment": false
+    }
+  },
   "limits": {
     "maxFiles": 2000,
     "maxFileBytes": 1048576,
@@ -72,9 +99,31 @@ Service metadata, inputs/outputs, limits, pricing.
   "pricing": {
     "audit": { "amount": "1", "currency": "USDT" }
   },
-  "paymentMode": "mock"
+  "paymentMode": "mock",
+  "cache": {
+    "enabled": true,
+    "ttlSeconds": 3600,
+    "keyVersion": "v1",
+    "scope": "paid audits only",
+    "isolation": [
+      "commitSha",
+      "includeLaunchCopy",
+      "mode",
+      "outputLanguage",
+      "owner",
+      "repo",
+      "reportVersion",
+      "target"
+    ]
+  }
 }
 ```
+
+`limits` reports what this deployment is configured with — `MAX_FILES`,
+`MAX_FILE_BYTES`, `MAX_TOTAL_BYTES`, `RATE_LIMIT_PER_MINUTE` — so the numbers
+above are the defaults, not constants. `cache.isolation` is the complete set of
+inputs that make two audits different cache entries, `owner` and `repo`
+included: two repositories never share one.
 
 ## `POST /api/v1/free-check`
 

@@ -219,8 +219,11 @@ content in the report.
 **Likelihood:** High for large repos
 **Mitigation:** 30 s per-request timeout in the fetcher
 (`packages/core/src/git/fetcher.ts`). The size limits that bound a gate are
-in `/api/v1/capabilities.limits` (`DEFAULT_LIMITS`: 2000 files, 1 MiB per
-file, 50 MiB total). The gate is queued rather than synchronous — see R-16
+published in `/api/v1/capabilities.limits`, which reports what this
+deployment is configured with (`MAX_FILES`, `MAX_FILE_BYTES`,
+`MAX_TOTAL_BYTES`, `RATE_LIMIT_PER_MINUTE`; the library defaults are 2000
+files, 1 MiB per file, 50 MiB total). The gate is queued rather than
+synchronous — see R-16
 for the durability caveat. This entry used to be titled "Long-running `full`
 audits time out", which named a mode dependence that does not exist: both
 modes read the same archive and the same commit history, so the repository's

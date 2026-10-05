@@ -35,17 +35,36 @@ export interface CacheLookupResult {
 
 const KEY_VERSION_PREFIX = 'v1';
 
+/**
+ * The inputs that make two audits different cache entries, in the order
+ * `buildCacheKey()` hashes them.
+ *
+ * Exported because `/api/v1/capabilities` publishes them as `cache.isolation`,
+ * and that list had drifted into a hand-written subset of four — `mode`,
+ * `target`, `outputLanguage`, `commitSha`. It omitted `owner` and `repo`, so a
+ * buyer reading it was told that two different repositories are not isolated
+ * from each other. Reporting the list from here means the published scope
+ * cannot disagree with the key that is actually built.
+ *
+ * The order is load-bearing only in the sense that it is what
+ * `JSON.stringify` emits; it is kept alphabetical to match the shape this
+ * function has always produced, so no existing key changes.
+ */
+export const CACHE_KEY_FIELDS = [
+  'commitSha',
+  'includeLaunchCopy',
+  'mode',
+  'outputLanguage',
+  'owner',
+  'repo',
+  'reportVersion',
+  'target',
+] as const satisfies readonly (keyof BuildCacheKeyInput)[];
+
 export function buildCacheKey(input: BuildCacheKeyInput): string {
-  const payload = JSON.stringify({
-    commitSha: input.commitSha,
-    includeLaunchCopy: input.includeLaunchCopy,
-    mode: input.mode,
-    outputLanguage: input.outputLanguage,
-    owner: input.owner,
-    repo: input.repo,
-    reportVersion: input.reportVersion,
-    target: input.target,
-  });
+  const payload = JSON.stringify(
+    Object.fromEntries(CACHE_KEY_FIELDS.map((field) => [field, input[field]]))
+  );
   const sha = createHash('sha256').update(payload).digest('hex');
   return `${KEY_VERSION_PREFIX}:${sha}`;
 }
