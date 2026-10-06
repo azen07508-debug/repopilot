@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildPaymentAdapter, priceFor, type PaymentConfig } from './factory.js';
 import type { PaymentAdapter } from './adapter.js';
 import { MockPaymentAdapter } from './mock-adapter.js';
+import { InMemoryNonceStore, type NonceStore } from './nonce-store.js';
 import { OkxPaymentAdapter } from './okx-adapter.js';
 
 /**
@@ -68,6 +69,32 @@ describe('buildPaymentAdapter — mode selection', () => {
     // development run onto the real rail. The mode decides, not the address.
     const a = buildPaymentAdapter({ ...okxConfig, mode: 'mock' });
     expect(a).toBeInstanceOf(MockPaymentAdapter);
+  });
+
+  it('hands the injected nonce store to the adapter it builds', () => {
+    // A wiring assertion, and wiring is the part that drops silently. The
+    // behaviour the store enables needs a real EIP-3009 signature to observe
+    // — the store is consulted only *after* the signature verifies — and that
+    // lives in `okx-adapter.test.ts`, which has a signer.
+    //
+    // What is checked here is the one line in between. `server.ts` builds a
+    // durable `NonceRepository` and passes it in; if the object literal below
+    // stops forwarding it, every other test in the repository stays green
+    // while the R-40 fix is dead in production and the adapter quietly keeps
+    // nonces in memory.
+    const store = new InMemoryNonceStore();
+    const a = buildPaymentAdapter(okxConfig, { nonceStore: store });
+    expect((a as unknown as { nonceStore: NonceStore }).nonceStore).toBe(store);
+  });
+
+  it('still builds an okx adapter when no store is given', () => {
+    // The default is the adapter's, not this function's — see the doc block on
+    // `buildPaymentAdapter`. `packages/mcp-server` calls it with one argument.
+    const a = buildPaymentAdapter(okxConfig);
+    expect(a).toBeInstanceOf(OkxPaymentAdapter);
+    expect((a as unknown as { nonceStore: NonceStore }).nonceStore).toBeInstanceOf(
+      InMemoryNonceStore
+    );
   });
 });
 

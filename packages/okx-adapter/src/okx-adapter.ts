@@ -86,7 +86,7 @@
  *    the `paymentId`, so a signature is valid for any challenge quoting the
  *    same payee and amount. The `(from, nonce)` pair is therefore burned on
  *    first use, standing in for the on-chain `authorizationUsed` read this
- *    adapter does not perform. See `spentNonces`.
+ *    adapter does not perform. See `nonceStore`.
  *
  * 5. On success the adapter records a `paymentId → receipt` row. Replays
  *    of the same `paymentId` resolve to the same `completed` receipt.
@@ -113,6 +113,7 @@ import type {
   PaymentReceipt,
   PriceQuote,
 } from './adapter.js';
+import { InMemoryNonceStore, type NonceStore } from './nonce-store.js';
 
 export interface OkxPaymentAdapterOptions {
   /** EVM address that receives payment. */
@@ -140,6 +141,17 @@ export interface OkxPaymentAdapterOptions {
   tokenAddress?: string;
   /** Token decimals (default 6 for USDT). */
   tokenDecimals?: number;
+  /**
+   * Where a burned authorization nonce is recorded. Omitted → an
+   * `InMemoryNonceStore`, i.e. this process only.
+   *
+   * The default is the volatile one because a caller that has no database
+   * cannot be given a durable store, and one such caller exists
+   * (`packages/mcp-server`, which never reaches a nonce). A caller that can
+   * restart or scale out must pass the durable one or the guard it is
+   * relying on is only as long-lived as the process — that was R-40.
+   */
+  nonceStore?: NonceStore;
 }
 
 /**
@@ -191,18 +203,20 @@ export class OkxPaymentAdapter implements PaymentAdapter {
    * `(from, to, value, validAfter, validBefore, nonce)` and does **not**
    * contain the `paymentId`, so a signature is valid for *any* challenge that
    * quotes the same payee and amount. Every POST mints a fresh `paymentId`
-   * (D-011), so without this set a buyer could sign once and audit forever by
-   * rewriting the envelope's `paymentId`. See `verifyPayment`.
+   * (D-011), so without this record a buyer could sign once and audit forever
+   * by rewriting the envelope's `paymentId`. See `verifyPayment`.
    *
-   * In-process. A restart (or a second replica) forgets it, and replay becomes
-   * possible again — recorded in `RISKS.md` R-40 and `BACKLOG.md` rather than
-   * implied away. It is still the difference between "replay always works" and
-   * "replay works only across a restart".
+   * This used to be a `Set` owned by the adapter. A `Set` lives in one
+   * process, so a restart or a second replica forgot it and the replay worked
+   * again — recorded as R-40, and pinned by a test that asserted the
+   * *limitation*. It is now injected, and the API injects a store backed by
+   * the database it already runs on.
    */
-  private spentNonces = new Set<string>();
+  private readonly nonceStore: NonceStore;
 
   constructor(opts: OkxPaymentAdapterOptions) {
     this.opts = opts;
+    this.nonceStore = opts.nonceStore ?? new InMemoryNonceStore();
   }
 
   isConfigured(): boolean {
@@ -305,6 +319,11 @@ export class OkxPaymentAdapter implements PaymentAdapter {
    * `completed` here means **"the authorization is valid and unused"**, not
    * "the money moved" — this adapter never reads a block. See the boundary at
    * the top of the file.
+   *
+   * Never throws on buyer input: a malformed or unusable authorization is
+   * `failed`, not a 500. It **can** throw when the injected `nonceStore`
+   * cannot answer, which is a server fault rather than a verdict about the
+   * buyer — the burn site explains why that one is not turned into a receipt.
    */
   async verifyPayment(input: { paymentId: string; rawHeader: string | null }): Promise<PaymentReceipt> {
     const cached = this.receipts.get(input.paymentId);
@@ -362,8 +381,15 @@ export class OkxPaymentAdapter implements PaymentAdapter {
     //
     // Burned only after the signature verifies, so a caller cannot consume a
     // nonce it cannot sign for.
-    if (this.spentNonces.has(nonceKey)) return record('failed');
-    this.spentNonces.add(nonceKey);
+    //
+    // **A store failure is not caught here, on purpose.** `record('failed')`
+    // writes a receipt and receipts are cached by `paymentId`, so swallowing a
+    // store outage would convert a transient database blip into a permanent
+    // "payment failed" for that id — the buyer's retry would be answered from
+    // the cache instead of asking the store again. `false` is a replay and is
+    // permanent; a throw is an outage and is retryable. Only the first is a
+    // receipt.
+    if (!(await this.nonceStore.burn(nonceKey))) return record('failed');
 
     return record('completed');
   }

@@ -61,6 +61,11 @@ export interface PaymentReceipt {
  *
  * There is also no `refund`: it was named in `docs/ARCHITECTURE.md` and never
  * existed here (R-39).
+ *
+ * `verifyPayment` does not throw on anything the buyer supplied — a malformed
+ * or unusable claim is a receipt with a non-`completed` status. It may throw
+ * when an implementation's own backing store is unreachable, which is a
+ * server fault and must not be cached as a verdict about the buyer.
  */
 export interface PaymentAdapter {
   /** Human-readable adapter name. */

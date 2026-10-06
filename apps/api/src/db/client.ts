@@ -192,6 +192,15 @@ export async function runMigrations(db: DB): Promise<void> {
       `);
       db.raw.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_report_cache_key ON report_cache(key, key_version)`);
       db.raw.exec(`CREATE INDEX IF NOT EXISTS idx_report_cache_expires ON report_cache(expires_at)`);
+      // Burned EIP-3009 authorization nonces. One row per paid audit; the
+      // primary key *is* the single-use check, so there is no index to add.
+      // Never pruned — see `nonce-repository.ts` for why that is deliberate.
+      db.raw.exec(`
+        CREATE TABLE IF NOT EXISTS burned_nonces (
+          key TEXT PRIMARY KEY,
+          burned_at TEXT NOT NULL
+        )
+      `);
       db.raw.exec(`COMMIT`);
     } catch (e) {
       db.raw.exec(`ROLLBACK`);
@@ -273,6 +282,15 @@ export async function runMigrations(db: DB): Promise<void> {
     `);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_report_cache_key ON report_cache(key, key_version)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_report_cache_expires ON report_cache(expires_at)`);
+    // Burned EIP-3009 authorization nonces. One row per paid audit; the
+    // primary key *is* the single-use check, so there is no index to add.
+    // Never pruned — see `nonce-repository.ts` for why that is deliberate.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS burned_nonces (
+        key TEXT PRIMARY KEY,
+        burned_at TIMESTAMPTZ NOT NULL
+      )
+    `);
     await client.query(`COMMIT`);
   } catch (e) {
     await client.query(`ROLLBACK`).catch(() => undefined);

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { OkxPaymentAdapter, PLACEHOLDER_RESOURCE, CHALLENGE_DESCRIPTION } from './okx-adapter.js';
+import { InMemoryNonceStore, type NonceStore } from './nonce-store.js';
 
 describe('OkxPaymentAdapter', () => {
   it('is not configured when recipient is missing', () => {
@@ -297,12 +298,12 @@ describe('one signed authorization buys one audit', () => {
   /**
    * The EIP-712 message this adapter verifies is
    * `(from, to, value, validAfter, validBefore, nonce)` — it does **not**
-   * contain the `paymentId`, and the two checks that would stop a second use
-   * of one signature are both absent:
+   * contain the `paymentId`. Both of the checks that make one signature worth
+   * one audit were missing:
    *
-   *   - the `nonce` is signed but never recorded, so it is not single-use;
-   *   - `validAfter` / `validBefore` are signed but never compared to a clock,
-   *     so an authorization that expired last year still passes.
+   *   - the `nonce` was signed but never recorded, so it was not single-use;
+   *   - `validAfter` / `validBefore` were signed but never compared to a clock,
+   *     so an authorization that expired last year still passed.
    *
    * On chain, EIP-3009's `authorizationUsed` mapping keyed by `(from, nonce)`
    * is what makes one authorization worth one transfer. This adapter stands in
@@ -310,6 +311,10 @@ describe('one signed authorization buys one audit', () => {
    * and it was not performing it. A buyer could sign once and audit forever by
    * rewriting the envelope's `paymentId` to each new challenge's id — and since
    * every POST mints a fresh `paymentId` (D-011), there is always a new one.
+   *
+   * The nonce record used to be an in-process `Set`, which a restart or a
+   * second replica emptied. That was R-40; the two cases at the bottom of this
+   * block are the ones that changed when it became injectable.
    */
   it('refuses a signature that has already bought an audit', async () => {
     const a = adapter();
@@ -384,16 +389,44 @@ describe('one signed authorization buys one audit', () => {
     expect(retry).toEqual(first);
   });
 
-  it('forgets which nonces it has seen when the process restarts', async () => {
-    // Pins the limitation rather than leaving it to a comment: the set is
-    // in-process, so a *new adapter instance* accepts the authorization again.
-    // Recorded in RISKS.md R-40 and BACKLOG.md; this test is the reason the
-    // wording there says "replay works only across a restart" and not
-    // "replay is impossible".
-    const first = adapter();
-    const c1 = await first.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+  it('refuses a replay after a restart, when both processes share the store', async () => {
+    // This is the R-40 fix, and this test used to assert the opposite. The
+    // guard was a `Set` owned by the adapter, so "a restart" was just a new
+    // adapter and the same signature bought a second audit. The record now
+    // lives in the injected store, so a second adapter over the same store —
+    // a second process, or this one after a restart — sees the burn. The
+    // durable implementation of that store is
+    // `apps/api/src/repositories/nonce-repository.ts`; here an in-memory one
+    // is enough, because the property under test is *shared vs not shared*,
+    // not where the bytes are.
+    const store = new InMemoryNonceStore();
+    const before = adapter({ nonceStore: store });
+    const c1 = await before.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
     const header = await signEnvelope(c1);
-    expect((await first.verifyPayment({ paymentId: c1.paymentId, rawHeader: header })).status).toBe(
+    expect((await before.verifyPayment({ paymentId: c1.paymentId, rawHeader: header })).status).toBe(
+      'completed'
+    );
+
+    const after = adapter({ nonceStore: store });
+    const c2 = await after.createChallenge({
+      quote: { amount: '1', currency: 'USDT', mode: 'full' },
+    });
+    expect(
+      (await after.verifyPayment({ paymentId: c2.paymentId, rawHeader: pointAt(header, c2.paymentId) }))
+        .status
+    ).toBe('failed');
+  });
+
+  it('still forgets when no store is injected — which is why the API injects one', async () => {
+    // Pins the *default*, not a desired behaviour. `InMemoryNonceStore` is
+    // correct for `packages/mcp-server`, which never reaches a nonce (it only
+    // verifies in mock mode), and wrong for the API, which is why `server.ts`
+    // passes `NonceRepository`. If this test goes red, the default changed and
+    // that wiring needs a second look.
+    const before = adapter();
+    const c1 = await before.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c1);
+    expect((await before.verifyPayment({ paymentId: c1.paymentId, rawHeader: header })).status).toBe(
       'completed'
     );
 
@@ -405,6 +438,37 @@ describe('one signed authorization buys one audit', () => {
       (await restarted.verifyPayment({ paymentId: c2.paymentId, rawHeader: pointAt(header, c2.paymentId) }))
         .status
     ).toBe('completed');
+  });
+
+  it('does not turn a store outage into a cached "failed"', async () => {
+    // A throw from the store means "I could not answer", not "this
+    // authorization is spent". `record('failed')` writes a receipt, and
+    // receipts are cached by `paymentId`, so catching the throw would convert
+    // a transient database blip into a permanent verdict: the buyer's retry
+    // would be answered from the cache without the store ever being asked
+    // again. `false` is a replay and is permanent; a throw is an outage and is
+    // retryable. Only the first becomes a receipt.
+    let outage = true;
+    const real = new InMemoryNonceStore();
+    const flaky: NonceStore = {
+      async burn(key) {
+        if (outage) throw new Error('store unavailable');
+        return real.burn(key);
+      },
+    };
+
+    const a = adapter({ nonceStore: flaky });
+    const c = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c);
+
+    await expect(a.verifyPayment({ paymentId: c.paymentId, rawHeader: header })).rejects.toThrow(
+      'store unavailable'
+    );
+
+    outage = false;
+    expect((await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header })).status).toBe(
+      'completed'
+    );
   });
 });
 

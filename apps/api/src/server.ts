@@ -19,6 +19,7 @@ import { createLogger } from './utils/logger.js';
 import { openDatabase, closeDatabase, runMigrations } from './db/client.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { ReportCacheRepository } from './repositories/report-cache-repository.js';
+import { NonceRepository } from './repositories/nonce-repository.js';
 import { JobService } from './services/job-service.js';
 import { CacheService } from './services/cache-service.js';
 import { buildAuditQueue } from './queue/build-queue.js';
@@ -171,7 +172,11 @@ export async function buildApp(
       timeoutMs: 15_000,
     });
 
-  const adapter = buildPaymentAdapter(deps.payment);
+  // The OKX adapter burns a buyer's `(from, nonce)` pair on first use so one
+  // signed authorization buys one audit. It gets the durable store, not its
+  // in-memory default: this process restarts, and more than one of it can run
+  // behind the same database (R-40).
+  const adapter = buildPaymentAdapter(deps.payment, { nonceStore: new NonceRepository(db) });
   const service = new JobService(repo, pipeline, adapter);
 
   // Resolve the process mode.

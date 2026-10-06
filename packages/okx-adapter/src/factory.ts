@@ -17,6 +17,7 @@
  */
 import type { PaymentAdapter, PaymentMode } from './adapter.js';
 import { MockPaymentAdapter } from './mock-adapter.js';
+import type { NonceStore } from './nonce-store.js';
 import { OkxPaymentAdapter } from './okx-adapter.js';
 
 export interface PaymentConfig {
@@ -47,7 +48,24 @@ function isEvmAddress(s: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(s);
 }
 
-export function buildPaymentAdapter(cfg: PaymentConfig): PaymentAdapter {
+/**
+ * Build the payment adapter for `cfg.mode`.
+ *
+ * `deps.nonceStore` is where the OKX adapter records burned authorization
+ * nonces — the record that makes one signed authorization worth one audit.
+ * Omit it and the adapter keeps that record in this process only, which is
+ * correct for `packages/mcp-server` (it verifies payments only in mock mode,
+ * where no nonce is ever reached) and wrong for anything that restarts or
+ * runs more than one replica. `apps/api` passes the durable store from
+ * `apps/api/src/repositories/nonce-repository.ts`.
+ *
+ * The default lives on the adapter, not here, so there is one of it: a direct
+ * `new OkxPaymentAdapter({...})` behaves exactly like a factory-built one.
+ */
+export function buildPaymentAdapter(
+  cfg: PaymentConfig,
+  deps: { nonceStore?: NonceStore } = {},
+): PaymentAdapter {
   if (cfg.mode === 'okx') {
     if (!isEvmAddress(cfg.okx.recipientAddress)) {
       throw new Error(
@@ -61,6 +79,7 @@ export function buildPaymentAdapter(cfg: PaymentConfig): PaymentAdapter {
       network: cfg.okx.network,
       x402Version: cfg.okx.x402Version,
       resourceUrl: cfg.okx.resourceUrl,
+      nonceStore: deps.nonceStore,
     });
   }
   return new MockPaymentAdapter();
