@@ -15,6 +15,27 @@
 FROM node:22-alpine AS builder
 WORKDIR /repo
 RUN corepack enable
+# `better-sqlite3` ships a prebuilt binary and `pnpm install` uses it whenever
+# it can. When it cannot — `prebuild-install` looks on GitHub Releases, and a
+# network that cannot reach it is the normal case on a mainland-China VPS,
+# which is exactly where this is meant to be deployed — the package falls back
+# to `node-gyp`, which needs a toolchain this image does not have.
+#
+# The failure reads as a missing build dependency rather than an unreachable
+# download, because `node-gyp` reports what *it* could not find:
+#
+#     gyp ERR! find Python You need to install the latest version of Python.
+#     gyp ERR! stack Error: Could not find any Python installation to use
+#
+# Measured 2026-10-06 on an x86_64 host with no route to GitHub Releases: the
+# build died here, while the same Dockerfile is green in CI, whose runners
+# reach GitHub Releases at internal-network speed. `node:22-alpine` ships no
+# compiler and no Python, so the fast path was the only path that worked.
+#
+# Installing both makes the build independent of GitHub Releases: the fast
+# path is unchanged, and the slow path now succeeds instead of dying. It costs
+# ~200 MB in a stage that is not part of the final image.
+RUN apk add --no-cache python3 make g++
 # `.npmrc` is not optional here. It carries `shamefully-hoist=true`, which
 # decides whether `better-sqlite3` and the `@repopilot/*` workspace links land
 # in the root `node_modules` or only in each package's own. The `runtime` stage

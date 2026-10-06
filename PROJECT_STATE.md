@@ -675,11 +675,12 @@ These are NOT code TODOs and do not block the Release Candidate:
    29.8.2 and Colima 0.10.3 are installed under `/usr/local`; they were simply
    not on `PATH` (`/usr/local/opt/docker/bin`, `/usr/local/opt/colima/bin`), and
    the daemon is running. The claim was true when it was written and outlived
-   its cause. `docker build` is therefore reachable here — the Docker workflow
-   was still verified in CI, which is the environment that matters, but this is
-   no longer a reason it has to be. Postgres for the integration tests comes
-   from a container (`docker run postgres:17-alpine`), which is how the
-   `PgBossAuditQueue` suite was verified before it was pushed.
+   its cause. `pnpm docker:check` now performs its build half here, and the
+   first run found a real defect — **R-14**, a `better-sqlite3` fallback that
+   needed a toolchain the `builder` image did not have. Fixed, and the image
+   now builds. Postgres for the integration tests also comes from a container
+   (`docker run postgres:17-alpine`), which is how the `PgBossAuditQueue` suite
+   was verified before it was pushed.
 2. OKX.AI Agent Marketplace listing not yet submitted → run
    `onchainos agent register --role asp` (GA since 2026-06-30; this is a
    single CLI call, not a code change). The `OkxPaymentAdapter` is fully

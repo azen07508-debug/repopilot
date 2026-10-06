@@ -9,13 +9,19 @@ If you are looking for a checklist of code work, see
 
 ---
 
-## 1. Docker build and smoke (sandbox not present)
+## 1. Docker build and smoke
 
-**Status:** `EXTERNAL_BLOCKED`
-**Why:** The dev sandbox where RepoPilot is built does not have a
-Docker CLI. The Dockerfile and compose file are validated statically
-by `pnpm docker:check`, but a real build only runs on a host with
-Docker.
+**Status:** `DONE` (2026-10-06) — no longer a user-side action.
+**Why it was listed:** the dev sandbox was said to have no Docker CLI, so the
+Dockerfile could only be checked statically and a real build had to happen on
+someone else's host. Docker 29.8.2 and Colima 0.10.3 are installed under
+`/usr/local` — just not on `PATH` — and the daemon runs, so
+`pnpm docker:check` now performs its build half here. On its first run it
+found a real defect (**R-14**: a `better-sqlite3` fallback that needed a
+toolchain the `builder` image did not have), which is fixed and re-verified.
+
+The commands below are kept because they are still how a release is
+smoke-tested outside CI.
 
 **Action**
 

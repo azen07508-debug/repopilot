@@ -1175,6 +1175,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Docker build no longer needs GitHub Releases to be reachable.**
+  `better-sqlite3` ships a prebuilt binary and `pnpm install` uses it when it
+  can; `prebuild-install` looks for it on GitHub Releases, and when that
+  download fails the package falls back to `node-gyp`, which needs a compiler
+  and a Python. `node:22-alpine` has neither, so on a network that cannot
+  reach GitHub Releases the build died — and the message named the missing
+  tool rather than the failed download:
+
+      gyp ERR! find Python You need to install the latest version of Python.
+      gyp ERR! stack Error: Could not find any Python installation to use
+
+  CI never saw it, because GitHub's runners reach GitHub Releases at
+  internal-network speed: the fast path was the only path that had ever run.
+  It was found by the first local `pnpm docker:check`, once Docker turned out
+  to be installed here after all (R-14). `apk add --no-cache python3 make g++`
+  in the `builder` stage makes the slow path work; the fast path is unchanged,
+  and the ~300 MiB it costs sits in a stage the final image does not contain.
+
 - **One signed authorization bought unlimited audits.** The EIP-712 message
   `OkxPaymentAdapter` verifies is
   `(from, to, value, validAfter, validBefore, nonce)` — it does **not** contain

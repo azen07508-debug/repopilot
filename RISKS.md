@@ -17,7 +17,8 @@ Active risks the team is aware of and how they are mitigated.
 - [R-11](#r-11--marketplace-hero--branding-not-provided) — Marketplace hero / branding not provided
 - [R-12](#r-12--pii-leakage-from-the-audited-repo) — PII leakage from the audited repo
 - [R-13](#r-13--a-gate-on-a-large-repository-times-out) — A gate on a large repository times out
-- [R-14](#r-14--docker-sandbox-not-available-in-dev) — Docker sandbox not available in dev
+- [R-14](#r-14--a-docker-build-that-needs-github-releases-to-be-reachable)
+  — A Docker build that needs GitHub Releases to be reachable
 - [R-15](#r-15--user-shares-real-okx-keys-in-chat) — User shares real OKX keys in chat
 - [R-16](#r-16--inline-audit-queue-used-in-production-in-process-no-durability)
   — Inline audit queue used in production (in-process, no durability)
@@ -237,12 +238,41 @@ audits time out", which named a mode dependence that does not exist: both
 modes read the same archive and the same commit history, so the repository's
 size is what bounds a gate, not the mode (R-30, D-035).
 
-## R-14 — Docker sandbox not available in dev
+## R-14 — A Docker build that needs GitHub Releases to be reachable
 
 **Severity:** Low
-**Likelihood:** Confirmed (this sandbox)
-**Mitigation:** `pnpm docker:check` reports "Docker CLI not present"
-instead of a cryptic error. CI runs the build on a real Linux runner.
+**Likelihood:** Confirmed on a network with no route to GitHub Releases
+**Status:** Fixed 2026-10-06.
+
+**What it was.** `better-sqlite3` ships a prebuilt binary and `pnpm install`
+uses it when it can. `prebuild-install` looks for that binary on GitHub
+Releases; when the download fails the package falls back to `node-gyp`, which
+needs a toolchain. The `builder` stage is `node:22-alpine`, which ships no
+compiler and no Python, so the fallback could not run and the build died:
+
+    gyp ERR! find Python You need to install the latest version of Python.
+    gyp ERR! stack Error: Could not find any Python installation to use
+
+The message names the tool that is missing, not the download that failed, so
+it reads as "this image lacks a build dependency" when the image was fine and
+the network was not. Nothing had ever caught it: CI's runners reach GitHub
+Releases at internal-network speed, so the fast path was the only path that
+had ever run — and the deployment this is aimed at is a mainland-China VPS,
+which is the network where it fails.
+
+**Mitigation:** the `builder` stage installs the toolchain
+(`apk add --no-cache python3 make g++`, ~300 MiB in a stage that is not part
+of the final image). The fast path is unchanged; the slow path now succeeds
+instead of dying. Verified by building the image on an x86_64 host with no
+route to GitHub Releases: `prebuild-install` failed, `node-gyp rebuild` ran,
+and the build completed.
+
+**Also corrected here.** This entry used to read "Docker sandbox not available
+in dev", and that was true when it was written. Docker 29.8.2 and Colima
+0.10.3 are installed under `/usr/local` — just not on `PATH` — and the daemon
+runs, so `pnpm docker:check` now performs its build half here instead of
+skipping it. That is how this defect was found. `PROJECT_STATE.md` carries the
+same correction.
 
 ## R-15 — User shares real OKX keys in chat
 
