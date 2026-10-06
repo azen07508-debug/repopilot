@@ -280,18 +280,20 @@ the left edge and the terminal off the right.
 ## What is *not* on this list
 
 - Code work: see `BACKLOG.md` and `docs/RELEASE_CHECKLIST.md`
-- **The LLM provider.** This was item 8: set `LLM_PROVIDER=openai-compatible`
-  plus a key, base URL and model, restart, and expect a richer `summary` and
-  `launchCopy` on the first gate. That is not what happens. The provider is
-  built from those variables and passed into `buildApp`, but no code path reads
-  it — `PipelineInput` carries only the two provenance strings, and
-  `polishFixPlanSet()` with `task: 'polish'` is the only LLM call site in the
-  repository. Setting the variables changes nothing about a report, while
-  `pnpm env:check` still makes you supply all three. So it is code work,
-  tracked in `BACKLOG.md`; the measurement is in RISKS.md R-38. Until it lands,
-  leaving `LLM_PROVIDER` unset is the honest configuration rather than a
-  degraded one. The boundary holds whenever it is wired: the LLM may never
-  write a score, a priority or a piece of evidence.
+- **The LLM provider — removed, so there is nothing to configure.** This was
+  item 8: set `LLM_PROVIDER=openai-compatible` plus a key, base URL and model,
+  restart, and expect a richer `summary` and `launchCopy` on the first gate.
+  That never happened. The provider was built from those variables and passed
+  into `buildApp`, and no code path read it — `PipelineInput` carried only the
+  two provenance strings, and `polishFixPlanSet()` was called by its own test
+  and nothing else. Setting the variables changed nothing about a report, while
+  `pnpm env:check` refused to pass without them. All of it is gone (R-38): the
+  four variables, the provider classes, the prompt builder, `polishFixPlanSet()`
+  and the `llmEnhanced` flag it set. There is no LLM configuration left to get
+  wrong, which is why this is no longer an item on any list. The measurement is
+  in RISKS.md R-38; the design constraint it protects — no LLM may ever write a
+  score, a priority or a piece of evidence — is now structural rather than a
+  rule about an interface.
 - The OKX adapter stub: it is intentional and documented in
   `README_OKX.md`
 - The mock payment: it is the default and is part of the product

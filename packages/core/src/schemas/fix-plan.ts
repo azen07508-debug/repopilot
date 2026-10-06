@@ -5,13 +5,18 @@
  * Design constraints:
  *   - Derived purely from an existing `Report`. Nothing here triggers a
  *     repository scan.
- *   - `priority`, `estimatedEffort`, `evidence` and `steps` are produced by
- *     deterministic rules only. An LLM may polish the natural-language
- *     `why` field and nothing else.
+ *   - `priority`, `estimatedEffort`, `evidence`, `steps` and `why` are produced
+ *     by deterministic rules only. There is no optional rewrite step: the
+ *     `llmEnhanced` flag and the `polishFixPlanSet()` function that could set
+ *     it were removed in R-38, because nothing outside a test ever called them
+ *     and a field whose only possible value is `false` is a claim about a
+ *     capability that does not exist.
  *   - `evidence` keeps the v1 shape (`{ file, line, reason }`) and stays
  *     mandatory with at least one entry, extending D-008 to fix plans.
- *   - `schemaVersion` is independent of `Report.reportVersion`, which
- *     stays at `'1.0'`.
+ *   - `schemaVersion` is independent of `Report.reportVersion`; it is `'1.0'`
+ *     and has not moved. (This comment used to say `reportVersion` "stays at
+ *     `'1.0'`" while the constant was `'1.2'` — the number in a comment nobody
+ *     compared to the constant it named.)
  */
 import { z } from 'zod';
 import { EvidenceSchema } from './report.js';
@@ -53,8 +58,6 @@ export const FixPlanSchema = z.object({
   risks: z.array(z.string().min(1)).default([]),
   /** Ready to paste into Codex / Claude Code / OpenCode. */
   agentInstructions: z.string().min(1),
-  /** True when the natural-language fields were polished by an LLM. */
-  llmEnhanced: z.boolean().default(false),
 });
 export type FixPlan = z.infer<typeof FixPlanSchema>;
 

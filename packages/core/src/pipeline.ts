@@ -41,8 +41,6 @@ export interface PipelineInput {
   target: 'hackathon' | 'open_source' | 'production';
   outputLanguage: 'en' | 'zh-CN';
   includeLaunchCopy: boolean;
-  llmProviderName: string;
-  llmProviderConfigured: boolean;
 }
 
 export interface PipelineResult {

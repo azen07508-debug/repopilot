@@ -122,7 +122,6 @@ describe('fix plans across all fixtures', () => {
         expect(['P0', 'P1', 'P2']).toContain(plan.priority);
         expect(['S', 'M', 'L']).toContain(plan.estimatedEffort);
         expect(plan.status).toBe('open');
-        expect(plan.llmEnhanced).toBe(false);
         for (const section of AGENT_SECTIONS) {
           expect(plan.agentInstructions).toContain(section);
         }

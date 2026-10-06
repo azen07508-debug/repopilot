@@ -11,11 +11,13 @@
  *   - `evidence` is copied from the finding, never invented.
  *   - `steps` / `testsToAdd` / `acceptanceCriteria` / `risks` come from
  *     `templateFixPlan()`.
- *   - An LLM may only rewrite the `why` sentence, and only through the
- *     separate `polishFixPlanSet()` step.
+ *
+ * This file used to end with "An LLM may only rewrite the `why` sentence, and
+ * only through the separate `polishFixPlanSet()` step." Both are gone (R-38):
+ * `polishFixPlanSet()` had no caller outside its own test, and `why` has come
+ * from `templateFixPlan()` since the day it was written.
  */
 import type { Evidence, Finding, Report } from '../schemas/report.js';
-import type { LLMProvider } from '../llm/provider.js';
 import { effortForSeverity, planIdFor, priorityForSeverity } from '../schemas/fix-plan.js';
 import type { FixPlan, FixPlanSet } from '../schemas/fix-plan.js';
 import { renderAgentInstructions, templateFixPlan } from './template.js';
@@ -117,7 +119,6 @@ export function buildFixPlan(
     estimatedEffort: effortForSeverity(finding.severity),
     risks: template.risks,
     agentInstructions,
-    llmEnhanced: false,
   };
 }
 
@@ -193,52 +194,4 @@ export function buildFixPlanSet(report: Report, opts: FixPlanOptions = {}): FixP
     reportVersion: report.reportVersion,
     plans,
   };
-}
-
-export interface PolishOptions {
-  llm: LLMProvider;
-  language?: 'en' | 'zh-CN';
-}
-
-/**
- * Optionally let an LLM rewrite the `why` sentence of each plan.
- *
- * This is the ONLY place an LLM touches a fix plan. Scores, priorities,
- * evidence, steps and acceptance criteria are never sent to it. If the
- * provider is not configured (the `NoopLLMProvider` default) or returns
- * null, the deterministic text is kept and `llmEnhanced` stays false.
- */
-export async function polishFixPlanSet(
-  set: FixPlanSet,
-  report: Report,
-  opts: PolishOptions
-): Promise<FixPlanSet> {
-  const { llm } = opts;
-  if (!llm.isConfigured()) return set;
-
-  const language = opts.language ?? report.outputLanguage;
-  const plans: FixPlan[] = [];
-
-  for (const plan of set.plans) {
-    let why = plan.why;
-    let enhanced = false;
-    try {
-      const polished = await llm.generate({
-        report,
-        task: 'polish',
-        language,
-        maxTokens: 120,
-      });
-      const text = polished?.trim();
-      if (text) {
-        why = text.slice(0, 400);
-        enhanced = true;
-      }
-    } catch {
-      // A failed polish must never break plan generation.
-    }
-    plans.push({ ...plan, why, llmEnhanced: enhanced });
-  }
-
-  return { ...set, plans };
 }

@@ -516,9 +516,11 @@ not wired yet.
 - `renderAgentInstructions()` — Repository / Commit / Finding /
   Evidence / Objective / Steps / Constraints / Acceptance Criteria,
   ready to paste into Codex, Claude Code or OpenCode.
-- LLM boundary: `polishFixPlanSet()` may rewrite the `why` sentence and
-  nothing else. Priority, effort, evidence, steps and criteria are
-  deterministic. `NoopLLMProvider` keeps the whole path LLM-free.
+- LLM boundary: there isn't one. `polishFixPlanSet()` — the only function that
+  could rewrite anything — was called by its own test and nothing else, and it
+  is gone along with the provider interface, the two prompt branches and the
+  four `LLM_*` variables (R-38). Priority, effort, evidence, steps, criteria
+  and the `why` sentence are all deterministic.
 - Analysis + plan: `docs/REPOSITORY_INTELLIGENCE_PLAN.md` (Phase 0) and
   the Launch Readiness analysis in the workspace.
 - **Test baseline: core 143/143 passing** (61 new: builder 15,

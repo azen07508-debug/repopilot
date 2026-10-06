@@ -133,8 +133,6 @@ export class JobService {
       target: input.target,
       outputLanguage: input.outputLanguage,
       includeLaunchCopy: input.includeLaunchCopy,
-      llmProviderName: 'noop',
-      llmProviderConfigured: false,
     });
     await this.repo.update(job.jobId, { status: 'completed', report: result.report, error: null });
     return result.report;

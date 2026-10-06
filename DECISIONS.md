@@ -166,8 +166,11 @@ Architecture Decision Records (ADR-style, lightweight).
   securityFindings / deploymentPlan / recommendedTasks` has at least one
   evidence entry with `file` and `reason`.
 - **Consequences:** The schema cannot drift into "AI gave a 9 out of 10
-  because it felt like it". LLM providers are only allowed to write
-  natural-language copy, never the score or the evidence.
+  because it felt like it". The rule that enforced it — an LLM may write
+  natural-language copy but never the score or the evidence — was a constraint
+  on an interface that no longer exists (R-38); what replaces it is that
+  `score.ts` is the only producer of a score and `FindingSchema` is the only
+  producer of evidence.
 
 ## D-009 — LLM is optional, not load-bearing
 
@@ -184,9 +187,19 @@ Architecture Decision Records (ADR-style, lightweight).
   variables changes no output. The first half of the decision still holds and
   is the half that matters: `noop` is the only path that runs, and the report
   is deterministic.
+- **Corrected again 2026-10-06 (R-38 implemented):** the second half is now
+  *deleted* rather than merely annotated. `NoopLlmProvider` (spelled
+  `NoopLLMProvider` in the code — the two had drifted apart, which is what
+  happens to a name nothing calls), `OpenAICompatibleProvider`, the provider
+  interface, the prompt builder, `polishFixPlanSet()` and the four `LLM_*`
+  variables are all gone. So is the `llmEnhanced` flag on fix plans, whose only
+  possible value was `false`, and `'analyzers.llm'` from the report's
+  `analyzerProvenance`, which told every buyer that an LLM analyzer was
+  installed and switched off. The decision is unchanged and now enforced by the
+  absence of the code: there is no opt-in because there is nothing to opt into.
 - **Consequences:** The MVP has zero LLM cost in dev or production. The
-  report is always schema-valid. LLM is purely an upgrade, not a
-  dependency.
+  report is always schema-valid. LLM is not an upgrade and not a dependency —
+  it is not part of the system.
 
 ## D-010 — Single-process API + worker model (for now)
 
@@ -1951,7 +1964,7 @@ this, so the topology is checked in two places that do not need it:
     at the same commit, and comparability is the product.
   - **Remove `mode` entirely.** With one price and one product, the knob has no
     commercial meaning left. But `auditMode` is a field on the public `Report`
-    schema (`1.2`) and `omittedSections` is derived from it; deleting it is a
+    schema and `omittedSections` is derived from it; deleting it is a
     report-format migration, not a repricing. The knob stays as a report-shape
     parameter and is documented as one.
   - **Default `mode` to `full` instead of naming it in the copy.** One line of

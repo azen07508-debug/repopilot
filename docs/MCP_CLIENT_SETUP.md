@@ -333,7 +333,7 @@ returns a headline summary alongside the full report:
 ```json
 {
   "status": "completed",
-  "reportVersion": "1.2",
+  "reportVersion": "1.3",
   "repository": { "url": "...", "defaultBranch": "master", "stars": 3839, "...": "..." },
   "summary": "… an overall launch-readiness score of 53.1/100. Top blocker: LICENSE is missing (high).",
   "scores": 53.1,

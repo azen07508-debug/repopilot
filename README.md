@@ -38,7 +38,7 @@ audit. It does not custody funds or read private keys.
   what moved: the score delta per dimension, the exact scoring rules
   that changed, and which findings were resolved, appeared or persist.
 - **Built for AI agents.** The report is a single JSON document with a
-  stable schema (`reportVersion: "1.2"`; `"1.1"` and `"1.0"` still parse). The MCP
+  stable schema (`reportVersion: "1.3"`; `"1.2"`, `"1.1"` and `"1.0"` still parse). The MCP
   server exposes <!-- docs-facts:mcp-tool-count -->14<!-- docs-facts:end -->
   tools and marks which of them are free, so any MCP-compatible client
   can drive the whole loop.
@@ -235,12 +235,14 @@ diagram.
   process runs the pipeline. In the default combined shape that worker
   lives in the API process; the split production shape runs it as its own
   service (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
-- **The report is deterministic, and the LLM hook is not wired up.** Every
-  score is rule-based, and `summary` / `launchCopy` are generated from
-  templates. `@repopilot/core` ships an `OpenAICompatibleProvider` that is
-  unit-tested, but no code path in the API or the MCP server consumes it:
-  setting `LLM_PROVIDER` today changes nothing about a report. Wiring it is
-  code work, tracked in [BACKLOG.md](BACKLOG.md) — not an operator step.
+- **The report is deterministic, and there is no LLM hook.** Every score is
+  rule-based, and `summary` / `launchCopy` are generated from templates in
+  `packages/core/src/report/templates.ts`. `@repopilot/core` used to ship an
+  `OpenAICompatibleProvider` and read `LLM_PROVIDER`; both were removed,
+  because no code path in the API or the MCP server ever consumed them —
+  setting the variable changed nothing about a report, while `pnpm env:check`
+  refused to pass without credentials for it. There is no LLM configuration
+  left to set. See [RISKS.md](RISKS.md) R-38.
 
 ## License
 

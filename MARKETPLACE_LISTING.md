@@ -53,7 +53,7 @@ what is measured, and it costs the same either way; the service is sold as
 `mode=full`.
 
 ### What you get
-- A JSON `Report` validated against the RepoPilot `1.2` schema
+- A JSON `Report` validated against the RepoPilot `1.3` schema
   (`@repopilot/core`).
 - A ship-or-block verdict, and scores for documentation, reproducibility,
   security hygiene and deployment readiness, each with a deterministic rule
@@ -119,7 +119,7 @@ commit，对每个调用者给出相同的数字。评分必须是仓库的属�
 不决定测什么，且两种取值价格相同；本服务按 `mode=full` 售卖。
 
 ### 输出内容
-- 一份符合 RepoPilot `1.2` 架构（`@repopilot/core`）的 JSON 报告。
+- 一份符合 RepoPilot `1.3` 架构（`@repopilot/core`）的 JSON 报告。
 - 一个「可发版 / 被阻塞」的结论，以及文档、可复现性、安全卫生、部署就绪度四类
   评分，每一项都附带可解释的规则明细。
 - 阻塞项列表，每条都附带 **证据**（文件、行号、原因）。

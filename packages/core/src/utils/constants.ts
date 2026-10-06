@@ -16,11 +16,18 @@
  * that had cached a quick report before this bump would otherwise serve the
  * old content for a new request, which is exactly the failure the version
  * in the cache key exists to prevent (`apps/api/src/services/audit-worker.ts`).
+ *
+ * Bumped to 1.3 when `analyzerProvenance` lost `'analyzers.llm'` (R-38). The
+ * entry was `'optional; disabled by default'` — a statement about a component
+ * rather than about an analyzer, in a map whose every other key names one that
+ * runs. It told every buyer of every report that an LLM analyzer was installed
+ * and switched off. Nothing else in the report changed, so 1.2 reports still
+ * parse; the version moved because a key left a map that consumers read.
  */
-export const REPORT_VERSION = '1.2' as const;
+export const REPORT_VERSION = '1.3' as const;
 
 /** Every report version this build can parse, oldest first. */
-export const SUPPORTED_REPORT_VERSIONS = ['1.0', '1.1', '1.2'] as const;
+export const SUPPORTED_REPORT_VERSIONS = ['1.0', '1.1', '1.2', '1.3'] as const;
 
 export const CORE_VERSION = '0.1.0';
 

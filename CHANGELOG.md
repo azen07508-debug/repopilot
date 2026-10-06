@@ -696,6 +696,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The LLM surface is gone, not "optional and unused".** `LLM_PROVIDER`,
+  `LLM_API_KEY`, `LLM_MODEL` and `LLM_BASE_URL` were read by
+  `defaultLlmProvider()`, which built an `OpenAICompatibleProvider` that
+  `main()` passed into `buildApp` as `AppDeps.llmProvider` — and no code path
+  read it. Setting the variables changed nothing about a report, while
+  `pnpm env:check` *refused to pass* without the credentials once
+  `LLM_PROVIDER=openai-compatible`, so `preflight:production` demanded a secret
+  for a capability that did nothing (R-38). Deleted: the four variables and
+  their `.env.example` block, `defaultLlmProvider()`, `AppDeps.llmProvider`,
+  the three `env-check.ts` blocks, `packages/core/src/llm/` (the provider
+  interface, `NoopLLMProvider`, `OpenAICompatibleProvider`, the prompt builder)
+  and its `./llm` subpath export, `polishFixPlanSet()` — whose only caller was
+  its own `describe` block — `ReportBuilderInput.llm`, and
+  `PipelineInput.llmProviderName` / `llmProviderConfigured` with the three
+  literals that fed them (two said `'noop'`, the MCP server said `'none'`, and
+  nothing compared them). `templates.ts` moved to
+  `packages/core/src/report/templates.ts`, which is what it always was: the
+  report builder's deterministic copy. **Breaking for consumers of the
+  fix-plan response:** `llmEnhanced` is gone. Its only possible value was
+  `false`, and `docs/API.md` described it as "`true` only when an LLM rewrote
+  the `why` sentence" — a sentence no code could ever make true.
+  `REPORT_VERSION` moves 1.2 → 1.3 because `analyzerProvenance` lost
+  `'analyzers.llm': 'optional; disabled by default'`, a claim about a component
+  in a map whose every other key names an analyzer that runs, published in
+  every report. Stored 1.2 and 1.1 reports still parse
+  (`SUPPORTED_REPORT_VERSIONS`). Six other places still said `1.2` and moved
+  with it: `README.md`, `MARKETPLACE_LISTING.md` (both language versions — the
+  listing is the one a buyer reads), `docs/API.md`'s `outputs.report` line and
+  `docs/MCP_CLIENT_SETUP.md`'s audit example. `RISKS.md` and `DECISIONS.md` had
+  the number written into a present-tense sentence about an older change; both
+  are rephrased so they cannot go stale again.
+  `scripts/env-check.ts` keeps `LLM_API_KEY` in
+  `KNOWN_SECRET_KEYS`: that list is redaction, not configuration, and an
+  operator who set the key months ago still has it in their shell.
+  `docs/SECURITY.md` claimed the provider interface exposed `summarize`,
+  `mergeFindings` and `generateLaunchCopy` — three methods that never existed
+  (the interface had `name`, `isConfigured()` and `generate()`); the paragraph
+  now says the guarantee is that `score.ts` is the only producer of a score.
+  See R-38 and D-009.
+
 - **The Full Launch Audit price is `0.05` USDT in every place it is stated.**
   It was `0.05` in the compiled default in `apps/api/src/config.ts` — the one
   the running process charges — and `0.10` in `.env.example`,

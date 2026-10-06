@@ -106,8 +106,9 @@ export const ENV_EXAMPLE_FILENAMES: readonly string[] = [
  * ten of them false: RepoPilot's own `security/injection.ts` (its keyword
  * table, matched against itself), its own test suite, its own
  * `llm/prompts.ts` (`{ system: string; user: string }` — a TypeScript
- * type annotation), and `contract as the parent`, where the phrase "act
- * as" is a substring of "contract as".
+ * type annotation; that file was deleted in R-38, and the case is kept
+ * because it is a shape, not a file), and `contract as the parent`, where
+ * the phrase "act as" is a substring of "contract as".
  *
  * Note what this predicate does NOT gate: the invisible-character check
  * in the same detector. A bidirectional override in a `.ts` file is the

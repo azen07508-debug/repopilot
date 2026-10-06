@@ -208,8 +208,6 @@ export class AuditWorker {
           target: input.target,
           outputLanguage: input.outputLanguage,
           includeLaunchCopy: input.includeLaunchCopy,
-          llmProviderName: 'noop',
-          llmProviderConfigured: false,
         });
         return { report: r.report };
       },

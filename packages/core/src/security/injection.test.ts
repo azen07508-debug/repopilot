@@ -119,7 +119,10 @@ describe('detectPromptInjection — real-world false positives', () => {
   });
 
   it('does not flag a TypeScript type annotation named system', () => {
-    // packages/core/src/llm/prompts.ts, verbatim.
+    // Verbatim from `packages/core/src/llm/prompts.ts`, which R-38 deleted.
+    // The input is kept because the rule it exercises — a role marker must
+    // open a line — is about the shape of a line, not about that file, and
+    // `{ system: string }` is a shape TypeScript produces wherever it appears.
     expect(
       scan(
         'packages/core/src/llm/prompts.ts',

@@ -29,8 +29,7 @@ import type {
   Task,
 } from '../schemas/report.js';
 import type { FileEntry } from '../git/files.js';
-import type { LLMProvider } from '../llm/provider.js';
-import { templateLaunchCopy, templateSummary } from '../llm/templates.js';
+import { templateLaunchCopy, templateSummary } from './templates.js';
 import { REPORT_VERSION } from '../utils/constants.js';
 import { omittedSections, tierLimitations } from './tiers.js';
 
@@ -73,7 +72,6 @@ export interface ReportBuilderInput {
    * cost, not what it saw.
    */
   degraded?: boolean;
-  llm?: LLMProvider;
 }
 
 export interface ReportBuilderResult {
@@ -284,7 +282,8 @@ export class ReportBuilder {
       }),
     };
 
-    // Resolve LLM-decorated fields.
+    // Resolve the copy. Both come from the templates; there is no decorator
+    // to apply first (R-38).
     const summary = templateSummary(baseReport);
     // Read the omission off the declaration rather than re-deriving it from
     // the two flags. One question, one answer.
@@ -299,6 +298,17 @@ export class ReportBuilder {
   }
 }
 
+/**
+ * Which analyzer produced which part of the report.
+ *
+ * Every key here names an analyzer that ran. `'analyzers.llm'` used to be in
+ * this map — `'optional; disabled by default'` — which was a claim about a
+ * component rather than about an analyzer: no LLM analyzer has ever existed in
+ * this repository, and the entry told every buyer of every report that one was
+ * installed and switched off. It is gone, along with the rest of the unwired
+ * LLM surface (R-38). Removing a key from a map that consumers read is a shape
+ * change, so `REPORT_VERSION` moved to 1.3 with it.
+ */
 function buildProvenance(input: {
   doc: DocAnalysis;
   repro: ReproAnalysis;
@@ -317,7 +327,6 @@ function buildProvenance(input: {
     'analyzers.hygiene': 'file-tree + gitignore-parse + workflow-shape',
     'analyzers.ai-patterns': 'regex + brace-balanced body inspection',
     'analyzers.scoring': 'deterministic-rule-engine',
-    'analyzers.llm': 'optional; disabled by default',
     'detectedStackKeys': input.stack.map((s) => `${s.key}:${s.confidence.toFixed(2)}`).join(','),
   };
 }
@@ -546,7 +555,12 @@ function buildLimitations(
   const out: string[] = [
     'Static analysis only — repository code is NEVER executed by RepoPilot.',
     'No formal security audit is performed; secret detection is best-effort.',
-    'LLM is optional; without one, the report uses deterministic templates.',
+    // This read "LLM is optional; without one, the report uses deterministic
+    // templates." There is no "without one" any more (R-38), and the sentence
+    // implied a buyer could get a model-written report by configuring
+    // something. Saying it as a property rather than as a fallback is both
+    // shorter and the thing that is actually true.
+    'No model writes any part of this report; every sentence is generated from deterministic templates.',
   ];
 
   // The scope of the history scan belongs in plain sight, not buried in

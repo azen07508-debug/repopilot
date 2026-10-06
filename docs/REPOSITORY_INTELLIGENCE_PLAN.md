@@ -8,6 +8,13 @@
   *AI Coding Agent 的 Repository Intelligence Layer*
 - **约束:** 不推倒重做。不破坏现有 API / MCP / report schema / analyzer / fixtures / tests。
 
+> **⚠️ 关于 `llm/` 的说明（2026-10-06 补注）。** 本文审计的是 commit `f95ccb5`
+> （0.1.0-rc.2），文中 §1 的架构图、§2 的清单、以及 §14 的「可复用资产」表里对
+> `llm/provider.ts` / `noop-provider.ts` 的引用，描述的是**那个 commit 的事实**。
+> 这些文件已由 R-38 整体删除（连同 `polishFixPlanSet()`、`llmEnhanced` 与四个
+> `LLM_*` 环境变量），原因是全仓无一处读取它们。模板文案现在位于
+> `packages/core/src/report/templates.ts`。下文凡引用 `llm/` 之处，请按此理解。
+
 > 本文是**唯一**的 Phase 0 事实来源。后续每个 Phase 开始前必须重读本文，
 > 落地后必须更新本文末尾的 Phase 状态表。
 

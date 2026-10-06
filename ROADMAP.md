@@ -154,9 +154,16 @@ production credentials required.
 
 ## 0.3.0 (LLM-enhanced)
 
-- Wire OpenAI-compatible provider for `summary` + `launchCopy`
-- Keep scoring rule-based; LLM is only allowed to write natural-language
-- Provider interface already shipped; no business-logic changes needed
+- Re-add a provider interface and wire it for `summary` + `launchCopy`. The
+  one this line used to say "already shipped" was deleted in R-38: it was
+  passed into `buildApp` and read by no code path, so "no business-logic
+  changes needed" was true of a component that did nothing. Re-adding it is a
+  product change — it alters every report's text, the `analyzerProvenance` a
+  buyer reads, and the cost of every gate — so it starts with a decision, not
+  with wiring.
+- Keep scoring rule-based; an LLM is only ever allowed to write natural-language
+  copy, never a score, a priority or a piece of evidence. This is the half that
+  did hold, and it is why the deletion changed no output.
 
 ## 0.4.0 (Web3 hackathon season)
 

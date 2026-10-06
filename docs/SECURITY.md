@@ -51,8 +51,11 @@ around that fact.
   `node_modules/`, and dotfiles other than a small allowlist
   (`.env.example`, `.gitignore`, `.dockerignore`).
 - Prompt injection patterns are detected by `security/injection.ts`
-  and reported as findings. The LLM (when enabled) is *never*
-  asked to follow instructions from the target repo.
+  and reported as findings. Nothing from the target repository is ever
+  passed to a model, because there is no model in the process: this
+  used to read "The LLM (when enabled) is *never* asked to follow
+  instructions from the target repo", which was a rule about a
+  component that did not exist (R-38).
 
 ### Payment bypass
 
@@ -113,10 +116,14 @@ around that fact.
 
 - Scores are produced by `packages/core/src/scoring/score.ts`. The
   file is deterministic and rule-based.
-- The LLM is **not** allowed to modify the score. The provider
-  interface only exposes `summarize`, `mergeFindings`, and
-  `generateLaunchCopy`. Adding a `score()` method to the provider
-  interface is forbidden by code review.
+- No LLM can modify the score, because there is no LLM in the system. This
+  paragraph used to read "The provider interface only exposes `summarize`,
+  `mergeFindings`, and `generateLaunchCopy`" — three methods that never existed.
+  The interface exposed `name`, `isConfigured()` and `generate()`, and it was
+  read by no code path; the whole surface is gone (R-38). The guarantee is now
+  a property of the code that exists rather than a rule about an interface that
+  does not, which is why it is worth less as a *policy* and more as a fact: the
+  only thing that produces a score is `score.ts`.
 - Every finding in the report has at least one `evidence` entry
   with `file`, `line` and `reason`. This is enforced at the type
   level by `FindingSchema`.

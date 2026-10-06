@@ -19,11 +19,20 @@ function withUnknownVersion(version: string) {
 }
 
 describe('report version', () => {
-  it('writes 1.2 on anything newly built', () => {
-    expect(REPORT_VERSION).toBe('1.2');
+  it('writes 1.3 on anything newly built', () => {
+    expect(REPORT_VERSION).toBe('1.3');
   });
 
-  it('parses a 1.2 report', () => {
+  it('parses a 1.3 report', () => {
+    expect(() => ReportSchema.parse(withVersion('1.3'))).not.toThrow();
+    expect(ReportSchema.parse(withVersion('1.3')).reportVersion).toBe('1.3');
+  });
+
+  it('still parses a 1.2 report', () => {
+    // 1.3 removed the `'analyzers.llm'` key from `analyzerProvenance`, which
+    // is a `Record<string, string>` — a key left a map, not a field left a
+    // shape. A stored 1.2 report therefore still parses, and it should: it
+    // is the document this build used to write.
     expect(() => ReportSchema.parse(withVersion('1.2'))).not.toThrow();
     expect(ReportSchema.parse(withVersion('1.2')).reportVersion).toBe('1.2');
   });

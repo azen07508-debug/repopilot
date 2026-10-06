@@ -1,10 +1,11 @@
 /**
  * Deterministic fix-plan templates.
  *
- * These produce the full plan text with no LLM involved. When an LLM
- * provider is configured it may only rewrite the `why` sentence; steps,
- * tests, acceptance criteria and risks always come from here so the plan
- * stays reproducible and auditable.
+ * These produce the full plan text, and there is nothing that could rewrite
+ * any of it: `polishFixPlanSet()` — which could once rewrite the `why`
+ * sentence — was deleted in R-38 along with the provider it called. Steps,
+ * tests, acceptance criteria and risks have always come from here, so the
+ * plan stays reproducible and auditable.
  */
 import type { Finding } from '../schemas/report.js';
 import type { FixStep } from '../schemas/fix-plan.js';

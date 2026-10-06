@@ -57,8 +57,8 @@ Active risks the team is aware of and how they are mitigated.
   — A document cannot disagree with a function it is never compared to
 - [R-37](#r-37--the-paid-service-is-sold-as-modefull-and-the-server-defaulted-to-quick)
   — The paid service is sold as `mode=full` and the server defaulted to `quick`
-- [R-38](#r-38--the-llm-provider-is-wired-from-config-and-never-read)
-  — The LLM provider is wired from config and never read
+- [R-38](#r-38--the-llm-provider-was-wired-from-config-and-never-read)
+  — The LLM provider was wired from config and never read
 
 ---
 
@@ -164,7 +164,9 @@ is what the 2026-10-01 audit taught it:
 - **Role markers** (`system:`, `assistant:`) must open a line and be
   followed by content. As substrings they are a JSON key, a TypeScript
   type annotation, a log label — the self-audit flagged its own
-  `llm/prompts.ts` over `{ system: string; user: string }`.
+  `llm/prompts.ts` over `{ system: string; user: string }`. That file was
+  deleted in R-38; the rule and the test case stay, because they are about
+  the shape of a line rather than about a file.
 - **Invisible / bidi characters** are looked for in every file, source
   included. A bidi override in source is Trojan Source, and that is a
   source-level problem, not a prose one.
@@ -173,14 +175,15 @@ Before the scoping, the self-audit flagged eleven files and ten were
 false. After it, four findings, all in the deliberately planted
 `fixtures/prompt-injection/README.md`.
 
-**Still open.** The audit prompt built in `llm/prompts.ts` carries
-repository metadata (name, description) and no file content, so the only
-text from a repository that can actually reach a model today is its
-GitHub description — and that is not scanned. The detector is pointed at
-prose, which is where a *reader* of the report looks, not at the surface
-that reaches the model. Closing that gap means scanning metadata, which
-is a feature rather than a scope correction; it is recorded here so the
-next reader does not mistake the current state for full coverage.
+**Closed 2026-10-06 (R-38).** This used to read: "the audit prompt built in
+`llm/prompts.ts` carries repository metadata (name, description) and no file
+content, so the only text from a repository that can actually reach a model
+today is its GitHub description — and that is not scanned." There is no audit
+prompt and no model: R-38 deleted the provider, the prompt builder and every
+call site, so no repository text reaches a model at all. The one remaining
+path is `get_repository_context`, which returns a repository's description to
+an *MCP client* — that client's model, not ours, and outside this detector by
+construction rather than by omission.
 
 ## R-09 — Database file locked / migration crash
 
@@ -1063,10 +1066,11 @@ being represented the bad way — a quick report emitted
 standing in for an absence. The field defaults to `[]`, which is the true
 answer for a report written before it existed.
 
-`Report.reportVersion` is **1.2**. The schema change is additive and a stored
-1.1 report still parses, but the *content* of a quick report changed, and
-`reportVersion` is in the report cache key precisely so a build does not serve
-a report written by an older one.
+`Report.reportVersion` moved to **1.2** as part of this change. The schema
+change is additive and a stored 1.1 report still parses, but the *content* of a
+quick report changed, and `reportVersion` is in the report cache key precisely
+so a build does not serve a report written by an older one. (It is `1.3` today;
+R-38 moved it again for its own reason, which that entry records.)
 
 **The test that was missing.** R-30 noted that no test pinned the false
 sentence. `tiers.test.ts` now pins four things: the declaration's four
@@ -1529,58 +1533,90 @@ one-line change that comes back.
 compared to), D-035 (a tier changes what a report carries), D-037 (one price,
 one product).
 
-**Related.** R-36 (a document cannot disagree with a function it is never
-compared to), D-035 (a tier changes what a report carries), D-037 (one price,
-one product).
-
 ---
 
-## R-38 — The LLM provider is wired from config and never read
+## R-38 — The LLM provider was wired from config and never read
 
-**Severity:** Low **Likelihood:** Confirmed
+**Severity:** Low **Likelihood:** Confirmed **Status:** Fixed 2026-10-06
 
-**The defect.** `apps/api/src/server.ts` builds a provider from `LLM_PROVIDER`
-/ `LLM_API_KEY` / `LLM_MODEL` (`defaultLlmProvider()`) and passes it into
-`buildApp` as `AppDeps.llmProvider` at both call sites. Nothing reads it.
+**The defect.** `apps/api/src/server.ts` built a provider from `LLM_PROVIDER`
+/ `LLM_API_KEY` / `LLM_MODEL` (`defaultLlmProvider()`) and passed it into
+`buildApp` as `AppDeps.llmProvider` at both call sites. Nothing read it.
 Measured 2026-10-05: searching the whole repository for the identifier outside
-the declaration and those two call sites returns no hits, and the only
-LLM-shaped values that reach the pipeline are the literals
-`llmProviderName: 'noop'` / `llmProviderConfigured: false` written in
-`apps/api/src/services/audit-worker.ts` and
-`apps/api/src/services/job-service.ts`. `PipelineInput` carries those two
-strings and no provider object, so the pipeline has no way to call one.
+the declaration and those two call sites returned no hits, and the only
+LLM-shaped values that reached the pipeline were the literals
+`llmProviderName` / `llmProviderConfigured` written in three places —
+`audit-worker.ts`, `job-service.ts` and the MCP server, which disagreed with
+each other (`'noop'` in two, `'none'` in the third). `PipelineInput` carried
+those two strings and no provider object, so the pipeline had no way to call
+one.
 
 **Why it matters.** The failure mode is an operator spending money and
 believing it worked. `docs/EXTERNAL_ACTIONS.md` §8 told them to set four env
 vars, restart, and expect "a noticeably richer `summary` and `launchCopy`" on
-the first gate. None of that happens: `ReportBuilder.build()` fills both
-fields from `templateSummary()` / `templateLaunchCopy()`, and `prompts.ts`'s
-`'summary'` and `'launch_copy'` branches are constructed nowhere —
-`polishFixPlanSet()` with `task: 'polish'` is the only LLM call site in the
-repository. It is worse than a no-op: `scripts/env-check.ts` *errors* when
-`LLM_PROVIDER=openai-compatible` and the key, base URL or model is missing, so
-the gate demands a credential for a capability that does nothing.
+the first gate. None of that happened: `ReportBuilder.build()` fills both
+fields from `templateSummary()` / `templateLaunchCopy()`. It was worse than a
+no-op — `scripts/env-check.ts` *errored* when `LLM_PROVIDER=openai-compatible`
+and the key, base URL or model was missing, so `preflight:production` refused
+to pass without a credential for a capability that did nothing.
 
-**Why it is recorded rather than wired.** Wiring it is not a one-liner. It
-changes the content of every report, the `analyzerProvenance` a buyer can
-read, the cache key (`keyVersion`), and the cost of every gate — and the
-product is sold at one USDT with "no LLM in the scoring" as part of its pitch.
-That is a product decision, so the env var, the provider class and the two
-prompt branches are left in place and the misleading instruction was removed
-instead. See BACKLOG.md.
+**What the fix touched.** The whole surface, deleted rather than annotated:
 
-**Mitigation.** `README.md` and `docs/EXTERNAL_ACTIONS.md` §8 now say the hook
-exists and is unit-tested but is consumed by no code path, so an operator is
-not sent to buy a key that does nothing. `preflight:production` still
-validates the three variables when they are set; they are simply inert.
+- `packages/core/src/llm/` — `provider.ts`, `noop-provider.ts`,
+  `openai-compatible-provider.ts`, `prompts.ts`, and the `./llm` subpath export
+  in `packages/core/package.json`. `templates.ts` moved to
+  `packages/core/src/report/templates.ts`, which is what it always was: the
+  report builder's deterministic copy.
+- `polishFixPlanSet()`, `PolishOptions` and the `llmEnhanced` field. The
+  function had one caller — its own `describe` block — and the field's only
+  possible value was `false`, so `docs/API.md` documented a boolean that could
+  never be true.
+- `ReportBuilderInput.llm`, which the builder never read. Its presence is what
+  made `provider.ts`'s header ("the report builder falls back to deterministic
+  templates") false.
+- `defaultLlmProvider()`, `AppDeps.llmProvider`, the four `LLM_*` config
+  variables, their `.env.example` block, and the three blocks in
+  `scripts/env-check.ts`.
+- `PipelineInput.llmProviderName` / `llmProviderConfigured` and the three
+  literal producers.
+- `'analyzers.llm': 'optional; disabled by default'` from
+  `buildProvenance()`, which put a claim about a component into a map whose
+  every other key names an analyzer that runs, in every report every buyer
+  receives. A key left a map consumers read, so `REPORT_VERSION` moved
+  1.2 → 1.3; 1.2 reports still parse (`SUPPORTED_REPORT_VERSIONS`).
 
-**Upgrade path.** Thread the provider into `PipelineInput`, call it for
+**Why deleted rather than wired.** Wiring it changes the content of every
+report, the `analyzerProvenance` a buyer can read, the cache key, and the cost
+of every gate — while the product is sold at one USDT with "no LLM in the
+scoring" as part of its pitch. That is a product decision, and the answer this
+repository already gave was "no LLM": the report has never contained one. What
+was left was a documented *option* to add one that could not be exercised,
+`@repopilot/core` is `private: true` and not independently installable, so
+there was no library consumer to justify keeping it either. The upgrade path is
+below and in the git history.
+
+**The check.** Two, and both were verified by mutation rather than assumed:
+
+- `packages/core/src/schemas/report-version.test.ts` writes 1.3, parses 1.3,
+  still parses 1.2 and 1.1, and refuses a version it does not know.
+- `packages/core/src/fixplan/builder.test.ts` lost four cases with the function
+  they tested. That is the honest outcome: they were the reason
+  `polishFixPlanSet()` looked alive.
+
+`scripts/env-check.ts` keeps `LLM_API_KEY` in `KNOWN_SECRET_KEYS` even though
+it is no longer a RepoPilot variable. That list is redaction, not
+configuration: an operator who set the key months ago still has it in their
+shell, and removing the entry would print it.
+
+**Upgrade path.** Thread a provider into `PipelineInput`, call it for
 `'summary'` and `'launch_copy'` in the builder, record the provider name in
-`analyzerProvenance` from the actual provider rather than from a literal, bump
-the cache `keyVersion`, and add a test that a configured provider changes the
-report and a failing one falls back to the template.
+`analyzerProvenance` from the actual provider rather than from a literal, and
+add a test that a configured provider changes the report and a failing one
+falls back to the template. Do it as a product change with a `REPORT_VERSION`
+bump, not as an env var.
 
 **Related.** R-26 (a check that never runs), R-28 (a green tick over a
 capability the repository does not have), R-31 (a gate that does not cover
-what it claims), and the `prompts.ts` header comment, which still describes
-the unwired intent.
+what it claims), R-35 (a test that re-implements the code under test asserts
+nothing about it — `polishFixPlanSet`'s four cases were the closest thing this
+repository had to a green light on the LLM surface), and D-009.

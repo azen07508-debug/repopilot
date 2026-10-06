@@ -3,12 +3,17 @@
  *
  * Everything here is derived from a hand-built Report. No fixture is
  * scanned and no analyzer runs.
+ *
+ * A `describe('polishFixPlanSet')` block lived here, with four cases covering
+ * the noop provider, a rewriting provider, a throwing provider and a provider
+ * that tried to override `priority`. It was the only caller of
+ * `polishFixPlanSet()` in the repository — four tests proving a function that
+ * no production path invoked, which is what kept the unwired LLM surface
+ * looking alive. Both are gone (R-38).
  */
 import { describe, it, expect } from 'vitest';
-import { buildFixPlan, buildFixPlanSet, collectFixableFindings, polishFixPlanSet } from './builder.js';
+import { buildFixPlan, buildFixPlanSet, collectFixableFindings } from './builder.js';
 import { FixPlanSchema, FixPlanSetSchema } from '../schemas/fix-plan.js';
-import type { LLMProvider } from '../llm/provider.js';
-import { NoopLLMProvider } from '../llm/noop-provider.js';
 import { makeFinding, makeReport } from '../test-utils/report-factory.js';
 
 const AGENT_SECTIONS = [
@@ -151,60 +156,5 @@ describe('buildFixPlanSet', () => {
     const set = buildFixPlanSet(makeReport());
     expect(set.plans).toEqual([]);
     expect(FixPlanSetSchema.parse(set).plans).toEqual([]);
-  });
-});
-
-describe('polishFixPlanSet', () => {
-  const report = makeReport({ documentationGaps: [makeFinding({ id: 'doc-api' })] });
-
-  it('keeps deterministic text with the noop provider', async () => {
-    const set = buildFixPlanSet(report);
-    const polished = await polishFixPlanSet(set, report, { llm: new NoopLLMProvider() });
-    expect(polished.plans[0]?.llmEnhanced).toBe(false);
-    expect(polished.plans[0]?.why).toBe(set.plans[0]?.why);
-  });
-
-  it('rewrites only the why sentence when a provider is configured', async () => {
-    const polished1 = 'Polished by a provider: the docs are stale.';
-    const provider: LLMProvider = {
-      name: 'fake',
-      isConfigured: () => true,
-      generate: async () => polished1,
-    };
-    const set = buildFixPlanSet(report);
-    const polished = await polishFixPlanSet(set, report, { llm: provider });
-
-    expect(polished.plans[0]?.why).toBe(polished1);
-    expect(polished.plans[0]?.llmEnhanced).toBe(true);
-    // Everything else must be untouched.
-    expect(polished.plans[0]?.priority).toBe(set.plans[0]?.priority);
-    expect(polished.plans[0]?.evidence).toEqual(set.plans[0]?.evidence);
-    expect(polished.plans[0]?.steps).toEqual(set.plans[0]?.steps);
-  });
-
-  it('falls back to the deterministic text when the provider throws', async () => {
-    const provider: LLMProvider = {
-      name: 'broken',
-      isConfigured: () => true,
-      generate: async () => {
-        throw new Error('provider down');
-      },
-    };
-    const set = buildFixPlanSet(report);
-    const polished = await polishFixPlanSet(set, report, { llm: provider });
-    expect(polished.plans[0]?.why).toBe(set.plans[0]?.why);
-    expect(polished.plans[0]?.llmEnhanced).toBe(false);
-  });
-
-  it('never touches priority or evidence', async () => {
-    const provider: LLMProvider = {
-      name: 'fake',
-      isConfigured: () => true,
-      generate: async () => 'P0 override attempt',
-    };
-    const set = buildFixPlanSet(report);
-    const polished = await polishFixPlanSet(set, report, { llm: provider });
-    expect(polished.plans[0]?.priority).toBe(set.plans[0]?.priority);
-    expect(polished.plans[0]?.estimatedEffort).toBe(set.plans[0]?.estimatedEffort);
   });
 });

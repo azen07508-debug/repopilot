@@ -12,8 +12,6 @@ import {
   CORE_VERSION,
   FreeCheckRunner,
   MetadataAnalyzer,
-  OpenAICompatibleProvider,
-  type LLMProvider,
 } from '@repopilot/core';
 import { buildPaymentAdapter, type PaymentConfig } from '@repopilot/okx-adapter';
 import { loadConfig } from './config.js';
@@ -38,7 +36,6 @@ export interface AppDeps {
   payment: PaymentConfig;
   githubToken?: string;
   allowedHosts: string[];
-  llmProvider?: LLMProvider;
   /** Override the audit pipeline (used by tests). */
   pipeline?: AuditPipeline;
   /** Override the database path (used by tests). */
@@ -380,27 +377,30 @@ export function defaultPaymentConfig(): PaymentConfig {
   };
 }
 
-export function defaultLlmProvider(): LLMProvider | undefined {
-  const cfg = loadConfig();
-  if (!cfg.LLM_PROVIDER || !cfg.LLM_API_KEY || !cfg.LLM_MODEL) return undefined;
-  if (cfg.LLM_PROVIDER === 'openai-compatible') {
-    return new OpenAICompatibleProvider({
-      apiKey: cfg.LLM_API_KEY,
-      model: cfg.LLM_MODEL,
-      baseUrl: cfg.LLM_BASE_URL || undefined,
-    });
-  }
-  return undefined;
-}
+/**
+ * There was a `defaultLlmProvider()` here, and it was the whole of the
+ * `LLM_PROVIDER` story: it built an `OpenAICompatibleProvider` from
+ * `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL`, `main()`
+ * passed the result into `buildApp` as `AppDeps.llmProvider` at both call
+ * sites, and no code path ever read it. A configured provider changed nothing
+ * about a report — the copy comes from `templateSummary()` /
+ * `templateLaunchCopy()` — while `scripts/env-check.ts` *refused to pass* when
+ * `LLM_PROVIDER=openai-compatible` and the credentials were missing. The gate
+ * demanded a credential for a capability that did nothing. Removed in R-38,
+ * with the four variables it read.
+ */
 
 async function main() {
   const cfg = loadConfig();
   // `REPOPILOT_API_MODE` controls the process role:
-  //   - `combined` (default for `pnpm dev`): HTTP + queue in one process.
-  //   - `http`     (default for `pnpm start`): HTTP only; a separate
-  //                 worker process consumes from the queue.
-  // The legacy `withQueue: true` behavior is preserved when this env
-  // var is unset (so existing `pnpm dev` flows keep working).
+  //   - `combined`: HTTP + queue in one process.
+  //   - `http`:     HTTP only; a separate worker process consumes from the
+  //                 queue.
+  // Both `pnpm dev` and `pnpm start` set `combined` in their own script
+  // (`apps/api/package.json`); `pnpm dev:api` and `pnpm start:api` set `http`.
+  // An unset variable falls back to `combined`, which is what this comment
+  // used to get wrong — it said `pnpm start` defaults to `http`, while the
+  // script pins `combined` explicitly.
   const modeEnv = process.env['REPOPILOT_API_MODE'];
   const mode: 'http' | 'combined' =
     modeEnv === 'http' || modeEnv === 'combined'
@@ -412,7 +412,6 @@ async function main() {
         payment: defaultPaymentConfig(),
         githubToken: cfg.GITHUB_TOKEN,
         allowedHosts: cfg.ALLOWED_REPO_HOSTS,
-        llmProvider: defaultLlmProvider(),
       },
       { mode: 'combined' },
     );
@@ -443,7 +442,6 @@ async function main() {
       payment: defaultPaymentConfig(),
       githubToken: cfg.GITHUB_TOKEN,
       allowedHosts: cfg.ALLOWED_REPO_HOSTS,
-      llmProvider: defaultLlmProvider(),
     },
     { mode: 'http' },
   );

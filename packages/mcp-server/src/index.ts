@@ -205,8 +205,6 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
           target: input.target,
           outputLanguage: input.outputLanguage,
           includeLaunchCopy: input.includeLaunchCopy,
-          llmProviderName: 'none',
-          llmProviderConfigured: false,
         });
         jobStore.complete(job.jobId, result.report);
         return reportSummary(result.report);

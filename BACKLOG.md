@@ -75,14 +75,6 @@ Tracked work, in priority order, updated as items are completed.
   `start:api`, `start:worker` scripts. `verify:release` and
   the existing `pnpm dev` flow stay on combined mode for
   backward compatibility. 4 new tests in `src/worker.test.ts`.
-- [ ] **Wire the LLM provider, or delete it.** `AppDeps.llmProvider` is built
-  from `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` and read by no code path;
-  `PipelineInput` carries only the two provenance strings, and
-  `polishFixPlanSet()` is the only LLM call site. Either thread it into the
-  pipeline for `task: 'summary'` / `'launch_copy'` (and record the provider in
-  `analyzerProvenance` from the actual provider, and bump the cache
-  `keyVersion`) or remove the provider, the two prompt branches and the env
-  validation. Measured in RISKS.md R-38.
 - [ ] **End-to-end Postgres CI job for the queue.** Exercise
   PgBossAuditQueue end-to-end against the CI Postgres service
   container (enqueue + work + completed + retry). Currently the

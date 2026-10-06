@@ -23,11 +23,14 @@
  *                         Trojan Source attack, and that is a source-level
  *                         problem, not a prose one.
  *
- * One thing this module still does not cover: the audit prompt built in
- * `llm/prompts.ts` carries repository metadata (name, description) and no
- * file content, so the only text from a repository that can actually reach a
- * model today is its GitHub description. That is not scanned here. It is a
- * known gap, recorded rather than silently implied to be covered.
+ * The gap this module used to record here is closed. It said the audit prompt
+ * in `llm/prompts.ts` carried repository metadata and no file content, so the
+ * only repository text that could reach a model was its GitHub description,
+ * and that description was not scanned. R-38 deleted the prompt builder and
+ * the provider behind it: no repository text reaches a model at all, because
+ * there is no model. `get_repository_context` still returns a repository's
+ * description to an MCP client, which is the client's model, not ours, and is
+ * outside this detector's scope by construction rather than by omission.
  */
 import type { Evidence, Finding } from '../schemas/report.js';
 import { isProseDocument } from '../utils/paths.js';
@@ -81,9 +84,10 @@ const PHRASE_PATTERNS: ReadonlyArray<{ phrase: string; pattern: RegExp }> =
  *
  * Kept out of the phrase list because `system:` is not an instruction, it
  * is a label, and as a substring it is everywhere: JSON keys, TypeScript
- * type annotations (`{ system: string }`), log lines, and this project's
- * own prompt builder. What actually signals an injection is a role marker
- * opening a line and being followed by content — `System: you are now…`.
+ * type annotations (`{ system: string }`), log lines, and the prompt
+ * builder this repository used to ship. What actually signals an injection
+ * is a role marker opening a line and being followed by content —
+ * `System: you are now…`.
  *
  * The leading punctuation class covers markdown blockquotes and list
  * items, which is how an attacker would dress it up in a README. It also

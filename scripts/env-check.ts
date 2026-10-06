@@ -49,6 +49,10 @@ const KNOWN_SECRET_KEYS = [
   'GITHUB_TOKEN',
   'OKX_AGENT_KEY',
   'OKX_AGENT_SECRET',
+  // No longer a RepoPilot variable — R-38 removed it with the rest of the LLM
+  // surface. It stays on this list because the list's job is redaction, not
+  // configuration: an operator who set `LLM_API_KEY` months ago still has it in
+  // their shell, and dropping the entry would print it.
   'LLM_API_KEY',
   'X_API_KEY',
   'REPOPILOT_API_KEY',
@@ -108,10 +112,12 @@ if (NODE_ENV === 'production') {
       warn(f, 'unset; will use built-in default. Recommended to set explicitly in production.');
     }
   }
-  // LLM_PROVIDER must be a known value (or empty for noop)
-  if (process.env['LLM_PROVIDER'] === '' || process.env['LLM_PROVIDER'] === undefined) {
-    warn('LLM_PROVIDER', 'empty; using noop (template copy)');
-  }
+  // A `LLM_PROVIDER` check stood here. It warned when the variable was empty
+  // ("using noop") and, in section 5 below, *errored* when it was
+  // `openai-compatible` without a key, base URL and model. Both are gone with
+  // the variable (R-38): there is no provider to select, so warning about
+  // which one you did not select was noise, and demanding credentials for a
+  // capability that does nothing blocked a release for no reason.
   // ALLOWED_REPO_HOSTS must be present and not contain wildcards
   const hostsRaw = (process.env['ALLOWED_REPO_HOSTS'] ?? '').trim();
   if (!hostsRaw) {
@@ -195,16 +201,14 @@ for (const [field, min, max] of numericChecks) {
   }
 }
 
-// 5. LLM provider
-const llm = (process.env['LLM_PROVIDER'] ?? 'noop') as string;
-if (llm && llm !== 'noop' && llm !== 'openai-compatible') {
-  warn('LLM_PROVIDER', `unknown provider "${llm}" (valid: noop, openai-compatible)`);
-}
-if (llm === 'openai-compatible') {
-  if (!process.env['LLM_API_KEY']) err('LLM_API_KEY', 'required when LLM_PROVIDER=openai-compatible');
-  if (!process.env['LLM_BASE_URL']) err('LLM_BASE_URL', 'required when LLM_PROVIDER=openai-compatible');
-  if (!process.env['LLM_MODEL']) err('LLM_MODEL', 'required when LLM_PROVIDER=openai-compatible');
-}
+// 5. LLM provider — removed in R-38.
+//
+// This block read `LLM_PROVIDER` and, when it was `openai-compatible`, called
+// `err()` for a missing `LLM_API_KEY`, `LLM_BASE_URL` or `LLM_MODEL`. That made
+// the gate refuse to pass without three credentials for a provider that no code
+// path read: setting them changed nothing about a report, and omitting them
+// stopped `preflight:production`. A check that demands a secret for a
+// capability the repository does not have is worse than no check.
 
 // 6. Known secret keys present in process.env are never printed
 for (const k of KNOWN_SECRET_KEYS) {

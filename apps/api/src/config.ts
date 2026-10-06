@@ -43,10 +43,9 @@ const ConfigSchema = z.object({
   // `DEFAULT_PRICING` in `@repopilot/core`.
   PRICE_AUDIT: z.string().default('1'),
 
-  LLM_PROVIDER: z.string().default(''),
-  LLM_API_KEY: z.string().default(''),
-  LLM_MODEL: z.string().default(''),
-  LLM_BASE_URL: z.string().default(''),
+  // `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` were declared
+  // here and read by nothing but `defaultLlmProvider()`, which fed an unused
+  // `AppDeps.llmProvider`. Removed in R-38.
 
   // Report cache (paid audits only). Default off so existing
   // snapshots stay stable; turn on in production.

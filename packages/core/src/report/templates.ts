@@ -1,10 +1,13 @@
 /**
  * Deterministic report templates.
  *
- * When no LLM is configured, RepoPilot generates a complete report by
- * stringifying the same fields the LLM would have rephrased. The templates
- * are intentionally boring — they exist to guarantee that every field on
- * `Report` is populated, even in air-gapped or LLM-disabled environments.
+ * Every sentence in a RepoPilot report is generated here. There is no
+ * alternative path and no model in the loop: `summary` and `launchCopy` are
+ * the only two fields a model could have written, and R-38 deleted the
+ * provider that was supposed to write them, because nothing called it.
+ *
+ * The templates are intentionally boring — they exist to guarantee that every
+ * field on `Report` is populated, in any environment, with no key to configure.
  */
 import type { LaunchCopy, Report, Severity } from '../schemas/report.js';
 

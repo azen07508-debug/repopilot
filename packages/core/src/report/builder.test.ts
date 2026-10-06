@@ -110,7 +110,7 @@ describe('ReportBuilder', () => {
     expect(json.includes('sk_live_')).toBe(false);
   });
 
-  it('produces a complete report even with no LLM configured', () => {
+  it('produces a complete report with no provider to configure', () => {
     const entries = [entry('README.md'), entry('LICENSE'), entry('package.json')];
     const contents = new Map<string, string>([
       ['README.md', '# Title\n## Install\npnpm install\n## Test\npnpm test\nDemo: https://demo.example.com\n'],
@@ -123,7 +123,7 @@ describe('ReportBuilder', () => {
       contents,
       truncated: false,
       // `full`, because this test is about the deterministic templates
-      // standing in for an absent LLM, not about the tier. It used to run
+      // filling every field, not about the tier. It used to run
       // as `quick` and assert the launch copy came out anyway — which is
       // what the tiering was supposed to prevent, and the only test that
       // would have noticed had it asserted the other direction. See
