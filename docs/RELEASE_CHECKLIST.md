@@ -8,10 +8,14 @@ or a file you can point at.
 - [ ] **Lint clean** — `pnpm lint` (0 issues)
 - [ ] **Typecheck clean** — `pnpm -r typecheck`
 - [ ] **Unit + integration tests pass** — `pnpm -r test`. The dev run skips
-      the 2 Postgres integration tests; CI runs them against a service
-      container. The count and the per-package split are recorded in
+      the Postgres integration tests (both files); CI runs them against a
+      service container. The count and the per-package split are recorded in
       `PROJECT_STATE.md` (section *Test baseline*) — that is the one place
       they are written down, so this checklist deliberately repeats neither.
+      It said "the 2 Postgres integration tests" until 2026-10-06, which was
+      the number it was written with and had been wrong since
+      `pg-boss.integration.test.ts` added five more — a count, in the one
+      sentence that promises not to carry counts.
 - [ ] **End-to-end smoke pass** — `pnpm verify:release`
 - [ ] **Build succeeds** — `pnpm build` (every workspace:
       <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end -->)
