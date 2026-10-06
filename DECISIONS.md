@@ -1988,3 +1988,85 @@ this, so the topology is checked in two places that do not need it:
   - **Leave the free check's "0-100 score" alone.** It is technically a 0-100
     number. It is not the same quantity, and the listing put the two side by
     side under one name in a product sold on reproducibility.
+
+## D-038 — An invariant this service stands in for, this service must perform
+
+- **Date:** 2026-10-06
+- **Status:** Accepted
+- **Context:** `OkxPaymentAdapter` verifies a buyer's EIP-3009 authorization
+  **offline** and never reads a chain — that boundary is deliberate and
+  documented (R-39). On chain, what makes one authorization worth one transfer
+  is EIP-3009's `authorizationUsed[from][nonce]` mapping: the nonce is
+  single-use. Because this adapter is the *only* thing between a buyer and a
+  1 USDT audit, it is standing in for that read. It was not performing it.
+
+  Two consequences, both measured (R-40):
+
+  - The signed message is `(from, to, value, validAfter, validBefore, nonce)`
+    and does **not** contain the `paymentId`, which this service chooses and
+    which arrives as a plain field in the same JSON envelope. So a signature is
+    valid for any challenge quoting the same payee and amount — and since every
+    POST mints a fresh `paymentId` (D-011), there is always a new challenge to
+    point it at. One signature bought unlimited audits.
+  - The signed `validAfter` / `validBefore` window was never compared to a
+    clock, so an authorization that expired last year verified as paid.
+
+- **Decision:** **When a component is the substitute for an external
+  guarantee, the guarantee is the component's job.** `OkxPaymentAdapter`
+  therefore performs the `authorizationUsed` check itself: it records the
+  `(from, nonce)` key on first successful verification and rejects a repeat, and
+  it enforces the validity window (`validBefore` exclusive, matching
+  `block.timestamp < validBefore`).
+
+  The key is `` `${from}:${nonce}` `` — the same key the on-chain mapping uses,
+  deliberately, so that a future durable implementation is a persistence change
+  and not a semantic one. It is burned **after** the signature verifies, so a
+  caller cannot consume a nonce it cannot sign for. The receipt cache is
+  consulted **before** the nonce, so the retry the whole design depends on — same
+  `X-PAYMENT`, same `paymentId`, D-011 — is not mistaken for a replay.
+
+- **Consequences:** The gate now enforces what it claims. `verifyEip3009`
+  returns the nonce key rather than a boolean, so there is one parse and a caller
+  cannot forget which nonce it accepted.
+
+  **The gap this decision accepts, stated rather than implied.** The set is
+  in-process. A restart, or a second replica, forgets it and replay works again.
+  That is why `forgets which nonces it has seen when the process restarts` exists
+  as a test that asserts the limitation, and why the wording everywhere is
+  "replay works only across a restart", never "replay is impossible". It is
+  still the difference between "replay always works" and "replay works across a
+  restart". The durable version is in `BACKLOG.md` with its design.
+
+- **Alternatives rejected.**
+  - **Treat it as an on-chain concern and leave it.** This is exactly the defect:
+    the adapter claims to verify a payment while relying on a read it does not
+    perform. A buyer does not need to understand EIP-3009 to rewrite one string
+    in a base64 blob they compose.
+  - **Persist the nonce now, with a UNIQUE constraint.** The right end state, and
+    rejected only for *this* change: it is a schema change (a column or table,
+    a hand-written migration, `JobService` plumbing, a route change) landing in
+    the same commit as the semantic fix, which makes a failure ambiguous between
+    the two. Recorded in `BACKLOG.md` instead of half-done here.
+  - **Bind the `paymentId` into the signed message.** It would make each
+    signature challenge-specific and remove the need for a nonce table. It is
+    not available: the buyer's `onchainos` CLI signs a fixed
+    `TransferWithAuthorization` struct defined by EIP-3009, and this service does
+    not control what the buyer signs. A gate that depends on the client
+    volunteering a new field is not a gate.
+  - **Reject a second use of a `paymentId` and call it done.** Already true
+    (`jobs.payment_id` is UNIQUE) and it does not help: D-011 makes every POST
+    mint a *new* `paymentId`, so the reused thing is the signature, not the id.
+  - **Delete `validAfter` / `validBefore` from the checks and document that
+    expiry is the seller's problem.** Rejected on the same grounds as leaving the
+    nonce out: accepting an expired authorization hands over an audit that can
+    never be collected, whatever the seller does later. It is a correctness
+    check, not a policy choice — the opposite of what R-39 concluded when it left
+    the window unchecked, and that reversal is recorded in R-39.
+  - **Add `viem` to `apps/api` to test replay through the route.** The
+    end-to-end statement would be nicer. Rejected: it is a dependency added for
+    one test, and the composition is already pinned from both sides —
+    `refuses a signature that has already bought an audit` (adapter → `failed`)
+    and `does not enqueue the audit when the payment is not completed`
+    (route → `402`, no job). The reasoning is written into the test file's
+    header so the absence reads as a decision and not an oversight.
+

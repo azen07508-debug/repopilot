@@ -76,17 +76,25 @@
  *
  * 3. This adapter re-derives the EIP-712 domain, recovers the signer, and
  *    checks the recovered address against the authorization's `from`, plus
- *    `to` == `payTo` and `value` == `maxAmountRequired`. Offline — see the
+ *    `to` == `payTo`, `value` == `maxAmountRequired`, and the clock against
+ *    the signed `validAfter` / `validBefore` window. Offline — see the
  *    boundary above. The server NEVER holds the buyer's private key — the
  *    wallet does the signing.
  *
- * 4. On success the adapter records a `paymentId → receipt` row. Replays
+ * 4. **One authorization buys one audit.** The signed message is
+ *    `(from, to, value, validAfter, validBefore, nonce)` and does not contain
+ *    the `paymentId`, so a signature is valid for any challenge quoting the
+ *    same payee and amount. The `(from, nonce)` pair is therefore burned on
+ *    first use, standing in for the on-chain `authorizationUsed` read this
+ *    adapter does not perform. See `spentNonces`.
+ *
+ * 5. On success the adapter records a `paymentId → receipt` row. Replays
  *    of the same `paymentId` resolve to the same `completed` receipt.
  *    `paymentId`s are never cached across calls: every `createChallenge`
  *    mints a fresh one, and the route — not the adapter — is what reuses
  *    a job for a replayed id (D-011).
  *
- * 5. The audit endpoint then re-runs the analysis and returns the report.
+ * 6. The audit endpoint then re-runs the analysis and returns the report.
  *
  * NOTE on Marketplace listing: the OKX on-chain settlement step is
  * reachable for any wallet that has self-registered as an ASP on the
@@ -174,6 +182,24 @@ export class OkxPaymentAdapter implements PaymentAdapter {
   private opts: OkxPaymentAdapterOptions;
   private challenges = new Map<string, PaymentChallenge>();
   private receipts = new Map<string, PaymentReceipt>();
+  /**
+   * Authorization nonces this process has already accepted, keyed
+   * `from:nonce` — the same key EIP-3009's on-chain `authorizationUsed`
+   * mapping uses.
+   *
+   * The signed EIP-712 message is
+   * `(from, to, value, validAfter, validBefore, nonce)` and does **not**
+   * contain the `paymentId`, so a signature is valid for *any* challenge that
+   * quotes the same payee and amount. Every POST mints a fresh `paymentId`
+   * (D-011), so without this set a buyer could sign once and audit forever by
+   * rewriting the envelope's `paymentId`. See `verifyPayment`.
+   *
+   * In-process. A restart (or a second replica) forgets it, and replay becomes
+   * possible again — recorded in `RISKS.md` R-40 and `BACKLOG.md` rather than
+   * implied away. It is still the difference between "replay always works" and
+   * "replay works only across a restart".
+   */
+  private spentNonces = new Set<string>();
 
   constructor(opts: OkxPaymentAdapterOptions) {
     this.opts = opts;
@@ -273,11 +299,12 @@ export class OkxPaymentAdapter implements PaymentAdapter {
    * for assembling the EIP-3009 authorization and signing it. The header we
    * receive is a base64-encoded JSON envelope. We re-derive the EIP-712
    * digest, recover the signer, and check it against the authorization's
-   * `from`, plus `to` == `payTo` and `value` == `maxAmountRequired`.
+   * `from`, plus `to` == `payTo`, `value` == `maxAmountRequired`, and that the
+   * clock is inside the signed `validAfter` / `validBefore` window.
    *
-   * `completed` here means **"the authorization is valid"**, not "the money
-   * moved" — this adapter never reads a block. See the boundary at the top of
-   * the file.
+   * `completed` here means **"the authorization is valid and unused"**, not
+   * "the money moved" — this adapter never reads a block. See the boundary at
+   * the top of the file.
    */
   async verifyPayment(input: { paymentId: string; rawHeader: string | null }): Promise<PaymentReceipt> {
     const cached = this.receipts.get(input.paymentId);
@@ -309,9 +336,11 @@ export class OkxPaymentAdapter implements PaymentAdapter {
       return record('failed');
     }
 
-    // Recompute the EIP-712 digest and verify the signature.
+    // Recompute the EIP-712 digest and verify the signature. The return value
+    // is the key the nonce must be burned under, or null when the
+    // authorization is not usable.
     const meta = USDT_BY_NETWORK[this.opts.network] ?? USDT_BY_NETWORK['xlayer']!;
-    const ok = await verifyEip3009({
+    const nonceKey = await verifyEip3009({
       envelope,
       chainId: meta.chainId,
       verifyingContract: this.opts.tokenAddress ?? meta.token,
@@ -319,8 +348,24 @@ export class OkxPaymentAdapter implements PaymentAdapter {
       expectedAmount: (challenge.challenge as { accepts: { maxAmountRequired: string }[] }).accepts[0]!
         .maxAmountRequired,
     });
+    if (!nonceKey) return record('failed');
 
-    return record(ok ? 'completed' : 'failed');
+    // One authorization, one audit.
+    //
+    // The signature covers `(from, to, value, validAfter, validBefore, nonce)`
+    // and NOT the paymentId, so the same signature verifies against every
+    // challenge that quotes the same payee and amount — and every POST mints a
+    // fresh paymentId (D-011). Nothing else in this service compares two
+    // authorizations, so without this check the buyer signs once and audits
+    // forever. On chain the guard is EIP-3009's `authorizationUsed[from][nonce]`;
+    // this adapter is standing in for that read, so it has to perform it.
+    //
+    // Burned only after the signature verifies, so a caller cannot consume a
+    // nonce it cannot sign for.
+    if (this.spentNonces.has(nonceKey)) return record('failed');
+    this.spentNonces.add(nonceKey);
+
+    return record('completed');
   }
 }
 
@@ -342,15 +387,27 @@ interface ParsedPaymentHeader {
   payload: {
     /** See `paymentId` above. */
     paymentId?: string;
-    authorization: {
-      from: Hex;
-      to: Hex;
-      value: string;
-      validAfter: string;
-      validBefore: string;
-      nonce: Hex;
-    };
+    authorization: RawAuthorization;
   };
+}
+
+/**
+ * The authorization **as it arrives**: unvalidated JSON.
+ *
+ * Every field is `unknown` on purpose. `parsePaymentHeader` only checks that
+ * `signature` is a string and that `payload` exists — it does not look inside
+ * `authorization` at all. Declaring these as `string`/`Hex` would be the same
+ * class of lie this batch is about: a type that asserts something nothing has
+ * checked, and that turns the validating `typeof` guards into dead code the
+ * compiler believes can never fire. They are narrowed in `verifyEip3009`.
+ */
+interface RawAuthorization {
+  from?: unknown;
+  to?: unknown;
+  value?: unknown;
+  validAfter?: unknown;
+  validBefore?: unknown;
+  nonce?: unknown;
 }
 
 function parsePaymentHeader(raw: string): ParsedPaymentHeader {
@@ -367,43 +424,87 @@ function parsePaymentHeader(raw: string): ParsedPaymentHeader {
   return obj as ParsedPaymentHeader;
 }
 
+/**
+ * Verify the buyer's EIP-3009 authorization.
+ *
+ * Returns the key the nonce must be recorded under (`from:nonce`) when the
+ * authorization is valid and usable, or `null` when it is not. Returning the
+ * key rather than a boolean keeps the "is it valid" and "what do I burn" halves
+ * from drifting: there is one parse of the authorization, and a caller cannot
+ * forget which nonce it just accepted.
+ *
+ * **Never throws.** The envelope is buyer-supplied JSON: `parsePaymentHeader`
+ * checks only that `signature` is a string and `payload` exists, so
+ * `payload.authorization` can be missing, a field can be a number, and
+ * `value` can be `"abc"`. Every one of those used to escape as a `TypeError`
+ * or a `BigInt` range error and become a `500`; a malformed authorization is
+ * an unverified authorization, which is `failed`.
+ *
+ * Two things are checked beyond the signature itself:
+ *   - `to` is the configured payee, and `value` is the amount quoted;
+ *   - the clock is inside `[validAfter, validBefore)`. Both fields are signed
+ *     and neither was compared to anything, so an authorization that expired
+ *     last year — or that does not start until next year — verified as paid.
+ *     `validBefore` is exclusive, matching EIP-3009's `block.timestamp <
+ *     validBefore`.
+ *
+ * The nonce is *not* checked here. Whether it has been used is state the caller
+ * owns, and this function is the only thing that parses the authorization — so
+ * it returns the key and `verifyPayment` does the bookkeeping.
+ */
 async function verifyEip3009(input: {
   envelope: ParsedPaymentHeader;
   chainId: number;
   verifyingContract: string;
   payTo: string;
   expectedAmount: string;
-}): Promise<boolean> {
+}): Promise<string | null> {
   const { envelope, chainId, verifyingContract, payTo, expectedAmount } = input;
-  const a = envelope.payload.authorization;
-  if (a.to.toLowerCase() !== payTo.toLowerCase()) return false;
-  if (a.value !== expectedAmount) return false;
-
-  const domain = {
-    name: 'OKX Agent Payments Protocol',
-    version: '1',
-    chainId,
-    verifyingContract: verifyingContract as Hex,
-  };
-  const types = {
-    TransferWithAuthorization: [
-      { name: 'from', type: 'address' },
-      { name: 'to', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'validAfter', type: 'uint256' },
-      { name: 'validBefore', type: 'uint256' },
-      { name: 'nonce', type: 'bytes32' },
-    ],
-  } as const;
-  const message = {
-    from: a.from,
-    to: a.to,
-    value: BigInt(a.value),
-    validAfter: BigInt(a.validAfter),
-    validBefore: BigInt(a.validBefore),
-    nonce: a.nonce,
-  };
   try {
+    const a = envelope.payload.authorization;
+    if (
+      !a ||
+      typeof a.from !== 'string' ||
+      typeof a.to !== 'string' ||
+      typeof a.value !== 'string' ||
+      typeof a.validAfter !== 'string' ||
+      typeof a.validBefore !== 'string' ||
+      typeof a.nonce !== 'string'
+    ) {
+      return null;
+    }
+    if (a.to.toLowerCase() !== payTo.toLowerCase()) return null;
+    if (a.value !== expectedAmount) return null;
+
+    const now = Math.floor(Date.now() / 1000);
+    if (BigInt(a.validAfter) > BigInt(now)) return null;
+    if (BigInt(a.validBefore) <= BigInt(now)) return null;
+
+    const domain = {
+      name: 'OKX Agent Payments Protocol',
+      version: '1',
+      chainId,
+      verifyingContract: verifyingContract as Hex,
+    };
+    const types = {
+      TransferWithAuthorization: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'validAfter', type: 'uint256' },
+        { name: 'validBefore', type: 'uint256' },
+        { name: 'nonce', type: 'bytes32' },
+      ],
+    } as const;
+    const message = {
+      from: a.from as Hex,
+      to: a.to as Hex,
+      value: BigInt(a.value),
+      validAfter: BigInt(a.validAfter),
+      validBefore: BigInt(a.validBefore),
+      nonce: a.nonce as Hex,
+    };
+
     // Recover the signer from the typed-data digest.
     const recovered = (await recoverTypedDataAddress({
       domain,
@@ -412,18 +513,21 @@ async function verifyEip3009(input: {
       message,
       signature: envelope.signature,
     })) as Hex;
-    if (recovered.toLowerCase() !== a.from.toLowerCase()) return false;
+    if (recovered.toLowerCase() !== a.from.toLowerCase()) return null;
     // Also verify the signature directly to be safe.
-    return await verifyTypedData({
+    const ok = await verifyTypedData({
       domain,
       types,
       primaryType: 'TransferWithAuthorization',
       message,
       signature: envelope.signature,
-      address: a.from,
+      address: a.from as Hex,
     });
+    if (!ok) return null;
+
+    return `${a.from.toLowerCase()}:${a.nonce.toLowerCase()}`;
   } catch {
-    return false;
+    return null;
   }
 }
 

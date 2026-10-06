@@ -192,18 +192,28 @@ model produces any of it: there is none in the process.
   EIP-3009 `TransferWithAuthorization` and replays the request with the
   base64-encoded envelope in `X-PAYMENT`. The adapter re-derives the
   EIP-712 domain, recovers the signer, and checks the recovered address
-  against the authorization's `from`, plus `to` == `payTo` and
-  `value` == `maxAmountRequired`. The server never holds the buyer's
+  against the authorization's `from`, plus `to` == `payTo`,
+  `value` == `maxAmountRequired`, and the clock against the signed
+  `validAfter` / `validBefore` window. The server never holds the buyer's
   private key.
 
   **This is an offline signature check, not a settlement check.** The
   adapter never reads a block, so `completed` means "the authorization
-  is valid", not "the money moved"; confirming the on-chain
+  is valid and unused", not "the money moved"; confirming the on-chain
   `authorizationUsed` flag is a `ROADMAP.md` item, not a behaviour. The
   buyer's signature is an authorization the *seller* can submit, and
   nothing in this service submits it. This paragraph used to say the
   signature was verified "against the on-chain `authorizationUsed`
   flag", which was never true (R-39).
+
+  **Because it is the substitute for that read, it performs the read's
+  job.** The signed message does not contain the `paymentId`, so a
+  signature is valid for any challenge quoting the same payee and
+  amount — and every POST mints a fresh `paymentId` (D-011). The adapter
+  therefore burns the `(from, nonce)` pair on first successful
+  verification, the same key the on-chain `authorizationUsed` mapping
+  uses. That set is in-process: a restart forgets it and replay becomes
+  possible again. See R-40 and `BACKLOG.md`.
 
 See `docs/SECURITY.md` for the threat model around payments.
 

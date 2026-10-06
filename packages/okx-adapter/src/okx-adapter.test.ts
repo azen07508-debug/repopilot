@@ -84,6 +84,59 @@ describe('OkxPaymentAdapter', () => {
     const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: 'not-base64-!!' });
     expect(r.status).toBe('failed');
   });
+
+  it('verify never throws on an envelope that parses but is not an authorization', async () => {
+    // `parsePaymentHeader` only checks that `signature` is a string and that
+    // `payload` exists — it does not look inside `payload.authorization`. So
+    // each of these decodes and reaches the verifier. They used to escape as a
+    // `TypeError` (`a.to.toLowerCase()` on undefined) or a `BigInt` range
+    // error, i.e. a 500 from a route that means "unverified payment". A
+    // malformed authorization is an unverified authorization: `failed`.
+    //
+    // A fresh challenge per case on purpose: `verifyPayment` caches its receipt
+    // by `paymentId`, so reusing one would return the first `failed` and never
+    // reach the verifier for the later envelopes — the test would pass while
+    // testing one case five times.
+    const a = new OkxPaymentAdapter({
+      recipientAddress: '0x1234567890123456789012345678901234567890',
+      network: 'xlayer',
+      x402Version: 2,
+    });
+    const payloads: unknown[] = [
+      {},
+      { authorization: null },
+      { authorization: {} },
+      {
+        authorization: {
+          from: '0x00',
+          to: '0x00',
+          value: 1000000,
+          validAfter: '0',
+          validBefore: '9999999999',
+          nonce: '0x00',
+        },
+      },
+      {
+        authorization: {
+          from: '0x00',
+          to: '0x00',
+          value: 'not-a-number',
+          validAfter: 'later',
+          validBefore: '9999999999',
+          nonce: '0x00',
+        },
+      },
+    ];
+    for (const payload of payloads) {
+      const c = await a.createChallenge({
+        quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
+      });
+      const rawHeader = Buffer.from(JSON.stringify({ x402Version: 2, signature: '0xab', payload }))
+        .toString('base64');
+      const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader });
+      expect(r.status, `payload ${JSON.stringify(payload)}`).toBe('failed');
+    }
+  });
 });
 
 const RECIPIENT = '0x1234567890123456789012345678901234567890';
@@ -123,20 +176,30 @@ function adapter(opts: Partial<ConstructorParameters<typeof OkxPaymentAdapter>[0
  */
 async function signEnvelope(
   challenge: { paymentId: string; challenge: unknown },
-  overrides: { value?: string; to?: string; key?: typeof BUYER } = {}
+  overrides: {
+    value?: string;
+    to?: string;
+    key?: typeof BUYER;
+    validAfter?: string;
+    validBefore?: string;
+    nonce?: string;
+  } = {}
 ): Promise<string> {
   const accepts = (challenge.challenge as { accepts: { maxAmountRequired: string }[] }).accepts[0]!;
   const value = overrides.value ?? accepts.maxAmountRequired;
   const to = overrides.to ?? RECIPIENT;
   const signer = overrides.key ?? BUYER;
+  const validAfter = overrides.validAfter ?? '0';
+  const validBefore = overrides.validBefore ?? String(Math.floor(Date.now() / 1000) + 3600);
+  const nonce = (overrides.nonce ?? `0x${'11'.repeat(32)}`) as `0x${string}`;
 
   const authorization = {
     from: signer.address,
     to: to as `0x${string}`,
     value: BigInt(value),
-    validAfter: 0n,
-    validBefore: BigInt(Math.floor(Date.now() / 1000) + 3600),
-    nonce: `0x${'11'.repeat(32)}` as `0x${string}`,
+    validAfter: BigInt(validAfter),
+    validBefore: BigInt(validBefore),
+    nonce,
   };
 
   const signature = await signer.signTypedData({
@@ -169,12 +232,28 @@ async function signEnvelope(
         from: authorization.from,
         to: authorization.to,
         value,
-        validAfter: '0',
-        validBefore: authorization.validBefore.toString(),
+        validAfter,
+        validBefore,
         nonce: authorization.nonce,
       },
     },
   };
+  return Buffer.from(JSON.stringify(envelope)).toString('base64');
+}
+
+/**
+ * Take an envelope a buyer already holds and point it at a different challenge.
+ *
+ * This is the replay in one line: the `paymentId` is **not** part of the signed
+ * EIP-712 message, so rewriting it leaves the signature intact and valid. It is
+ * also trivial to do — the header is base64 of plain JSON, and the buyer
+ * composes it.
+ */
+function pointAt(header: string, paymentId: string): string {
+  const envelope = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) as {
+    payload: { paymentId?: string };
+  };
+  envelope.payload.paymentId = paymentId;
   return Buffer.from(JSON.stringify(envelope)).toString('base64');
 }
 
@@ -211,6 +290,121 @@ describe('a buyer with a real signature is accepted', () => {
     });
     const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header });
     expect(r.status).toBe('failed');
+  });
+});
+
+describe('one signed authorization buys one audit', () => {
+  /**
+   * The EIP-712 message this adapter verifies is
+   * `(from, to, value, validAfter, validBefore, nonce)` — it does **not**
+   * contain the `paymentId`, and the two checks that would stop a second use
+   * of one signature are both absent:
+   *
+   *   - the `nonce` is signed but never recorded, so it is not single-use;
+   *   - `validAfter` / `validBefore` are signed but never compared to a clock,
+   *     so an authorization that expired last year still passes.
+   *
+   * On chain, EIP-3009's `authorizationUsed` mapping keyed by `(from, nonce)`
+   * is what makes one authorization worth one transfer. This adapter stands in
+   * for that check (it is the only thing between a buyer and a 1 USDT audit),
+   * and it was not performing it. A buyer could sign once and audit forever by
+   * rewriting the envelope's `paymentId` to each new challenge's id — and since
+   * every POST mints a fresh `paymentId` (D-011), there is always a new one.
+   */
+  it('refuses a signature that has already bought an audit', async () => {
+    const a = adapter();
+    const first = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(first);
+    expect((await a.verifyPayment({ paymentId: first.paymentId, rawHeader: header })).status).toBe(
+      'completed'
+    );
+
+    const second = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    // Same signature, same authorization, new challenge — only the envelope's
+    // paymentId is rewritten, which leaves the signature valid.
+    const replayed = pointAt(header, second.paymentId);
+    expect((await a.verifyPayment({ paymentId: second.paymentId, rawHeader: replayed })).status).toBe(
+      'failed'
+    );
+  });
+
+  it('refuses an authorization whose window has already closed', async () => {
+    const a = adapter();
+    const c = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c, {
+      validAfter: '0',
+      validBefore: String(Math.floor(Date.now() / 1000) - 60),
+    });
+    expect((await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header })).status).toBe(
+      'failed'
+    );
+  });
+
+  it('refuses an authorization that is not valid yet', async () => {
+    const a = adapter();
+    const c = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c, {
+      validAfter: String(Math.floor(Date.now() / 1000) + 3600),
+      validBefore: String(Math.floor(Date.now() / 1000) + 7200),
+    });
+    expect((await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header })).status).toBe(
+      'failed'
+    );
+  });
+
+  it('still accepts a second, independently signed authorization', async () => {
+    // The guard must key on the authorization, not on the buyer: a real buyer
+    // running two audits signs twice, with two different nonces.
+    const a = adapter();
+    const first = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const second = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const h1 = await signEnvelope(first, { nonce: `0x${'aa'.repeat(32)}` });
+    const h2 = await signEnvelope(second, { nonce: `0x${'bb'.repeat(32)}` });
+    expect((await a.verifyPayment({ paymentId: first.paymentId, rawHeader: h1 })).status).toBe(
+      'completed'
+    );
+    expect((await a.verifyPayment({ paymentId: second.paymentId, rawHeader: h2 })).status).toBe(
+      'completed'
+    );
+  });
+
+  it('keeps a retry of the same paymentId idempotent', async () => {
+    // The nonce guard must not break the retry the whole design depends on:
+    // the route replays the same `X-PAYMENT` to settle a challenge it already
+    // issued, and D-011 says a repeated `paymentId` resolves to the same
+    // receipt. That path is the receipt cache, which is consulted before the
+    // nonce is, so a legitimate retry is not mistaken for a replay.
+    const a = adapter();
+    const c = await a.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c);
+    const first = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header });
+    const retry = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header });
+    expect(first.status).toBe('completed');
+    expect(retry.status).toBe('completed');
+    expect(retry).toEqual(first);
+  });
+
+  it('forgets which nonces it has seen when the process restarts', async () => {
+    // Pins the limitation rather than leaving it to a comment: the set is
+    // in-process, so a *new adapter instance* accepts the authorization again.
+    // Recorded in RISKS.md R-40 and BACKLOG.md; this test is the reason the
+    // wording there says "replay works only across a restart" and not
+    // "replay is impossible".
+    const first = adapter();
+    const c1 = await first.createChallenge({ quote: { amount: '1', currency: 'USDT', mode: 'full' } });
+    const header = await signEnvelope(c1);
+    expect((await first.verifyPayment({ paymentId: c1.paymentId, rawHeader: header })).status).toBe(
+      'completed'
+    );
+
+    const restarted = adapter();
+    const c2 = await restarted.createChallenge({
+      quote: { amount: '1', currency: 'USDT', mode: 'full' },
+    });
+    expect(
+      (await restarted.verifyPayment({ paymentId: c2.paymentId, rawHeader: pointAt(header, c2.paymentId) }))
+        .status
+    ).toBe('completed');
   });
 });
 

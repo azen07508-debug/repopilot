@@ -117,10 +117,18 @@ When `PAYMENT_MODE=okx`, the API:
    - Compares the recovered address to the authorization `from` field.
    - Verifies the signature with `viem.verifyTypedData`.
    - Re-checks `to` (== `payTo`) and `value` (== `maxAmountRequired`).
+   - Re-checks that the clock is inside the signed `validAfter` /
+     `validBefore` window.
+   - Rejects an authorization whose `(from, nonce)` pair has already been
+     used. The signed message does **not** contain the `paymentId`, so one
+     signature would otherwise be valid for every future challenge — and
+     every POST mints a new `paymentId`. This is the local stand-in for
+     EIP-3009's on-chain `authorizationUsed` mapping. It is in-process, so
+     a restart forgets it (R-40).
 
    It does **not** check the on-chain `authorizationUsed` flag, so a
-   `completed` receipt means "the authorization is valid", not "the money
-   moved". Confirming settlement is the seller's step and is a
+   `completed` receipt means "the authorization is valid and unused", not
+   "the money moved". Confirming settlement is the seller's step and is a
    `ROADMAP.md` item. (`rpcUrl` was the option for it; nothing ever passed
    or read it, and it was removed in R-39.)
 
@@ -131,9 +139,13 @@ When `PAYMENT_MODE=okx`, the API:
    that was the pre-async contract, and it stopped being true when the
    endpoint moved to `202`.)
 
-> Server-side replay protection: the same `paymentId` always resolves to
-> the same `PaymentReceipt` (idempotency), so the buyer can retry the
-> signed request without paying twice.
+> Server-side replay protection, two different things with two different keys.
+> The same `paymentId` always resolves to the same `PaymentReceipt`
+> (idempotency), so the buyer can retry the signed request without paying
+> twice. And an `(from, nonce)` pair is accepted **once**, so one signature
+> cannot settle a second, different challenge — the buyer who wants a second
+> audit signs a second authorization. The second rule is enforced in-process;
+> see R-40 for what that does and does not survive.
 
 ## 6. Prices
 

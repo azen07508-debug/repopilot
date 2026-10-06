@@ -80,6 +80,18 @@ around that fact.
   OKX adapter, which cached on `quoteKey` and did exactly that
   (R-39). The `quoteKey` parameter is gone, so the sentence is not
   restatable.
+- **An authorization is single-use, and the adapter enforces it.** The
+  signed EIP-712 message does not contain the `paymentId`, so one
+  signature is valid for every challenge quoting the same payee and
+  amount — and every POST mints a fresh `paymentId`. The OKX adapter
+  therefore burns the `(from, nonce)` pair on first successful
+  verification and rejects a repeat, which is what EIP-3009's on-chain
+  `authorizationUsed` mapping does and what this adapter stands in for.
+  It also enforces the signed `validAfter` / `validBefore` window. Both
+  were absent until R-40, when one signature could buy unlimited audits.
+  **The set is in-process**: a restart (or a second replica) forgets it
+  and replay becomes possible again. That gap is deliberate and recorded
+  (R-40, `BACKLOG.md`), not overlooked.
 - The MCP `get_audit_status` tool returns the same `paymentId`
   status that the HTTP API exposes. The two views cannot diverge.
 

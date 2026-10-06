@@ -1151,6 +1151,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One signed authorization bought unlimited audits.** The EIP-712 message
+  `OkxPaymentAdapter` verifies is
+  `(from, to, value, validAfter, validBefore, nonce)` — it does **not** contain
+  the `paymentId`, which this service chooses and which arrives in the same JSON
+  envelope as a plain field. So a signature is valid for *any* challenge that
+  quotes the same payee and amount, and since every POST mints a fresh
+  `paymentId` (D-011) there is always a new one to point it at: a buyer could
+  sign once, rewrite `payload.paymentId` to each new challenge's id, and be
+  served forever. The two checks that would each have stopped it were both
+  missing — the signed `nonce` was never recorded (not single-use) and the signed
+  `validAfter` / `validBefore` window was never compared to a clock (an
+  authorization that expired last year verified as paid). Measured before the
+  fix: four new tests were run against the pre-fix source and **four failed**,
+  including the replay (`completed` where `failed` was required). Fixed by
+  burning the `(from, nonce)` pair on first successful verification — the same
+  key EIP-3009's on-chain `authorizationUsed` mapping uses, which this adapter
+  stands in for because it deliberately never reads a chain — and by enforcing
+  the validity window (`validBefore` exclusive, matching
+  `block.timestamp < validBefore`). `verifyEip3009` returns the nonce key rather
+  than a boolean, so one parse produces both the verdict and the thing to burn.
+  Mutation-checked: removing the nonce guard fails exactly the replay test,
+  removing the window comparisons fails exactly the two window tests. The
+  remaining gap is stated rather than implied — `spentNonces` is in-process, so a
+  restart or a second replica forgets it and replay works again; that is why
+  `forgets which nonces it has seen when the process restarts` exists as a test
+  that **asserts the limitation**, and why the durable version (persist the key
+  with a UNIQUE constraint) is in `BACKLOG.md` rather than in this commit (R-40).
+- **A malformed `X-PAYMENT` envelope answered `500` where the contract says
+  "unverified payment".** `verifyEip3009` did `a.to.toLowerCase()` and
+  `BigInt(a.value)` *outside* its `try`, on a buyer-supplied object that
+  `parsePaymentHeader` only inspects at the top level (`signature` is a string,
+  `payload` exists). An envelope of `{"x402Version":2,"signature":"0xab",
+  "payload":{}}` is valid base64 and valid JSON and has no `authorization`, so
+  the route threw a `TypeError` instead of answering `402`. The whole body is
+  inside the `try` now, and `payload.authorization` is typed per-field as
+  `unknown` (`RawAuthorization`) instead of `Hex`/`string` — which is what made
+  the `typeof` narrowing real to the compiler rather than a guard it believed
+  could not fire. Pinned by `verify never throws on an envelope that parses but
+  is not an authorization`, with a fresh challenge per case so the receipt cache
+  cannot return the first `failed` and hide the rest.
 - **In `PAYMENT_MODE=okx` the paid endpoint answered `400` to every buyer
   before it verified anything.** `apps/api/src/routes/audits.ts` carried its own
   parser for the `X-PAYMENT` header and looked for `paymentId` at the top level

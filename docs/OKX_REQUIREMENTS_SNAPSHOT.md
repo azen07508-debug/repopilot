@@ -114,6 +114,16 @@ Service field rules (from §3 Step 2 of `identity-register.md`):
   merchant side must enforce idempotency on `paymentId` and on the
   request fingerprint.
 
+  > Noted 2026-10-06 (R-40). "Idempotency on `paymentId`" is not by itself
+  > replay protection for this rail, because this service **chooses** the
+  > `paymentId` and mints a fresh one per POST (D-011). What is reused by a
+  > replay is the *signature*, not the id, and the signed EIP-712 message does
+  > not contain the `paymentId` — so the same signature is valid against every
+  > challenge quoting the same payee and amount. The merchant-side check that
+  > actually closes this is EIP-3009's own: one authorization per
+  > `(from, nonce)`. RepoPilot now enforces it, in-process; see R-40 for the
+  > durability limit.
+
 ### 1.5 Networks, assets, and decimals (current as of 2026-07-19)
 
 | Network | Asset | Decimals | Notes |

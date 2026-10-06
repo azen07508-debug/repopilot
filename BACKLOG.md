@@ -65,6 +65,20 @@ Tracked work, in priority order, updated as items are completed.
 
 ## P1 — post-rc.2
 
+- [ ] **Persist the burned authorization nonces.** `OkxPaymentAdapter.spentNonces`
+  is an in-process `Set` keyed `` `${from}:${nonce}` `` (R-40, D-038). It is what
+  makes "one authorization buys one audit" true, and it is lost on restart — so
+  after a restart the same signature can be pointed at a fresh challenge again
+  and buy another audit. It also means two replicas each hold their own set, so
+  replay is possible *between* replicas even without a restart. The design is
+  already fixed by the key choice: the same `(from, nonce)` pair EIP-3009's
+  `authorizationUsed` mapping uses, so this is a persistence change and not a
+  semantic one. It needs a column (or a small table) with a UNIQUE constraint on
+  the pair, written in the same transaction as the job that consumes it, plus a
+  hand-written migration (`DECISIONS.md` D-005 — this repository does not use
+  `drizzle-kit generate`). Deliberately not bundled with the R-40 fix: a schema
+  change and a semantic change in one commit make a failure ambiguous between
+  them.
 - [x] **Standalone worker process.** Extracted from the API
   process. New `src/worker.ts` entry point; shared
   `src/queue/build-queue.ts` factory. Production uses

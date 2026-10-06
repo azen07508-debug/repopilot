@@ -23,6 +23,15 @@ import type { AuditPipeline, MetadataAnalyzer } from '@repopilot/core';
  * A genuinely signed envelope is covered in
  * `packages/okx-adapter/src/okx-adapter.test.ts`, which has `viem` to sign with.
  * Signing here would mean adding `viem` to this package for one test.
+ *
+ * That is also why there is no route-level replay test (R-40). "One payment,
+ * one audit" needs an authorization that *does* verify — an unsigned envelope
+ * is rejected at the signature, before the nonce is consulted, so a route test
+ * built on one would pass whether or not the guard exists. The property is
+ * pinned one layer down instead, and the link between the two layers is pinned
+ * here: `does not enqueue the audit when the payment is not completed` is the
+ * route half of `receipt.status !== 'completed'` → 402, and the adapter half is
+ * `refuses a signature that has already bought an audit` → `failed`.
  */
 
 const RECIPIENT = '0x1234567890123456789012345678901234567890';

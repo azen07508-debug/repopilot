@@ -61,6 +61,8 @@ Active risks the team is aware of and how they are mitigated.
   — The LLM provider was wired from config and never read
 - [R-39](#r-39--the-okx-paid-endpoint-answered-400-to-every-buyer-before-verifying-anything)
   — The OKX paid endpoint answered 400 to every buyer before verifying anything
+- [R-40](#r-40--one-signed-authorization-bought-unlimited-audits)
+  — One signed authorization bought unlimited audits
 
 ---
 
@@ -1739,20 +1741,135 @@ signature. `okx-adapter.test.ts` covers the other half with real signatures:
 `completed` for a correct authorization and `failed` for a wrong amount and for
 a wrong payee. `mock-adapter.test.ts` covers the mock half of `readPaymentId`.
 
-**Recorded, not fixed — the expiry gap.** `verifyEip3009` checks `to`, `value`
-and the signature. It does **not** compare the signed `validAfter` /
+**Recorded, not fixed here — the expiry gap.** `verifyEip3009` checks `to`,
+`value` and the signature. It does **not** compare the signed `validAfter` /
 `validBefore` against the clock, so an authorization that has already expired
-still verifies and still yields `completed`. Not fixed here on purpose: what the
-service should *do* with an expired-but-valid authorization depends on whether
-anything settles it, and **nothing does** — this adapter verifies an
-authorization and never submits it. Fixing the check before settling exists
-would change the answer to a question the product has not yet answered. The
-challenge's own 5-minute `expiresAt` *is* enforced, which bounds the exposure.
+still verifies and still yields `completed`. Left open in this batch on purpose:
+what the service should *do* with an expired-but-valid authorization looked like
+a product question, because nothing settles an authorization here. **That
+judgement was wrong, and it is corrected in R-40** — the answer does not depend
+on settlement at all. Accepting an expired authorization hands over an audit that
+can never be collected, whatever the seller does later, so the window is a
+correctness check and not a policy choice. Fixed in R-40, together with the
+larger hole it was hiding behind.
 
 **Related.** R-36 (a document and a function, never compared — this is the same
 defect with two functions), R-38 (a declared capability with no consumer, the
 same class as `rpcUrl` / `txHash` / `'settling'` / `getReceipt`), R-28 (a green
 tick over a capability the repository does not have — `env-check.ts` range-
-checking `ANALYSIS_TIMEOUT_MS` is exactly that), and R-35 (a test that asserts
+checking `ANALYSIS_TIMEOUT_MS` is exactly that), R-35 (a test that asserts
 nothing about the code under test — `verifyPayment`'s success path had no test at
-all, which is the limiting case).
+all, which is the limiting case), and R-40 (the same signed message verified
+against every future challenge, because the two checks that make one
+authorization worth one payment were both missing).
+
+---
+
+## R-40 — One signed authorization bought unlimited audits
+
+**Severity:** Critical
+**Likelihood:** Certain for anyone who tries (the buyer composes the header)
+**Status:** Fixed 2026-10-06 (partially — see the durability gap below)
+
+**What it was.** `OkxPaymentAdapter.verifyPayment` verified the buyer's EIP-3009
+authorization and returned `completed` — but the EIP-712 message it verifies is
+`(from, to, value, validAfter, validBefore, nonce)`, which **does not contain the
+`paymentId`**. The `paymentId` is chosen by this service and arrives in the same
+JSON envelope as a plain field, so a buyer can take a signature they already hold
+and point it at a different challenge by rewriting one string.
+
+Every POST mints a fresh `paymentId` (D-011), so there is always a new challenge
+to point at. The two checks that would each have stopped this were both missing:
+
+- the signed `nonce` was never recorded, so it was not single-use;
+- the signed `validAfter` / `validBefore` window was never compared to a clock,
+  so an authorization that expired last year verified as paid.
+
+**Measured, not inferred.** Four new tests were run against the pre-fix source
+before the fix was written; four failed:
+
+```
+FAIL  OkxPaymentAdapter > verify never throws on an envelope that parses but is not an authorization
+FAIL  one signed authorization buys one audit > refuses a signature that has already bought an audit
+FAIL  one signed authorization buys one audit > refuses an authorization whose window has already closed
+FAIL  one signed authorization buys one audit > refuses an authorization that is not valid yet
+      Tests  4 failed | 23 passed (27)
+```
+
+The replay case is the one that matters: `createChallenge` → sign → `completed`,
+then a **second** `createChallenge` and the **same signature** with only
+`payload.paymentId` rewritten → `completed` again. The helper that does the
+rewrite is three lines in the test file, because the header is base64 of plain
+JSON.
+
+**Why it matters.** This is the paid gate. It is the only thing between a buyer
+and a 1 USDT audit, and it was handing out the audit for one signature. The
+previous batch (R-39) made this rail *reachable*; this one makes it *paid*. R-39
+could not have found it: a defect that only shows up on the **second** use of a
+credential needs a test that uses it twice, and the first test that ever ran this
+route ran it once.
+
+**Why it is not "an on-chain problem".** This adapter deliberately does not read
+the chain (see the boundary at the top of `okx-adapter.ts`), so it cannot consult
+EIP-3009's `authorizationUsed[from][nonce]` mapping. That read is precisely what
+makes one authorization worth one transfer on chain, and **this adapter is
+standing in for it** — so it has to perform the equivalent check itself rather
+than assume a layer that is not there. The whole class is the same as R-38's: a
+capability that is *declared* (the code says the authorization is verified) with
+no consumer of the invariant it implies.
+
+**The fix, and why it is in the adapter.**
+
+- `spentNonces: Set<string>`, keyed `` `${from}:${nonce}` `` — the same key the
+  on-chain mapping uses. Burned **after** the signature verifies, so a caller
+  cannot consume a nonce it cannot sign for.
+- `verifyEip3009` now also checks `validAfter <= now < validBefore`
+  (`validBefore` exclusive, matching EIP-3009's `block.timestamp < validBefore`)
+  and returns the nonce key instead of a boolean — one parse, and a caller
+  cannot forget which nonce it just accepted.
+- `verifyEip3009` is now **total**: its whole body is inside the `try`. It used
+  to do `a.to.toLowerCase()` and `BigInt(a.value)` *outside* the `try`, on a
+  buyer-supplied object that `parsePaymentHeader` only checks at the top level
+  (`signature` is a string, `payload` exists). An envelope with
+  `payload: {}` — valid base64, valid JSON, no `authorization` — produced a
+  `TypeError` and a **500** from a route whose contract is "unverified payment".
+  `payload.authorization` is now typed as `unknown`-per-field
+  (`RawAuthorization`) rather than `Hex`/`string`, so the `typeof` narrowing is
+  real to the compiler instead of being a guard it believes cannot fire.
+- `verifyPayment` consults the receipt cache **before** the nonce, so the
+  legitimate retry the design depends on — same `X-PAYMENT`, same `paymentId`,
+  D-011 — is not mistaken for a replay. Pinned by
+  `keeps a retry of the same paymentId idempotent`.
+
+**The durability gap, stated rather than implied away.** `spentNonces` is
+in-process. A restart, or a second replica, forgets it and replay works again.
+This is why the wording above is "replay works only across a restart" and not
+"replay is impossible", and why `forgets which nonces it has seen when the
+process restarts` exists as a **test that asserts the limitation** rather than a
+comment that hopes nobody checks. The durable version needs the nonce key
+persisted with a UNIQUE constraint — `BACKLOG.md` carries it with that design,
+because it is a schema change and this batch is not one.
+
+**What now pins it.** `packages/okx-adapter/src/okx-adapter.test.ts`:
+`refuses a signature that has already bought an audit`,
+`refuses an authorization whose window has already closed`,
+`refuses an authorization that is not valid yet`,
+`still accepts a second, independently signed authorization` (the guard keys on
+the authorization, not the buyer),
+`keeps a retry of the same paymentId idempotent`, and
+`forgets which nonces it has seen when the process restarts`.
+
+**Mutation-checked.** Removing the `spentNonces` guard fails exactly
+`refuses a signature that has already bought an audit`; removing the two window
+comparisons fails exactly the two window tests. Both mutations restored
+byte-identical (`sha256 0ba6757…`). A third mutation — deleting the `typeof`
+guard — **survived**, and that is worth recording rather than hiding: the
+`typeof` guard is not what makes the verifier total, the `try` is. It is
+load-bearing for the *compiler* (without it, `a.from` is `unknown` and the
+message construction does not type-check), and the runtime totality is pinned by
+the pre-fix run above, not by that mutation.
+
+**Related.** R-39 (the same rail, one layer up: the route could not accept a
+payment at all), R-38 (a declared capability with no consumer), D-011 (each POST
+mints a fresh `paymentId` — which is *why* there is always a new challenge to
+point a stale signature at).

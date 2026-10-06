@@ -169,6 +169,14 @@ repopilot/
     `PAYMENT_MODE=okx`; the unconfigured value is `PLACEHOLDER_RESOURCE`, an
     RFC 2606 `.invalid` host that can never resolve. `env:check` and
     `validateProductionConfig()` share one predicate (`isPublicHttpsUrl`).
+  - **One authorization buys one audit.** The signed EIP-712 message does not
+    contain the `paymentId`, so a signature is valid for every challenge
+    quoting the same payee and amount, and every POST mints a fresh
+    `paymentId`. The adapter burns the `(from, nonce)` pair on first successful
+    verification and enforces the signed `validAfter` / `validBefore` window —
+    the local stand-in for EIP-3009's on-chain `authorizationUsed` mapping
+    (R-40, D-038). The nonce set is in-process: a restart forgets it, which is
+    recorded rather than implied (`BACKLOG.md`).
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
 ## Test baseline (2026-10-04 15:10 UTC)
