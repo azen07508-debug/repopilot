@@ -85,11 +85,22 @@ Service field rules (from §3 Step 2 of `identity-register.md`):
 
 ### 1.4 x402 protocol (from `cli/src/commands/payment/{http_carrier,state,payment_flow,dispatcher}.rs`)
 
-- RepoPilot **does not** re-implement x402 from scratch. We already use
-  the official `MockPaymentAdapter` (`packages/okx-adapter/src/mock-adapter.ts`).
-  The live `OKXAdapter` is left as a **STUB BOUNDARY** (`STUB BOUNDARY:
-  do not edit until OKX Beta is granted`) until the wallet-side SDK is
-  provided. The 402 challenge shape is implemented and verified locally.
+- RepoPilot **does not** re-implement x402 from scratch. It uses the
+  official `MockPaymentAdapter` (`packages/okx-adapter/src/mock-adapter.ts`)
+  as the rail CI runs on, and `OkxPaymentAdapter`
+  (`packages/okx-adapter/src/okx-adapter.ts`) for the live rail. The live
+  adapter is implemented, not a stub: it emits the 402 challenge and
+  verifies the buyer's EIP-3009 **authorization** offline. It does not
+  read the chain, so it cannot confirm settlement — that is the real
+  boundary, and it is stated at the top of `okx-adapter.ts`.
+
+  > Corrected 2026-10-06 (R-39). This paragraph used to call the live
+  > adapter a stub "until OKX Beta is granted" and to say the code
+  > *raised* `STUB BOUNDARY: do not edit until OKX Beta is granted`; the
+  > table in §2 used a third wording, `STUB BOUNDARY: real payment
+  > integration pending OKX Beta access`. **Neither string exists
+  > anywhere in the code.** `OkxPaymentAdapter.createChallenge` and
+  > `.verifyPayment` are fully implemented and neither throws.
 - The 402 response body must contain an `accepts[]` array. Each element
   carries: `scheme`, `network`, `maxAmountRequired` (atomic units — for
   USDT 6 decimals), `resource`, `description`, `mimeType`,
@@ -163,7 +174,7 @@ Until all of the above are in place, RepoPilot runs on the
 | --- | --- | --- |
 | 402 challenge shape | DONE | matches `x402Version:2` `accepts[]` schema, verified end-to-end with mock adapter (`scripts/verify-release.ts`) |
 | `MockPaymentAdapter` | DONE | `packages/okx-adapter/src/mock-adapter.ts`; replay/headers/idempotency all implemented |
-| `OKXAdapter` (real) | **STUB BOUNDARY** | `packages/okx-adapter/src/okx-adapter.ts` raises with `STUB BOUNDARY: real payment integration pending OKX Beta access` until a real `OKX_AGENT_KEY` + wallet address are wired in |
+| `OKXAdapter` (real) | DONE, minus settlement | `packages/okx-adapter/src/okx-adapter.ts` implements `createChallenge` and `verifyPayment` in full; neither raises. What is missing is the on-chain settlement check (see §1.4). This row's status used to read **STUB BOUNDARY** and its notes claimed the code raised `STUB BOUNDARY: …` — a throw that is not in the codebase |
 | Free check endpoint | DONE | `POST /api/v1/free-check` → HTTP 200, no x402, validated by `verify-release.ts` step 8b |
 | Paid endpoint | DONE | `POST /api/v1/audits` → HTTP 402 with `accepts[]`; replay returns HTTP 200 with idempotency on `paymentId` |
 | Agentic Wallet login | **EXTERNAL_BLOCKED** | requires email + OTP |

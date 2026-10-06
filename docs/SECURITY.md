@@ -64,12 +64,22 @@ around that fact.
   in `packages/okx-adapter/src/factory.ts`; the route never holds
   the bypass.
 - Mock and OKX adapters share the same interface; switching is
-  config-only. The factory refuses to construct an
-  `OkxPaymentAdapter` whose `isConfigured()` returns false.
+  config-only. `buildPaymentAdapter` refuses to construct an
+  `OkxPaymentAdapter` unless `OKX_PAYMENT_ADDRESS` is a 0x-prefixed
+  40-hex address, and it throws rather than falling back to mock.
+  (This used to say the factory checks `isConfigured()`; it checks the
+  address itself. `isConfigured()` is on the interface and is asserted
+  by tests, but no production code path calls it.)
 - `paymentId` is the idempotency key. A replay with the same
   `paymentId` resolves to the same job, the same report, and the
-  same status. There is no way to mint a second `paymentId` for
-  the same `quoteKey` through the route.
+  same status. That lookup belongs to the *route*: each POST mints
+  a fresh `paymentId` (D-011), and neither adapter caches one, so
+  two buyers cannot be handed the same id. This used to read
+  "There is no way to mint a second `paymentId` for the same
+  `quoteKey` through the route" — true of the route, false of the
+  OKX adapter, which cached on `quoteKey` and did exactly that
+  (R-39). The `quoteKey` parameter is gone, so the sentence is not
+  restatable.
 - The MCP `get_audit_status` tool returns the same `paymentId`
   status that the HTTP API exposes. The two views cannot diverge.
 

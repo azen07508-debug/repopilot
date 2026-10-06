@@ -59,6 +59,8 @@ Active risks the team is aware of and how they are mitigated.
   — The paid service is sold as `mode=full` and the server defaulted to `quick`
 - [R-38](#r-38--the-llm-provider-was-wired-from-config-and-never-read)
   — The LLM provider was wired from config and never read
+- [R-39](#r-39--the-okx-paid-endpoint-answered-400-to-every-buyer-before-verifying-anything)
+  — The OKX paid endpoint answered 400 to every buyer before verifying anything
 
 ---
 
@@ -86,9 +88,10 @@ content as a finding; the finding is reported, not acted on.
 - Schema-level guard in `apps/api/src/config.ts`: when
   `NODE_ENV=production` and `PAYMENT_MODE=mock`, the app throws on
   start (not a warning, no silent fallback).
-- `OkxPaymentAdapter.isConfigured()` continues to refuse construction
-  with an empty `recipientAddress`. The factory does not silently
-  fall back to mock.
+- `buildPaymentAdapter()` continues to refuse construction with an
+  empty or malformed `recipientAddress` — it validates the address
+  itself, not via `isConfigured()` (which no production path calls;
+  corrected in R-39). The factory does not silently fall back to mock.
 - The same rule is also encoded in `pnpm env:check` for CI.
 - Error messages never include the OKX secret, the GitHub token, or
   any other credential.
@@ -1620,3 +1623,136 @@ capability the repository does not have), R-31 (a gate that does not cover
 what it claims), R-35 (a test that re-implements the code under test asserts
 nothing about it — `polishFixPlanSet`'s four cases were the closest thing this
 repository had to a green light on the LLM surface), and D-009.
+
+---
+
+## R-39 — The OKX paid endpoint answered 400 to every buyer before verifying anything
+
+**Severity:** Critical **Likelihood:** Confirmed **Status:** Fixed 2026-10-06
+
+**The defect.** `apps/api/src/routes/audits.ts` carried its own parser for the
+`X-PAYMENT` header (`extractPaymentId`) and looked for `paymentId` at the **top
+level** of the envelope. `packages/okx-adapter/src/okx-adapter.ts` carried a
+second parser (`parsePaymentHeader`) whose declared shape
+(`ParsedPaymentHeader`) puts it at **`payload.paymentId`**. The route ran first,
+found nothing, and answered
+
+```
+400 { "error": { "code": "INVALID_INPUT", "message": "X-PAYMENT header is malformed" } }
+```
+
+before `verifyPayment` was ever called. In `PAYMENT_MODE=okx` the paid endpoint
+could not accept a payment from any buyer following the documented flow.
+
+**Measured, not inferred.** `extractPaymentId` copied verbatim out of the route
+and run against an envelope in the adapter's declared shape:
+
+```
+envelope paymentId is at payload.paymentId = okx_11111111-2222-3333-4444-555555555555
+extractPaymentId(adapterShaped, "okx") = null
+extractPaymentId(topLevelShaped,  "okx") = "okx_11111111-2222-3333-4444-555555555555"
+```
+
+`null` is the 400. The signature is irrelevant to this defect — it never got
+that far — which is why the check above needs no signing key.
+
+**Why no test caught it.** Every payment test in the repository runs in
+`PAYMENT_MODE=mock`, where the header is the plain string `mock:<paymentId>` and
+both parsers agree because there is nothing to parse. `okx-adapter.test.ts`
+called `verifyPayment` only with `null` and with `'not-base64-!!'` — no test ever
+built an envelope, so the success path a paying buyer takes had **zero**
+coverage. The 402-challenge shape was well covered (pinned against
+`docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.5); the step after it was not covered at
+all. Coverage of the first half of a handshake is what made the second half look
+tested.
+
+**Why it matters.** This is the only rail that takes real money, and it was
+unshippable. The mock rail is what CI exercises and what `README.md`'s quickstart
+uses, so nothing in the repository's own loop could have surfaced it.
+
+**Root cause, and why the fix is where it is.** The `X-PAYMENT` envelope is this
+adapter's wire format, and the route held a **second copy of that knowledge**.
+The copy is gone: `PaymentAdapter.readPaymentId(rawHeader)` is now the single
+owner, the route calls it, and `extractPaymentId` is deleted. `verifyPayment`
+takes the id as an argument, so before this the route had to parse the header to
+produce it — two readers of one format, in two packages, with nothing comparing
+them. R-36 is the same shape one level up (a document and a function, never
+compared); this is two functions.
+
+**The part that is still unknown, stated rather than papered over.** Where
+`paymentId` sits in the real `onchainos` envelope is **not documented anywhere
+in this repository**: `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §1.4 says only "the
+base64-encoded receipt" and `README_OKX.md` says only "a base64-encoded JSON
+envelope". The two in-repo parsers disagreed and neither had evidence behind it.
+So `readPaymentId` reads **both** placements, `okx-adapter.test.ts` pins both,
+and the comment there says which line to delete once the real envelope is
+observed. Accepting both is not speculative flexibility — it is the honest
+response to a format with no in-repo authority, and it is confined to the one
+component that owns the format.
+
+**Also deleted in the same pass** (same class — declared, never true):
+
+- `OkxPaymentAdapterOptions.rpcUrl`. Nothing constructed it with a value and
+  nothing read it; its comment claimed it was "used to read the on-chain
+  `authorizationUsed` flag". `docs/OKX_LIVE_INTEGRATION.md` §2.1 describes that
+  RPC URL as an *optional seller-side* input and `ROADMAP.md` lists the on-chain
+  check as still-to-do, so the code and two of its documents agreed that it was
+  never implemented — and `okx-adapter.ts`'s own header plus
+  `docs/ARCHITECTURE.md` both said it was. The two that were wrong are fixed.
+- `PaymentReceipt.txHash` / `.blockNumber`. Written by both adapters, read by
+  nothing, and untrue in both: on the OKX path they were **unverified values the
+  buyer put in the envelope**, echoed back in the same field shape as an
+  observation; on the mock path `blockNumber` was `Math.floor(Date.now()/1000)`
+  — a Unix timestamp in a field named after a block. They surfaced only in an
+  undocumented `payment` object on the 402 body.
+- `PaymentReceipt.status`'s `'settling'` and `'cancelled'`. No adapter produced
+  either. `'settling'` named a step this service does not perform.
+- `PaymentAdapter.getReceipt()`. Two implementations, zero callers.
+- `verifyEip3009`'s `network` parameter. Passed at the one call site,
+  never destructured.
+- `docs/ARCHITECTURE.md`'s interface list named `refund` and `getReceipt`;
+  `refund` **never existed in any adapter**.
+- `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §1.4 and §2 described `OKXAdapter` as
+  *raising* `STUB BOUNDARY: …`, in two different wordings. **Neither string
+  exists anywhere in the codebase**; `createChallenge` and `verifyPayment` are
+  fully implemented and neither throws.
+- `docs/OKX_LIVE_INTEGRATION.md` §2.2 said `OKX_AGENT_KEY` /
+  `OKX_AGENT_SECRET` "appear only in a JSDoc comment in
+  `packages/okx-adapter/src/okx-adapter.ts:46`" and proposed deleting it. **No
+  such comment exists in any revision of that file** (checked with
+  `git show HEAD:…`). They appear only in `scripts/env-check.ts`'s
+  `KNOWN_SECRET_KEYS`, whose job is redaction, not configuration.
+- `README_OKX.md` §5 step 5 said the success response body "is the full `Report`
+  JSON". The endpoint answers `202` with `statusUrl` / `pollAfterMs`.
+- `scripts/env-check.ts` range-checked `ANALYSIS_TIMEOUT_MS`, a variable no
+  module reads and that `.env.example` does not list. It gave operators a green
+  tick over a setting the service ignores.
+
+**What now pins it.** `apps/api/src/tests/okx-payment.test.ts` — the first test
+in the repository to run the paid route in `PAYMENT_MODE=okx` at all. A
+well-formed envelope must answer `402 PAYMENT_NOT_SETTLED` (the envelope was
+parsed and the signature rejected) and specifically **not** `400`; a malformed
+one must still answer `400`, because "unreadable" and "unverified" are different
+answers. It needs no signing key, because the defect was upstream of the
+signature. `okx-adapter.test.ts` covers the other half with real signatures:
+`privateKeyToAccount().signTypedData()` against the xlayer USDT domain, asserting
+`completed` for a correct authorization and `failed` for a wrong amount and for
+a wrong payee. `mock-adapter.test.ts` covers the mock half of `readPaymentId`.
+
+**Recorded, not fixed — the expiry gap.** `verifyEip3009` checks `to`, `value`
+and the signature. It does **not** compare the signed `validAfter` /
+`validBefore` against the clock, so an authorization that has already expired
+still verifies and still yields `completed`. Not fixed here on purpose: what the
+service should *do* with an expired-but-valid authorization depends on whether
+anything settles it, and **nothing does** — this adapter verifies an
+authorization and never submits it. Fixing the check before settling exists
+would change the answer to a question the product has not yet answered. The
+challenge's own 5-minute `expiresAt` *is* enforced, which bounds the exposure.
+
+**Related.** R-36 (a document and a function, never compared — this is the same
+defect with two functions), R-38 (a declared capability with no consumer, the
+same class as `rpcUrl` / `txHash` / `'settling'` / `getReceipt`), R-28 (a green
+tick over a capability the repository does not have — `env-check.ts` range-
+checking `ANALYSIS_TIMEOUT_MS` is exactly that), and R-35 (a test that asserts
+nothing about the code under test — `verifyPayment`'s success path had no test at
+all, which is the limiting case).

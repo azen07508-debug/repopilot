@@ -69,28 +69,19 @@ export interface AuditRoutesDeps {
 }
 
 /**
- * Extract the paymentId from an X-PAYMENT header.
+ * Extracting the `paymentId` from an `X-PAYMENT` header used to happen here.
  *
- * Mock format: `mock:<paymentId>`.
- * OKX format: base64-encoded JSON envelope containing `{ paymentId, ... }`.
+ * It was a second parser for the same wire format the adapter already parses,
+ * and the two drifted: this one looked for `paymentId` at the top level of the
+ * envelope while `ParsedPaymentHeader` declares it at `payload.paymentId`. In
+ * `PAYMENT_MODE=okx` every buyer following the documented flow was answered
+ * `400 X-PAYMENT header is malformed` before the adapter was consulted — the
+ * paid endpoint could not accept a payment. No test caught it because every
+ * payment test runs in mock mode, where the header is the plain string
+ * `mock:<id>` and both parsers agree.
  *
- * Returns null if the value cannot be parsed.
+ * The format now has one owner: `PaymentAdapter.readPaymentId`. See R-39.
  */
-function extractPaymentId(raw: string, mode: 'mock' | 'okx'): string | null {
-  if (mode === 'mock') {
-    const m = /^mock:([A-Za-z0-9_\-]+)$/.exec(raw.trim());
-    return m && m[1] ? m[1] : null;
-  }
-  try {
-    const decoded = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) as {
-      paymentId?: unknown;
-    };
-    if (typeof decoded.paymentId === 'string') return decoded.paymentId;
-  } catch {
-    /* swallow */
-  }
-  return null;
-}
 
 export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps) {
   app.post('/api/v1/audits', async (req, reply) => {
@@ -181,6 +172,9 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
 
     // X-PAYMENT: indicates the buyer already paid.
     const xPayment = (req.headers['x-payment'] ?? req.headers['X-PAYMENT']) as string | undefined;
+    // The adapter owns the header format, so it reads the id out of it. One
+    // fetch, used by all three sites below.
+    const adapter = deps.service.getPaymentAdapter();
 
     // 1. Try to find an existing job.
     let job = null as null | Awaited<ReturnType<typeof deps.service.getByPaymentId>>;
@@ -189,7 +183,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       if (byKey) job = byKey;
     }
     if (!job && xPayment) {
-      const priorPaymentId = extractPaymentId(xPayment, deps.payment.mode);
+      const priorPaymentId = adapter.readPaymentId(xPayment);
       if (priorPaymentId) {
         const byPayment = await deps.service.getByPaymentId(priorPaymentId);
         if (byPayment) job = byPayment;
@@ -241,10 +235,10 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       // attach it on the second POST.
       const queued = await deps.service.create(input, idempotencyKey, parsedRepo);
       const price = priceFor(deps.payment);
-      const adapter = deps.service.getPaymentAdapter();
+      // No `quoteKey`: each POST gets its own challenge and its own paymentId,
+      // which is what `jobs.payment_id` being UNIQUE requires (D-011).
       const challenge = await adapter.createChallenge({
         quote: { ...price, mode: input.mode },
-        quoteKey: `api:${input.mode}:${input.repoUrl}`,
       });
       await deps.service.attachPayment(queued, challenge.paymentId);
       return reply.status(402).send({
@@ -266,14 +260,13 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
     }
 
     // 4. Payment is present. Verify it.
-    const priorPaymentId = extractPaymentId(xPayment, deps.payment.mode);
+    const priorPaymentId = adapter.readPaymentId(xPayment);
     if (!priorPaymentId) {
       return sendError(
         reply,
         new HttpError({ statusCode: 400, code: 'INVALID_INPUT', message: 'X-PAYMENT header is malformed' }),
       );
     }
-    const adapter = deps.service.getPaymentAdapter();
     const receipt = await adapter.verifyPayment({
       paymentId: priorPaymentId,
       rawHeader: xPayment,

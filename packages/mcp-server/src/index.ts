@@ -183,12 +183,11 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
    * pipeline invocation exist once. The two tools differ only in how the
    * caller supplies the repository.
    */
-  async function runPaidAudit(input: CreateAuditInput, quoteKey: string): Promise<unknown> {
+  async function runPaidAudit(input: CreateAuditInput): Promise<unknown> {
     const job = jobStore.create(input);
     const price = priceFor(opts.payment);
     const challenge = await paymentAdapter.createChallenge({
       quote: { ...price, mode: input.mode },
-      quoteKey,
     });
     jobStore.attachPayment(job.jobId, challenge.paymentId);
 
@@ -265,7 +264,7 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
         outputLanguage: args.output_language,
         includeLaunchCopy: args.include_launch_copy,
       });
-      return textResult(await runPaidAudit(input, `mcp:${input.mode}:${input.repoUrl}`));
+      return textResult(await runPaidAudit(input));
     }
   );
 
@@ -292,7 +291,7 @@ export function buildMcpServer(opts: McpServerOptions): { server: McpServer; job
         outputLanguage: args.output_language,
         includeLaunchCopy: args.include_launch_copy,
       });
-      return textResult(await runPaidAudit(input, `mcp:reaudit:${input.mode}:${input.repoUrl}`));
+      return textResult(await runPaidAudit(input));
     }
   );
 

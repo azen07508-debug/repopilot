@@ -3,7 +3,7 @@
  * implementation. This is the single place where the application chooses
  * between mock and OKX payment rails.
  *
- * === STUB BOUNDARY ====================================================
+ * === SCOPE BOUNDARY ===================================================
  * When `cfg.mode === 'okx'`, we construct the `OkxPaymentAdapter`.
  * The adapter requires only a syntactically valid
  * `OKX_PAYMENT_ADDRESS` (a 0x-prefixed EVM address). If the address is

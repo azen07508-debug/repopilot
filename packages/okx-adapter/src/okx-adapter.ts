@@ -1,18 +1,30 @@
 /**
  * OKX payment adapter.
  *
- * === STUB BOUNDARY ====================================================
- * This adapter implements the x402 v2 + EIP-3009 / EIP-712 verification
- * flow against the OKX Agent Payments Protocol (see
- * `okx-agent-payments-protocol/charge.md` from the Onchain OS Skills v4.2.6).
+ * === SCOPE BOUNDARY ===================================================
+ * This adapter verifies the **EIP-3009 authorization** in a buyer's
+ * `X-PAYMENT` header, offline: it re-derives the EIP-712 domain, recovers
+ * the signer and checks the `to` / `value` the buyer signed. That is all
+ * it does, and it is all it claims to do.
  *
- * However, the **on-chain settlement** step (confirming that the
- * `authorizationUsed` flag has been flipped on the USDT contract)
- * requires the seller to be a registered ASP on the OKX.AI Agent
- * Marketplace (which went GA on 2026-06-30). Until then, the
- * `OkxPaymentAdapter.createChallenge` still emits a valid x402
- * challenge, but a real buyer cannot sign a settling `X-PAYMENT`
- * against a marketplace service that does not exist.
+ * (This banner used to read `STUB BOUNDARY`, and two documents cited that
+ * phrase as a string the code *throws*. Nothing here throws it; the name
+ * was accurate about nothing. Renamed in R-39.)
+ *
+ * It does **not** read the chain. It never checks the `authorizationUsed`
+ * flag, so it cannot tell you whether the money actually moved. Two
+ * documents used to say it did (`docs/ARCHITECTURE.md` and the header
+ * comment right here); both were wrong, and `rpcUrl` — an option nothing
+ * ever passed or read — was the vestige of the read that was never
+ * written. Removed in R-39. `ROADMAP.md` lists the on-chain check as
+ * still-to-do, and `docs/OKX_LIVE_INTEGRATION.md` §2.1 describes the RPC
+ * URL as an *optional* seller-side input: the project's own documents
+ * agreed with each other about this, and only these two disagreed.
+ *
+ * **Settlement is therefore the seller's step, not this service's.** The
+ * buyer's signature is an authorization the seller can submit; nothing
+ * here submits it. Verifying a signature and settling it are different
+ * acts, and this adapter performs only the first.
  *
  * To switch the running service to OKX mode:
  *   1. Apply for the OKX.AI Agent Developer Beta.
@@ -63,13 +75,16 @@
  *    payload and replays the request with the `X-PAYMENT` header.
  *
  * 3. This adapter re-derives the EIP-712 domain, recovers the signer, and
- *    verifies the signature against the on-chain authorization. The
- *    server NEVER holds the buyer's private key — the wallet does the
- *    signing.
+ *    checks the recovered address against the authorization's `from`, plus
+ *    `to` == `payTo` and `value` == `maxAmountRequired`. Offline — see the
+ *    boundary above. The server NEVER holds the buyer's private key — the
+ *    wallet does the signing.
  *
- * 4. On success the adapter stores a `paymentId → receipt` row in the
- *    idempotency store. Replays of the same `paymentId` resolve to the
- *    same `completed` receipt.
+ * 4. On success the adapter records a `paymentId → receipt` row. Replays
+ *    of the same `paymentId` resolve to the same `completed` receipt.
+ *    `paymentId`s are never cached across calls: every `createChallenge`
+ *    mints a fresh one, and the route — not the adapter — is what reuses
+ *    a job for a replayed id (D-011).
  *
  * 5. The audit endpoint then re-runs the analysis and returns the report.
  *
@@ -79,17 +94,17 @@
  * is published, `onchainos` buyers will see the challenge but cannot
  * settle it through a marketplace-mediated flow. Direct x402 settlement
  * (manual replay with `X-PAYMENT` header signed by a buyer wallet) is
- * always available regardless of listing status.
+ * always available regardless of listing status — and in both cases the
+ * settlement itself happens outside this process.
  */
-import { randomUUID, createHash } from 'node:crypto';
-import { verifyTypedData, recoverTypedDataAddress, hashTypedData, type Hex } from 'viem';
+import { randomUUID } from 'node:crypto';
+import { verifyTypedData, recoverTypedDataAddress, type Hex } from 'viem';
 import type {
   PaymentAdapter,
   PaymentChallenge,
   PaymentReceipt,
   PriceQuote,
 } from './adapter.js';
-import { AuditMode } from '@repopilot/core';
 
 export interface OkxPaymentAdapterOptions {
   /** EVM address that receives payment. */
@@ -113,8 +128,6 @@ export interface OkxPaymentAdapterOptions {
    * plausible and does not exist, which is the kind of value nobody notices.
    */
   resourceUrl?: string;
-  /** Underlying RPC used to read the on-chain `authorizationUsed` flag. */
-  rpcUrl?: string;
   /** Token contract address (defaults to USDT on the chosen network). */
   tokenAddress?: string;
   /** Token decimals (default 6 for USDT). */
@@ -159,9 +172,8 @@ export class OkxPaymentAdapter implements PaymentAdapter {
   }
 
   private opts: OkxPaymentAdapterOptions;
-  private challenges = new Map<string, { challenge: PaymentChallenge; quoteKey: string }>();
+  private challenges = new Map<string, PaymentChallenge>();
   private receipts = new Map<string, PaymentReceipt>();
-  private idempotency = new Map<string, string>();
 
   constructor(opts: OkxPaymentAdapterOptions) {
     this.opts = opts;
@@ -171,12 +183,57 @@ export class OkxPaymentAdapter implements PaymentAdapter {
     return isAddressLike(this.opts.recipientAddress) && !!this.opts.network;
   }
 
-  async createChallenge(input: { quote: PriceQuote; quoteKey: string }): Promise<PaymentChallenge> {
-    const existing = this.idempotency.get(input.quoteKey);
-    if (existing) {
-      const rec = this.challenges.get(existing);
-      if (rec) return rec.challenge;
+  /**
+   * Read the `paymentId` out of an `X-PAYMENT` envelope.
+   *
+   * **Why this lives on the adapter.** The route needs the paymentId before it
+   * can do anything else — it is the key it looks the challenge up by — but the
+   * envelope is *this* adapter's wire format. Until R-39 the route carried its
+   * own second parser for it (`extractPaymentId` in `routes/audits.ts`), and the
+   * two had drifted apart: the route looked for `paymentId` at the top level of
+   * the envelope, while `ParsedPaymentHeader` below declares it at
+   * `payload.paymentId`. A buyer following the documented flow was answered
+   * `400 X-PAYMENT header is malformed` and the adapter was never consulted —
+   * in `PAYMENT_MODE=okx` the paid endpoint could not accept a payment at all.
+   * No test caught it because every payment test runs in mock mode.
+   *
+   * **The wire shape is not documented in this repository.** Neither
+   * `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §1.4 ("the base64-encoded receipt") nor
+   * `README_OKX.md` ("a base64-encoded JSON envelope") says where `paymentId`
+   * sits, and the two in-repo parsers above disagreed about it. So this reads
+   * both placements rather than betting the payment path on one of them, and
+   * `okx-adapter.test.ts` pins both. When the real `onchainos` envelope is
+   * observed, delete the branch that is wrong — this is the only place that has
+   * to change.
+   */
+  readPaymentId(rawHeader: string | null): string | null {
+    if (!rawHeader) return null;
+    try {
+      const envelope = parsePaymentHeader(rawHeader);
+      return envelope.payload.paymentId || envelope.paymentId || null;
+    } catch {
+      return null;
     }
+  }
+
+  /**
+   * Create a challenge. **Every call mints a fresh `paymentId`.**
+   *
+   * This used to cache on `quoteKey`, so a second POST for the same repository
+   * and mode returned the *same* paymentId. That collided with the schema: the
+   * route creates a new job row per POST and then attaches the paymentId to it,
+   * and `jobs.payment_id` is `UNIQUE` — so the second request for a repository
+   * failed with `SQLITE_CONSTRAINT_UNIQUE` and the caller got a `500`. Measured
+   * 2026-10-06 by the first test ever to run this route in `PAYMENT_MODE=okx`.
+   *
+   * D-011 already decided this, and the mock adapter already did it: "Each POST
+   * creates a fresh `paymentId` (no `quoteKey` caching); the route layer is the
+   * only place that performs `paymentId → job` lookup and reuses the existing
+   * job." The OKX adapter was the one implementation that ignored the decision,
+   * and the `quoteKey` parameter is gone from the interface so it cannot be
+   * re-made by accident.
+   */
+  async createChallenge(input: { quote: PriceQuote }): Promise<PaymentChallenge> {
     const paymentId = `okx_${randomUUID()}`;
     const meta = USDT_BY_NETWORK[this.opts.network] ?? USDT_BY_NETWORK['xlayer']!;
     const decimals = this.opts.tokenDecimals ?? meta.decimals;
@@ -205,8 +262,7 @@ export class OkxPaymentAdapter implements PaymentAdapter {
       },
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     };
-    this.challenges.set(paymentId, { challenge, quoteKey: input.quoteKey });
-    this.idempotency.set(input.quoteKey, paymentId);
+    this.challenges.set(paymentId, challenge);
     return challenge;
   }
 
@@ -216,102 +272,55 @@ export class OkxPaymentAdapter implements PaymentAdapter {
    * The buyer's `onchainos payment pay --payment-id <id>` CLI is responsible
    * for assembling the EIP-3009 authorization and signing it. The header we
    * receive is a base64-encoded JSON envelope. We re-derive the EIP-712
-   * digest from the challenge, recover the signer, and check that the
-   * recovered address matches the expected buyer (or, in v2, that the
-   * authorization is well-formed and the chain is correct).
+   * digest, recover the signer, and check it against the authorization's
+   * `from`, plus `to` == `payTo` and `value` == `maxAmountRequired`.
+   *
+   * `completed` here means **"the authorization is valid"**, not "the money
+   * moved" — this adapter never reads a block. See the boundary at the top of
+   * the file.
    */
   async verifyPayment(input: { paymentId: string; rawHeader: string | null }): Promise<PaymentReceipt> {
     const cached = this.receipts.get(input.paymentId);
     if (cached) return cached;
 
-    if (!input.rawHeader) {
+    /** Record and return a receipt. One place, so the shapes cannot drift. */
+    const record = (status: PaymentReceipt['status']): PaymentReceipt => {
       const r: PaymentReceipt = {
         paymentId: input.paymentId,
-        status: 'pending',
-        txHash: null,
-        blockNumber: null,
+        status,
         observedAt: new Date().toISOString(),
       };
       this.receipts.set(input.paymentId, r);
       return r;
-    }
+    };
 
-    const challengeRec = this.challenges.get(input.paymentId);
-    if (!challengeRec) {
-      const r: PaymentReceipt = {
-        paymentId: input.paymentId,
-        status: 'failed',
-        txHash: null,
-        blockNumber: null,
-        observedAt: new Date().toISOString(),
-      };
-      this.receipts.set(input.paymentId, r);
-      return r;
-    }
-    if (new Date(challengeRec.challenge.expiresAt).getTime() < Date.now()) {
-      const r: PaymentReceipt = {
-        paymentId: input.paymentId,
-        status: 'expired',
-        txHash: null,
-        blockNumber: null,
-        observedAt: new Date().toISOString(),
-      };
-      this.receipts.set(input.paymentId, r);
-      return r;
+    if (!input.rawHeader) return record('pending');
+
+    const challenge = this.challenges.get(input.paymentId);
+    if (!challenge) return record('failed');
+    if (new Date(challenge.expiresAt).getTime() < Date.now()) {
+      return record('expired');
     }
 
     let envelope: ParsedPaymentHeader;
     try {
       envelope = parsePaymentHeader(input.rawHeader);
     } catch {
-      const r: PaymentReceipt = {
-        paymentId: input.paymentId,
-        status: 'failed',
-        txHash: null,
-        blockNumber: null,
-        observedAt: new Date().toISOString(),
-      };
-      this.receipts.set(input.paymentId, r);
-      return r;
+      return record('failed');
     }
 
     // Recompute the EIP-712 digest and verify the signature.
     const meta = USDT_BY_NETWORK[this.opts.network] ?? USDT_BY_NETWORK['xlayer']!;
     const ok = await verifyEip3009({
       envelope,
-      network: this.opts.network,
       chainId: meta.chainId,
       verifyingContract: this.opts.tokenAddress ?? meta.token,
       payTo: this.opts.recipientAddress,
-      expectedAmount: (challengeRec.challenge.challenge as { accepts: { maxAmountRequired: string }[] })
-        .accepts[0]!.maxAmountRequired,
+      expectedAmount: (challenge.challenge as { accepts: { maxAmountRequired: string }[] }).accepts[0]!
+        .maxAmountRequired,
     });
 
-    if (!ok) {
-      const r: PaymentReceipt = {
-        paymentId: input.paymentId,
-        status: 'failed',
-        txHash: null,
-        blockNumber: null,
-        observedAt: new Date().toISOString(),
-      };
-      this.receipts.set(input.paymentId, r);
-      return r;
-    }
-
-    const r: PaymentReceipt = {
-      paymentId: input.paymentId,
-      status: 'completed',
-      txHash: envelope.payload.txHash ?? null,
-      blockNumber: envelope.payload.blockNumber ?? null,
-      observedAt: new Date().toISOString(),
-    };
-    this.receipts.set(input.paymentId, r);
-    return r;
-  }
-
-  async getReceipt(paymentId: string): Promise<PaymentReceipt | null> {
-    return this.receipts.get(paymentId) ?? null;
+    return record(ok ? 'completed' : 'failed');
   }
 }
 
@@ -322,10 +331,17 @@ interface ParsedPaymentHeader {
   signature: Hex;
   /** Recovered signer (if pre-extracted). */
   from?: Hex;
+  /**
+   * The payment id, at the top level of the envelope.
+   *
+   * Optional because the two in-repo parsers disagreed about where this lives
+   * and neither document says — see `readPaymentId()`. Exactly one of this and
+   * `payload.paymentId` is expected to be present.
+   */
+  paymentId?: string;
   payload: {
-    paymentId: string;
-    txHash?: string;
-    blockNumber?: number;
+    /** See `paymentId` above. */
+    paymentId?: string;
     authorization: {
       from: Hex;
       to: Hex;
@@ -353,7 +369,6 @@ function parsePaymentHeader(raw: string): ParsedPaymentHeader {
 
 async function verifyEip3009(input: {
   envelope: ParsedPaymentHeader;
-  network: string;
   chainId: number;
   verifyingContract: string;
   payTo: string;
@@ -420,8 +435,4 @@ function toAtomic(amount: string, decimals: number): string {
   const [intPart, fracPart = ''] = amount.split('.');
   const padded = (fracPart + '0'.repeat(decimals)).slice(0, decimals);
   return `${intPart ?? '0'}${padded}`.replace(/^0+(?=\d)/, '') || '0';
-}
-
-export function quoteKeyFor(input: { mode: AuditMode | string; repoUrl: string }): string {
-  return createHash('sha256').update(`${input.mode}|${input.repoUrl.toLowerCase()}`).digest('hex');
 }

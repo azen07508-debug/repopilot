@@ -228,6 +228,14 @@ Architecture Decision Records (ADR-style, lightweight).
   the source of idempotency.
 - **Consequences:** Adapter tests stay simple. Route tests exercise
   idempotency explicitly with two POSTs sharing an `X-PAYMENT` header.
+- **Enforced 2026-10-06 (R-39):** The mock adapter obeyed this from the
+  start; the OKX adapter did not — it cached challenges on `quoteKey`,
+  so a second POST for the same repository returned the first
+  `paymentId`, and the route attached it to a new job row whose
+  `jobs.payment_id` is UNIQUE → `SQLITE_CONSTRAINT_UNIQUE` → 500 for
+  every buyer on `PAYMENT_MODE=okx`. The cache is deleted, and the
+  `quoteKey` parameter is removed from `PaymentAdapter.createChallenge`
+  so the decision cannot be un-made by re-adding a caller.
 
 ## D-012 — Pino redact covers all known secret paths
 

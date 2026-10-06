@@ -696,6 +696,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The payment types stopped declaring things that were never true.** Same
+  class as the entry below: a declaration with no consumer, kept alive by
+  nobody looking. Deleted (R-39):
+  - `OkxPaymentAdapterOptions.rpcUrl` — nothing constructed it with a value and
+    nothing read it, while its comment said it was "used to read the on-chain
+    `authorizationUsed` flag". `docs/OKX_LIVE_INTEGRATION.md` §2.1 calls that RPC
+    URL an *optional seller-side* input and `ROADMAP.md` lists the on-chain check
+    as still-to-do, so the code and two of its documents agreed it was never
+    implemented — and `okx-adapter.ts`'s own header plus `docs/ARCHITECTURE.md`
+    both claimed it was. Those two are corrected; the roadmap item stays.
+  - `PaymentReceipt.txHash` / `.blockNumber` — written by both adapters, read by
+    nothing, and untrue in both directions. On the OKX path they were
+    **unverified values the buyer put in the envelope**, echoed back in the same
+    field shape as an observation. On the mock path `blockNumber` was
+    `Math.floor(Date.now() / 1000)` — a Unix timestamp in a field named after a
+    block. They reached a client only inside an undocumented `payment` object on
+    the 402 body.
+  - `PaymentReceipt.status`'s `'settling'` and `'cancelled'` — no adapter
+    produced either; `'settling'` named a step this service does not perform.
+  - `PaymentAdapter.getReceipt()` — two implementations, zero callers.
+  - `verifyEip3009`'s `network` parameter — passed at the one call site, never
+    destructured.
+- **Four documents described an OKX adapter stub that was not there.**
+  `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §1.4 and §2 said `OKXAdapter` *raises*
+  `STUB BOUNDARY: …`, in two different wordings — **neither string exists
+  anywhere in the codebase**, and `createChallenge` / `verifyPayment` are fully
+  implemented and neither throws. `docs/ARCHITECTURE.md` listed the adapter
+  interface as `(createChallenge, verifyPayment, refund, getReceipt)`;
+  **`refund` never existed in any adapter**. `docs/OKX_LIVE_INTEGRATION.md` §2.2
+  said `OKX_AGENT_KEY` / `OKX_AGENT_SECRET` "appear only in a JSDoc comment in
+  `packages/okx-adapter/src/okx-adapter.ts:46`" and proposed deleting it — no
+  such comment exists in any revision of that file (checked with
+  `git show HEAD:…`); they appear only in `env-check.ts`'s `KNOWN_SECRET_KEYS`,
+  which is redaction, not configuration. `README_OKX.md` §5 step 5 said the
+  success body "is the full `Report` JSON" — the endpoint answers `202` with
+  `statusUrl` / `pollAfterMs`. What the adapter actually guarantees is now stated
+  where it belongs, at the top of `okx-adapter.ts`: it verifies the EIP-3009
+  **authorization** offline, never reads a block, and therefore cannot confirm
+  settlement — `completed` means "the authorization is valid", not "the money
+  moved".
+- **`env-check.ts` range-checked `ANALYSIS_TIMEOUT_MS`, a variable no module
+  reads.** Not in `.env.example`, not in `apps/api/src/config.ts`, not read by
+  any source file — so the check handed operators a green tick over a setting the
+  service ignores, which is worse than not checking it at all. Removed; the
+  comment on the list now says every entry must name a variable some code reads.
+
 - **The LLM surface is gone, not "optional and unused".** `LLM_PROVIDER`,
   `LLM_API_KEY`, `LLM_MODEL` and `LLM_BASE_URL` were read by
   `defaultLlmProvider()`, which built an `OpenAICompatibleProvider` that
@@ -1105,6 +1151,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **In `PAYMENT_MODE=okx` the paid endpoint answered `400` to every buyer
+  before it verified anything.** `apps/api/src/routes/audits.ts` carried its own
+  parser for the `X-PAYMENT` header and looked for `paymentId` at the top level
+  of the envelope; the adapter's `ParsedPaymentHeader` puts it at
+  `payload.paymentId`. The route ran first, found nothing, and returned
+  `400 INVALID_INPUT "X-PAYMENT header is malformed"` — `verifyPayment` was
+  never called, so **the only rail that takes real money could not accept a
+  payment at all**. Measured, not inferred: `extractPaymentId` copied verbatim
+  from the route returns `null` for an envelope in the adapter's declared shape
+  and the id only for the top-level one, and `null` is the `400`. The signature
+  is irrelevant to the defect, which is why the check needs no key. No test
+  caught it because **every payment test in the repository runs in mock mode**,
+  where the header is the plain string `mock:<id>` and both parsers trivially
+  agree; `okx-adapter.test.ts` called `verifyPayment` only with `null` and with
+  `'not-base64-!!'`, so the success path a paying buyer takes had no coverage.
+  **Root cause:** the envelope is the adapter's wire format and the route held a
+  second copy of that knowledge, with nothing comparing the two (R-39). Fixed by
+  deleting the copy — `PaymentAdapter.readPaymentId()` is now the single owner
+  and the route calls it. Where `paymentId` actually sits in the real
+  `onchainos` envelope is documented nowhere in this repository, so
+  `readPaymentId` reads both placements and a comment names the line to delete
+  once the real envelope is observed. New tests:
+  `apps/api/src/tests/okx-payment.test.ts` is the first test to run the paid
+  route in `PAYMENT_MODE=okx` at all (a well-formed envelope must answer `402
+  PAYMENT_NOT_SETTLED`, not `400`; a malformed one must still answer `400`), and
+  `okx-adapter.test.ts` signs real EIP-3009 authorizations with
+  `privateKeyToAccount().signTypedData()` — `completed` for a correct one,
+  `failed` for a wrong amount and for a wrong payee.
+- **A second `POST` for the same repository answered `500` in
+  `PAYMENT_MODE=okx`.** `OkxPaymentAdapter.createChallenge` cached challenges
+  on a `quoteKey` derived from the quote, so the second request for the same
+  repository and mode got the *first* `paymentId` back. The route creates a job
+  row per POST and attaches that id to it, and `jobs.payment_id` is `UNIQUE` —
+  so the insert failed with `SQLITE_CONSTRAINT_UNIQUE: jobs.payment_id` and the
+  buyer got a `500` with no way to pay. D-011 had decided this already ("Each
+  POST creates a fresh `paymentId` (no `quoteKey` caching); the route layer is
+  the only place that performs `paymentId → job` lookup and reuses the existing
+  job") and the mock adapter obeyed it from the start; the OKX adapter was the
+  one implementation that ignored it. **Found by the fix above** — the new
+  `okx-payment.test.ts` is the first thing ever to make a second `POST` against
+  a live adapter, and its two `402`-expected cases came back `500` for exactly
+  this reason. Fixed by deleting the `idempotency` / `challenges` cache and
+  removing the `quoteKey` parameter from `PaymentAdapter.createChallenge`, so the
+  decision cannot be un-made by re-adding a caller. `okx-adapter.test.ts`'s
+  "createChallenge is idempotent on the quoteKey" now asserts the opposite, and
+  `mock-adapter.test.ts` lost "produces different paymentIds for different quote
+  keys" — it compared two calls that differed only in a random id, so it passed
+  whatever the key was.
+- **`docs/SECURITY.md` stated the `quoteKey` invariant backwards.** It read
+  "There is no way to mint a second `paymentId` for the same `quoteKey` through
+  the route" — true of the route and false of the OKX adapter, which did exactly
+  that. Rewritten to say where the idempotency actually lives. The same file's
+  claim that the factory refuses to construct an adapter "whose `isConfigured()`
+  returns false" also named the wrong mechanism: `buildPaymentAdapter` checks the
+  address itself, and `isConfigured()` has no production caller.
 - **`/api/v1/capabilities` silently published two thirds of what it declared.**
   `endpoints` — the four routes, and which of them is the one that costs money —
   and `cache` were written in the route from the day it existed and reached no

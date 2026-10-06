@@ -183,6 +183,13 @@ if (queueDriver === 'pg-boss' && mode === 'mock' && NODE_ENV === 'production') {
 }
 
 // 4. Numeric ranges
+//
+// Every entry here must name a variable some code reads. `ANALYSIS_TIMEOUT_MS`
+// was in this list and nowhere else — not in `.env.example`, not in
+// `apps/api/src/config.ts`, not read by any module. It validated the range of a
+// value that could not affect anything, which is worse than not checking it:
+// an operator who set it got a green tick confirming a setting the service
+// ignored. Removed in R-39.
 const numericChecks: Array<[string, number, number]> = [
   ['PORT', 1, 65535],
   ['MAX_FILES', 1, 100000],
@@ -190,7 +197,6 @@ const numericChecks: Array<[string, number, number]> = [
   ['MAX_TOTAL_BYTES', 1024 * 1024, 1024 * 1024 * 1024],
   ['RATE_LIMIT_PER_MINUTE', 1, 100000],
   ['OKX_X402_VERSION', 1, 2],
-  ['ANALYSIS_TIMEOUT_MS', 1000, 600000],
 ];
 for (const [field, min, max] of numericChecks) {
   const raw = process.env[field];

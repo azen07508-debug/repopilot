@@ -132,3 +132,16 @@ Tracked work, in priority order, updated as items are completed.
   exposes no HTTP routes and holds no audit cache — and reporting them beats
   omitting them, which cannot be told apart from a server built before the
   fields existed.
+- [ ] **`verify:release`'s 15 s health budget is tight enough to fail a slow
+  machine.** `scripts/verify-release.ts` spawns `apps/api/dist/server.js` on
+  port 4099 and waits `waitForHttp('http://127.0.0.1:4099/health', 15000)`.
+  Measured 2026-10-06 on the maintainer's Intel Mac with nothing else running:
+  **ready after 16 844 ms** — so the step fails locally, by about two seconds,
+  every time. The server is not broken: it answers `/health` 200 and logs
+  `RepoPilot API listening on http://127.0.0.1:4099`; it is just slower than
+  the budget. CI (fresh runner, warm cache) comes up inside 15 s, which is why
+  this has never been seen there. The fix is one number — raise the budget, or
+  make it configurable — and it is not in R-39's scope, so it is recorded
+  rather than changed. Worth noting before raising it: the startup cost itself
+  (≈15 s) is the interesting number, and it is not the DB (`buildApp` finishes
+  its SQLite migrations in milliseconds).

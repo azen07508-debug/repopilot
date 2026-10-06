@@ -27,10 +27,21 @@ export class MockPaymentAdapter implements PaymentAdapter {
   isConfigured(): boolean {
     return true;
   }
+
+  /**
+   * Mock headers are `mock:<paymentId>`. See `PaymentAdapter.readPaymentId` for
+   * why the adapter owns this rather than the route.
+   */
+  readPaymentId(rawHeader: string | null): string | null {
+    if (!rawHeader) return null;
+    const m = /^mock:([A-Za-z0-9_-]+)$/.exec(rawHeader.trim());
+    return m?.[1] ?? null;
+  }
+
   private challenges = new Map<string, ChallengeRecord>();
   private receipts = new Map<string, PaymentReceipt>();
 
-  async createChallenge(input: { quote: PriceQuote; quoteKey: string }): Promise<PaymentChallenge> {
+  async createChallenge(input: { quote: PriceQuote }): Promise<PaymentChallenge> {
     // Each call returns a fresh paymentId. The API layer is responsible
     // for short-circuiting retries on the same paymentId.
     const paymentId = `mock_${randomUUID()}`;
@@ -64,8 +75,6 @@ export class MockPaymentAdapter implements PaymentAdapter {
       const r: PaymentReceipt = {
         paymentId: input.paymentId,
         status: 'pending',
-        txHash: null,
-        blockNumber: null,
         observedAt: new Date().toISOString(),
       };
       this.receipts.set(input.paymentId, r);
@@ -82,8 +91,6 @@ export class MockPaymentAdapter implements PaymentAdapter {
       const r: PaymentReceipt = {
         paymentId: input.paymentId,
         status: 'failed',
-        txHash: null,
-        blockNumber: null,
         observedAt: new Date().toISOString(),
       };
       this.receipts.set(input.paymentId, r);
@@ -92,16 +99,10 @@ export class MockPaymentAdapter implements PaymentAdapter {
     const r: PaymentReceipt = {
       paymentId: input.paymentId,
       status: 'completed',
-      txHash: `0xmock${input.paymentId.slice(5)}`,
-      blockNumber: Math.floor(Date.now() / 1000),
       observedAt: new Date().toISOString(),
     };
     this.receipts.set(input.paymentId, r);
     return r;
-  }
-
-  async getReceipt(paymentId: string): Promise<PaymentReceipt | null> {
-    return this.receipts.get(paymentId) ?? null;
   }
 }
 

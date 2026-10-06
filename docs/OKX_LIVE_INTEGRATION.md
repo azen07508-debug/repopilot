@@ -74,13 +74,19 @@ OKX_PAYMENT_NETWORK       = xlayer (default)           ✅ matches official
 OKX_X402_VERSION          = 2 (default)                ✅ matches official
 ```
 
-> `OKX_AGENT_KEY` and `OKX_AGENT_SECRET` appear **only in a JSDoc
-> comment** in `packages/okx-adapter/src/okx-adapter.ts:46`. They are
-> **not** in the Zod schema, **not** read by the runtime, and **not**
-> required by the official x402 spec. Treat them as **🟡 RepoPilot
-> custom / unconfirmed** and **do not** set them. (Suggested follow-up:
-> delete the JSDoc comment, or rewrite it to point at the correct
-> onchainos-side credential model.)
+> `OKX_AGENT_KEY` and `OKX_AGENT_SECRET` are **not in the code at all**.
+> They are **not** in the Zod schema, **not** read by the runtime, and
+> **not** required by the official x402 spec. Treat them as **🟡
+> RepoPilot custom / unconfirmed** and **do not** set them.
+>
+> Corrected 2026-10-06 (R-39). This note used to say they "appear only in
+> a JSDoc comment in `packages/okx-adapter/src/okx-adapter.ts:46`" and
+> proposed deleting that comment. **No such comment ever existed** — the
+> strings do not appear anywhere in that file, in any revision. The one
+> place they do appear is `scripts/env-check.ts`'s `KNOWN_SECRET_KEYS`,
+> where the job is **redaction, not configuration**: an operator who set
+> one months ago still has it in their shell, and dropping the entry
+> would print it. That entry is correct and should stay.
 
 ### 2.3 What the onchainos CLI needs (separate concern, only when acting as a wallet)
 
@@ -200,8 +206,8 @@ in the chat reply):
 | `OKX_X402_VERSION` | `apps/api/src/config.ts` | ✅ Official | Defaults to 2. |
 | `OKX_ASP_AGENT_ID` | `.env.example` (post-registration) | 🟡 RepoPilot bookkeeping | Populated after `agent create --role asp` returns `newAgentId`. |
 | `OKX_ASP_RECIPIENT_ADDRESS` | `.env.example` (post-registration) | 🟡 RepoPilot bookkeeping | Same value as `OKX_PAYMENT_ADDRESS`. |
-| `OKX_AGENT_KEY` (mentioned in JSDoc) | not in code | ⚪ Deprecated / unconfirmed | **Remove** the JSDoc reference, or rewrite it. |
-| `OKX_AGENT_SECRET` (mentioned in JSDoc) | not in code | ⚪ Deprecated / unconfirmed | Same. |
+| `OKX_AGENT_KEY` | only `scripts/env-check.ts` (`KNOWN_SECRET_KEYS`) | ⚪ Deprecated / unconfirmed | Not a config field. The `env-check.ts` entry is redaction, not configuration — leave it. |
+| `OKX_AGENT_SECRET` | only `scripts/env-check.ts` (`KNOWN_SECRET_KEYS`) | ⚪ Deprecated / unconfirmed | Same. |
 | `OKX_API_KEY` / `OKX_SECRET_KEY` / `OKX_PASSPHRASE` | n/a (consumed by `onchainos` CLI) | ✅ Official, CLI-side only | Only set if user wants to skip email-OTP at the onchainos CLI level. **Not** a RepoPilot config field. |
 
 ---

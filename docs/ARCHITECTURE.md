@@ -102,8 +102,10 @@ rather than typed here. `pnpm docs:check` fails if the two disagree.
    other program (CLI, worker, edge function).
 3. The OKX adapter (`packages/okx-adapter`) is the only package that
    knows about payment rails. The rest of the system only sees the
-   `PaymentAdapter` interface (`createChallenge`, `verifyPayment`,
-   `refund`, `getReceipt`).
+   `PaymentAdapter` interface (`readPaymentId`, `createChallenge`,
+   `verifyPayment`). It named two more — `refund` and `getReceipt` —
+   until R-39: `refund` never existed in any adapter, and `getReceipt`
+   existed but had no caller outside its own definition.
 4. There is no LLM layer. `summary` and `launchCopy` come from
    `packages/core/src/report/templates.ts`, every score is rule-based, and
    the optional provider that used to sit here was removed in R-38 because
@@ -189,9 +191,19 @@ model produces any of it: there is none in the process.
   at the configured recipient. The buyer's `onchainos` CLI signs an
   EIP-3009 `TransferWithAuthorization` and replays the request with the
   base64-encoded envelope in `X-PAYMENT`. The adapter re-derives the
-  EIP-712 domain, recovers the signer, and verifies the signature
-  against the on-chain `authorizationUsed` flag. The server never holds
-  the buyer's private key.
+  EIP-712 domain, recovers the signer, and checks the recovered address
+  against the authorization's `from`, plus `to` == `payTo` and
+  `value` == `maxAmountRequired`. The server never holds the buyer's
+  private key.
+
+  **This is an offline signature check, not a settlement check.** The
+  adapter never reads a block, so `completed` means "the authorization
+  is valid", not "the money moved"; confirming the on-chain
+  `authorizationUsed` flag is a `ROADMAP.md` item, not a behaviour. The
+  buyer's signature is an authorization the *seller* can submit, and
+  nothing in this service submits it. This paragraph used to say the
+  signature was verified "against the on-chain `authorizationUsed`
+  flag", which was never true (R-39).
 
 See `docs/SECURITY.md` for the threat model around payments.
 

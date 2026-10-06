@@ -155,11 +155,14 @@ repopilot/
 - `PAYMENT_MODE=mock` (default): in-process mock adapter, end-to-end without external
 - `PAYMENT_MODE=okx`: x402 v2 + EIP-3009 `TransferWithAuthorization` signature
   verification on XLayer/Ethereum/Base/Arbitrum/BSC, USDT settlement.
-  - **STUB** boundary: when `recipientAddress` is empty (Beta not enabled),
-    `OkxPaymentAdapter.isConfigured()` returns `false` and `buildPaymentAdapter()`
-    in `packages/okx-adapter/src/factory.ts` MUST refuse to construct one.
-    The factory must never silently fall back to mock. `factory.test.ts` pins
-    this with a table of ten rejected address shapes.
+  - Boundary: when `recipientAddress` is empty (Beta not enabled),
+    `buildPaymentAdapter()` in `packages/okx-adapter/src/factory.ts` MUST refuse
+    to construct an `OkxPaymentAdapter`. It checks the address itself
+    (`isEvmAddress`), not `isConfigured()` — that method is on the interface and
+    is asserted by tests, but no production path calls it. The factory must
+    never silently fall back to mock. `factory.test.ts` pins this with a table
+    of ten rejected address shapes. (This bullet used to be labelled **STUB**
+    and to say `isConfigured()` was the gate; R-39 corrected both.)
   - `OKX_PAYMENT_RESOURCE_URL` is the deployment's own public https URL and is
     what the 402 challenge puts in `accepts[].resource` — the field the buyer's
     client reads to know what it is paying for. Required in production when

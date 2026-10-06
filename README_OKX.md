@@ -111,15 +111,25 @@ When `PAYMENT_MODE=okx`, the API:
    signed by the Agentic Wallet) and replays the request with the
    `X-PAYMENT` header (a base64-encoded JSON envelope).
 
-4. `OkxPaymentAdapter.verifyPayment`:
+4. `OkxPaymentAdapter.verifyPayment` — **offline, no chain read**:
    - Re-derives the EIP-712 digest from the challenge.
    - Recovers the signer via `viem.recoverTypedDataAddress`.
    - Compares the recovered address to the authorization `from` field.
    - Verifies the signature with `viem.verifyTypedData`.
    - Re-checks `to` (== `payTo`) and `value` (== `maxAmountRequired`).
 
-5. On success, the adapter returns a `completed` receipt, the audit runs,
-   and the response body is the full `Report` JSON.
+   It does **not** check the on-chain `authorizationUsed` flag, so a
+   `completed` receipt means "the authorization is valid", not "the money
+   moved". Confirming settlement is the seller's step and is a
+   `ROADMAP.md` item. (`rpcUrl` was the option for it; nothing ever passed
+   or read it, and it was removed in R-39.)
+
+5. On success the adapter returns a `completed` receipt and the audit is
+   **enqueued**: the response is `202` with `statusUrl` and `pollAfterMs`,
+   not the report. Poll the `statusUrl` until `status` is `completed`.
+   (This step used to say "the response body is the full `Report` JSON" —
+   that was the pre-async contract, and it stopped being true when the
+   endpoint moved to `202`.)
 
 > Server-side replay protection: the same `paymentId` always resolves to
 > the same `PaymentReceipt` (idempotency), so the buyer can retry the

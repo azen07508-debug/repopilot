@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
+import { privateKeyToAccount } from 'viem/accounts';
 import { OkxPaymentAdapter, PLACEHOLDER_RESOURCE, CHALLENGE_DESCRIPTION } from './okx-adapter.js';
 
 describe('OkxPaymentAdapter', () => {
@@ -17,7 +18,12 @@ describe('OkxPaymentAdapter', () => {
     expect(a.isConfigured()).toBe(true);
   });
 
-  it('createChallenge is idempotent on the quoteKey', async () => {
+  it('mints a fresh paymentId per call, like the mock adapter', async () => {
+    // This test used to read "createChallenge is idempotent on the quoteKey" and
+    // asserted the opposite of what it asserts now. That caching is what made a
+    // repository's second audit request fail with `SQLITE_CONSTRAINT_UNIQUE` on
+    // `jobs.payment_id` — the route creates a job per POST and attaches the
+    // paymentId to it. D-011 decided this: each POST gets a fresh paymentId.
     const a = new OkxPaymentAdapter({
       recipientAddress: '0x1234567890123456789012345678901234567890',
       network: 'xlayer',
@@ -25,13 +31,11 @@ describe('OkxPaymentAdapter', () => {
     });
     const c1 = await a.createChallenge({
       quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
-      quoteKey: 'q1',
     });
     const c2 = await a.createChallenge({
       quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
-      quoteKey: 'q1',
     });
-    expect(c1.paymentId).toBe(c2.paymentId);
+    expect(c1.paymentId).not.toBe(c2.paymentId);
   });
 
   it('challenge contains the configured recipient and a USDT quote', async () => {
@@ -42,7 +46,6 @@ describe('OkxPaymentAdapter', () => {
     });
     const c = await a.createChallenge({
       quote: { amount: '0.10', currency: 'USDT', mode: 'full' },
-      quoteKey: 'q1',
     });
     const body = c.challenge as {
       x402Version: number;
@@ -64,7 +67,6 @@ describe('OkxPaymentAdapter', () => {
     });
     const c = await a.createChallenge({
       quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
-      quoteKey: 'q1',
     });
     const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: null });
     expect(r.status).toBe('pending');
@@ -78,7 +80,6 @@ describe('OkxPaymentAdapter', () => {
     });
     const c = await a.createChallenge({
       quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
-      quoteKey: 'q1',
     });
     const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: 'not-base64-!!' });
     expect(r.status).toBe('failed');
@@ -86,6 +87,22 @@ describe('OkxPaymentAdapter', () => {
 });
 
 const RECIPIENT = '0x1234567890123456789012345678901234567890';
+
+/**
+ * The xlayer USDT contract and chain id, as `USDT_BY_NETWORK` has them.
+ *
+ * Written out rather than imported because the point of the signing tests below
+ * is to build the digest **from the outside** — the same way the buyer's wallet
+ * does. Importing the adapter's own table would let a wrong table agree with
+ * itself.
+ */
+const XLAYER_USDT = '0x55d398326f99059fF775485246999027B3197955';
+const XLAYER_CHAIN_ID = 196;
+
+/** A throwaway key. Never funded, never used against a real network. */
+const BUYER = privateKeyToAccount(
+  '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
+);
 
 function adapter(opts: Partial<ConstructorParameters<typeof OkxPaymentAdapter>[0]> = {}) {
   return new OkxPaymentAdapter({
@@ -96,10 +113,154 @@ function adapter(opts: Partial<ConstructorParameters<typeof OkxPaymentAdapter>[0
   });
 }
 
+/**
+ * Build and sign a real EIP-3009 envelope for a challenge.
+ *
+ * This is the only thing in the suite that produces a signature the adapter has
+ * to actually verify; every other test either feeds it no header or feeds it
+ * something malformed. Without this, `verifyPayment`'s success path — the one a
+ * paying buyer takes — had no coverage at all.
+ */
+async function signEnvelope(
+  challenge: { paymentId: string; challenge: unknown },
+  overrides: { value?: string; to?: string; key?: typeof BUYER } = {}
+): Promise<string> {
+  const accepts = (challenge.challenge as { accepts: { maxAmountRequired: string }[] }).accepts[0]!;
+  const value = overrides.value ?? accepts.maxAmountRequired;
+  const to = overrides.to ?? RECIPIENT;
+  const signer = overrides.key ?? BUYER;
+
+  const authorization = {
+    from: signer.address,
+    to: to as `0x${string}`,
+    value: BigInt(value),
+    validAfter: 0n,
+    validBefore: BigInt(Math.floor(Date.now() / 1000) + 3600),
+    nonce: `0x${'11'.repeat(32)}` as `0x${string}`,
+  };
+
+  const signature = await signer.signTypedData({
+    domain: {
+      name: 'OKX Agent Payments Protocol',
+      version: '1',
+      chainId: XLAYER_CHAIN_ID,
+      verifyingContract: XLAYER_USDT,
+    },
+    types: {
+      TransferWithAuthorization: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'validAfter', type: 'uint256' },
+        { name: 'validBefore', type: 'uint256' },
+        { name: 'nonce', type: 'bytes32' },
+      ],
+    },
+    primaryType: 'TransferWithAuthorization',
+    message: authorization,
+  });
+
+  const envelope = {
+    x402Version: 2,
+    signature,
+    payload: {
+      paymentId: challenge.paymentId,
+      authorization: {
+        from: authorization.from,
+        to: authorization.to,
+        value,
+        validAfter: '0',
+        validBefore: authorization.validBefore.toString(),
+        nonce: authorization.nonce,
+      },
+    },
+  };
+  return Buffer.from(JSON.stringify(envelope)).toString('base64');
+}
+
+describe('a buyer with a real signature is accepted', () => {
+  it('completes when the signature, payee and amount all match', async () => {
+    const a = adapter();
+    const c = await a.createChallenge({
+      quote: { amount: '1', currency: 'USDT', mode: 'full' },
+    });
+    const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: await signEnvelope(c) });
+    expect(r.status).toBe('completed');
+  });
+
+  it('fails when the signed amount is not the amount quoted', async () => {
+    // The check is `a.value !== expectedAmount`, so this pins that the amount
+    // the buyer signed is the amount compared — not a value read back off the
+    // challenge after the fact, which would always agree with itself.
+    const a = adapter();
+    const c = await a.createChallenge({
+      quote: { amount: '1', currency: 'USDT', mode: 'full' },
+    });
+    const header = await signEnvelope(c, { value: '1' }); // 1 atomic unit, not 1 USDT
+    const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header });
+    expect(r.status).toBe('failed');
+  });
+
+  it('fails when the authorization pays somebody else', async () => {
+    const a = adapter();
+    const c = await a.createChallenge({
+      quote: { amount: '1', currency: 'USDT', mode: 'full' },
+    });
+    const header = await signEnvelope(c, {
+      to: '0x9999999999999999999999999999999999999999',
+    });
+    const r = await a.verifyPayment({ paymentId: c.paymentId, rawHeader: header });
+    expect(r.status).toBe('failed');
+  });
+});
+
+describe('readPaymentId — the envelope format has one owner', () => {
+  /**
+   * Until R-39 the route carried its own parser for this header and looked for
+   * `paymentId` at the top level, while `ParsedPaymentHeader` declares it under
+   * `payload`. A buyer following the documented flow got `400 X-PAYMENT header
+   * is malformed` and the adapter was never reached: in `PAYMENT_MODE=okx` the
+   * paid endpoint could not accept a payment.
+   *
+   * The wire shape is not documented anywhere in this repository, so both
+   * placements are read. These cases pin that, and pin that garbage is null.
+   */
+  const withIdAt = (where: 'payload' | 'top') => {
+    const authorization = {
+      from: BUYER.address,
+      to: RECIPIENT,
+      value: '1000000',
+      validAfter: '0',
+      validBefore: '9999999999',
+      nonce: `0x${'00'.repeat(32)}`,
+    };
+    const envelope =
+      where === 'payload'
+        ? { x402Version: 2, signature: '0xab', payload: { paymentId: 'okx_payload', authorization } }
+        : { x402Version: 2, signature: '0xab', paymentId: 'okx_top', payload: { authorization } };
+    return Buffer.from(JSON.stringify(envelope)).toString('base64');
+  };
+
+  it('reads a paymentId under payload (the declared shape)', () => {
+    expect(adapter().readPaymentId(withIdAt('payload'))).toBe('okx_payload');
+  });
+
+  it('reads a paymentId at the top level (the shape the route used to assume)', () => {
+    expect(adapter().readPaymentId(withIdAt('top'))).toBe('okx_top');
+  });
+
+  it('returns null rather than throwing for anything it cannot read', () => {
+    // null and '' both mean "no header", and each malformed input is a distinct
+    // way for a caller to be told 400 instead of being told 500.
+    for (const bad of [null, '', 'not-base64-!!', Buffer.from('{}').toString('base64')]) {
+      expect(adapter().readPaymentId(bad)).toBeNull();
+    }
+  });
+});
+
 async function acceptsOf(a: OkxPaymentAdapter, mode: 'quick' | 'full', amount: string) {
   const c = await a.createChallenge({
     quote: { amount, currency: 'USDT', mode },
-    quoteKey: `k-${mode}-${amount}`,
   });
   return (c.challenge as { accepts: Record<string, unknown>[] }).accepts[0]!;
 }
@@ -186,7 +347,6 @@ describe('the emitted challenge matches the documented one', () => {
   it('agrees on the envelope version', async () => {
     const c = await adapter().createChallenge({
       quote: { amount: '0.02', currency: 'USDT', mode: 'quick' },
-      quoteKey: 'v',
     });
     expect((c.challenge as { x402Version: number }).x402Version).toBe(documentedVersion());
   });
