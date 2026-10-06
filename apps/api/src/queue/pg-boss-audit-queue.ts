@@ -37,7 +37,7 @@ import type {
   AuditQueueDriver,
 } from './audit-queue.js';
 
-const QUEUE_NAME = 'repopilot_audit_v1';
+const DEFAULT_QUEUE_NAME = 'repopilot_audit_v1';
 
 export interface PgBossAuditQueueDeps {
   connectionString: string;
@@ -58,6 +58,16 @@ export interface PgBossAuditQueueDeps {
    * dedicated worker process is the only consumer.
    */
   consume?: boolean;
+  /**
+   * pg-boss queue name. Defaults to `repopilot_audit_v1`.
+   *
+   * Configurable because a queue name is global to the *database*, not to the
+   * process: two deployments sharing one Postgres, or a test suite running
+   * against the same instance as anything else, would otherwise consume each
+   * other's jobs. Production leaves it at the default so a restart reattaches
+   * to the same queue.
+   */
+  queueName?: string;
   /** Optional logger. */
   log?: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }
@@ -69,10 +79,12 @@ export class PgBossAuditQueue implements AuditQueue {
   private started = false;
   private accepting = true;
   private readonly deps: PgBossAuditQueueDeps;
+  private readonly queueName: string;
   private readonly log: NonNullable<PgBossAuditQueueDeps['log']>;
 
   constructor(deps: PgBossAuditQueueDeps) {
     this.deps = deps;
+    this.queueName = deps.queueName ?? DEFAULT_QUEUE_NAME;
     this.log = deps.log ?? { info: () => undefined, warn: () => undefined, error: () => undefined };
     // pg-boss manages its own connection pool. We pass the connection
     // string and let pg-boss own it. Sharing the application pool via
@@ -99,7 +111,7 @@ export class PgBossAuditQueue implements AuditQueue {
   async start(): Promise<void> {
     if (this.started) return;
     await this.boss.start();
-    await this.boss.createQueue(QUEUE_NAME, {
+    await this.boss.createQueue(this.queueName, {
       retryLimit: this.deps.retryLimit,
       retryDelay: 5,
       expireInSeconds: this.deps.expireInSeconds,
@@ -110,7 +122,7 @@ export class PgBossAuditQueue implements AuditQueue {
     // the dedicated worker process is the sole consumer.
     if (this.deps.consume !== false) {
       await this.boss.work<{ jobId: string }>(
-        QUEUE_NAME,
+        this.queueName,
         { batchSize: 1 },
         async (jobs: Array<{ id: string; data?: { jobId?: string } }>) => {
           for (const job of jobs) {
@@ -127,7 +139,7 @@ export class PgBossAuditQueue implements AuditQueue {
     this.started = true;
     this.accepting = true;
     this.log.info(
-      { driver: this.driver, queue: QUEUE_NAME, consume: this.deps.consume !== false },
+      { driver: this.driver, queue: this.queueName, consume: this.deps.consume !== false },
       'audit queue started',
     );
   }
@@ -144,7 +156,7 @@ export class PgBossAuditQueue implements AuditQueue {
     // at the jobId level (the queue-level dedup would over-constrain
     // retries). Storing a separate column in pgboss's job table is
     // not necessary; our jobs table is the source of truth.
-    const pgJobId = await this.boss.send(QUEUE_NAME, { jobId: input.jobId });
+    const pgJobId = await this.boss.send(this.queueName, { jobId: input.jobId });
     return {
       jobId: input.jobId,
       acceptedAt: new Date().toISOString(),
@@ -157,7 +169,7 @@ export class PgBossAuditQueue implements AuditQueue {
     this.accepting = false;
     // offWork stops the worker polling. Then `stop()` closes pg-boss.
     try {
-      await this.boss.offWork(QUEUE_NAME);
+      await this.boss.offWork(this.queueName);
     } catch (err) {
       this.log.warn({ err: (err as Error)?.message }, 'pg-boss offWork failed');
     }
@@ -173,7 +185,7 @@ export class PgBossAuditQueue implements AuditQueue {
     let status: QueueHealth['status'] = 'ok';
     let pending: number | undefined;
     try {
-      const stats = await this.boss.getQueueStats(QUEUE_NAME);
+      const stats = await this.boss.getQueueStats(this.queueName);
       const total = stats.reduce((acc, s) => acc + s.queuedCount + s.activeCount, 0);
       pending = total;
     } catch (err) {

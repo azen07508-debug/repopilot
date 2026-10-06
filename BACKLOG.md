@@ -35,11 +35,12 @@ Tracked work, in priority order, updated as items are completed.
   updated.
 - [x] **Version bump** 0.1.0-rc.1 → 0.1.0-rc.2 across all
   package.json files.
-- [x] **End-to-end Postgres integration** is **not** in rc.2 — the
-  PgBoss adapter ships and is unit-test covered locally, but the
-  CI Postgres job runs only the public adapter API. Full
-  end-to-end Postgres verification remains a release-blocker and
-  is tracked below.
+- [x] **End-to-end Postgres integration** was **not** in rc.2 — the
+  PgBoss adapter shipped and was unit-test covered locally, but the
+  CI Postgres job ran only the public adapter API. That stayed a
+  release-blocker until 2026-10-06, when
+  `apps/api/src/tests/pg-boss.integration.test.ts` landed and the
+  `db: postgres` matrix leg began running the queue end to end.
 
 ## P0 — must land for 0.1.0-rc.1 (shipped in 0.1.0-rc.1)
 
@@ -89,10 +90,17 @@ Tracked work, in priority order, updated as items are completed.
   `start:api`, `start:worker` scripts. `verify:release` and
   the existing `pnpm dev` flow stay on combined mode for
   backward compatibility. 4 new tests in `src/worker.test.ts`.
-- [ ] **End-to-end Postgres CI job for the queue.** Exercise
-  PgBossAuditQueue end-to-end against the CI Postgres service
-  container (enqueue + work + completed + retry). Currently the
-  CI Postgres job only exercises the public adapter API.
+- [x] **End-to-end Postgres CI job for the queue.** `PgBossAuditQueue`
+  is exercised end to end against the CI Postgres service container by
+  `apps/api/src/tests/pg-boss.integration.test.ts`: enqueue → work →
+  completion, a failure retried up to `retryLimit` and then stopping,
+  and the `consume: false` split where one instance enqueues and
+  another consumes. Five cases; the `consume` one was mutation-checked
+  (forcing the guard to `true` turns it red). Verified locally against
+  a real Postgres before the push, not only in CI.
+  `PgBossAuditQueueDeps` gained an optional `queueName` so the cases do
+  not share a queue — a pg-boss queue is global to the database, not
+  the process.
 - [ ] **MCP HTTP transport (SSE).** Deferred per rc.2 scope.
 - [ ] **OpenAPI generator script** to publish `/docs/openapi.json`
 - [ ] **OpenTelemetry traces**

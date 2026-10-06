@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`PgBossAuditQueue` is exercised end to end, against a live Postgres.**
+  `apps/api/src/tests/pg-boss.integration.test.ts`, five cases: an enqueued
+  job reaches `runOne` exactly once; a failing job is retried and then stops
+  at `retryLimit`; a `consume: false` instance enqueues without consuming and
+  a consuming instance picks that job up — the split process model of
+  `PROJECT_STATE.md`; `enqueue` refuses before `start()` and after `stop()`;
+  and `health()` reports unavailable → ok → unavailable. The queue is the
+  production driver (`AUDIT_QUEUE_DRIVER=pg-boss`) and nothing had ever run
+  it. The Postgres integration suite covered `JobRepository` and stopped
+  there, so "`enqueue` reaches a handler", the retry semantics and the
+  `consume` flag were all read off pg-boss's type declarations rather than
+  observed. `BACKLOG.md` had carried "Full end-to-end Postgres verification
+  remains a release-blocker" since rc.2. The file runs in the CI
+  `db: postgres` matrix leg and skips elsewhere, so `pnpm -r test` on SQLite
+  is unchanged. Verified by mutation: forcing the `consume` guard to `true`
+  turns the split-deployment case red, and names the value —
+  `Array []` against `Array ["API-SIDE-MUST-NOT-RUN"]`.
+- **`PgBossAuditQueueDeps.queueName`.** Defaults to `repopilot_audit_v1`,
+  which is what production keeps so a restart reattaches to the same queue.
+  It is a parameter because a pg-boss queue is global to the *database*, not
+  to the process: two instances on one Postgres that share a name consume
+  each other's jobs, and the suite above needs a queue no other case can
+  reach. Without it those five cases would have shared one queue and failed
+  at random.
 - **`docs:check` now fails on a documented `docker run` that asks for a
   configuration the API refuses to start with.** The same broken command
   survived in two files after being fixed in a third, twice over — which makes

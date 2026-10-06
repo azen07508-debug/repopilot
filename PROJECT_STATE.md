@@ -4,7 +4,7 @@
 **Repository:** https://github.com/azen07508-debug/repopilot
 **Current version:** 0.1.0-rc.3
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-10-04 15:10 UTC
+**Last updated:** 2026-10-06 04:08 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-10-04 15:10 UTC)](#test-baseline-2026-10-04-1510-utc)
+- [Test baseline (2026-10-06 04:08 UTC)](#test-baseline-2026-10-06-0408-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -179,14 +179,24 @@ repopilot/
     recorded rather than implied (`BACKLOG.md`).
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-10-04 15:10 UTC)
+## Test baseline (2026-10-06 04:08 UTC)
 
-- @repopilot/core: 905/905
-- @repopilot/okx-adapter: 40/40
-- @repopilot/api: 75/75 + 2 skipped (Postgres, run in CI)
+- @repopilot/core: 904/904
+- @repopilot/okx-adapter: 53/53
+- @repopilot/api: 85/85 + 7 skipped (both Postgres files, run in CI's
+  `db: postgres` matrix leg)
 - @repopilot/mcp-server: 42/42
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 1079 passed + 2 skipped (1081 with the Postgres tests when CI is green)**
+- **Total: 1101 passed + 7 skipped (1108 with both Postgres files when CI is green)**
+
+> The 1079 → 1101 step is +27 tests and −5 of nothing: `okx-adapter` 40 → 53
+> is R-39's `readPaymentId` cases and real EIP-3009 signatures plus R-40's six
+> replay cases; `apps/api` 75 → 85 is R-39's first `PAYMENT_MODE=okx` route
+> test and R-40's additions; the skipped count 2 → 7 is
+> `pg-boss.integration.test.ts`, which is new. Core went 905 → 904 on R-38,
+> which deleted the LLM surface along with its test. The numbers here were
+> re-measured, not incremented — this file is the only place they are written
+> down, and nothing checks them against the code.
 
 > The 1080 → 1079 step is the repricing (D-037), and it moves in both
 > directions. `okx-adapter` went 41 → 40: one test deleted, because
@@ -256,8 +266,9 @@ repopilot/
 - `pnpm install` (no errors, only peer-dependency hints)
 - `pnpm -r typecheck` (strict, no errors)
 - `pnpm -r test` (all workspaces green; the count and the per-package split live
-  in **Test baseline** above, which is the one place they are written down. The 2
-  skipped tests are the Postgres integration tests, which run in CI)
+  in **Test baseline** above, which is the one place they are written down. The 7
+  skipped tests are the two Postgres files, which run in CI's `db: postgres`
+  leg)
 - `pnpm build` (every workspace: <!-- docs-facts:workspace-count -->3 packages + 2 apps<!-- docs-facts:end -->)
 - `pnpm env:check` (validates dev / production / okx mode; never prints secrets; also covers queue driver rules)
 - `pnpm preflight:production` (the pre-registration self-check: `env:check` under
@@ -660,7 +671,15 @@ not wired yet.
 
 These are NOT code TODOs and do not block the Release Candidate:
 
-1. Docker CLI not present in this sandbox → `docker build` not run here
+1. ~~Docker CLI not present in this sandbox~~ → **corrected 2026-10-06.** Docker
+   29.8.2 and Colima 0.10.3 are installed under `/usr/local`; they were simply
+   not on `PATH` (`/usr/local/opt/docker/bin`, `/usr/local/opt/colima/bin`), and
+   the daemon is running. The claim was true when it was written and outlived
+   its cause. `docker build` is therefore reachable here — the Docker workflow
+   was still verified in CI, which is the environment that matters, but this is
+   no longer a reason it has to be. Postgres for the integration tests comes
+   from a container (`docker run postgres:17-alpine`), which is how the
+   `PgBossAuditQueue` suite was verified before it was pushed.
 2. OKX.AI Agent Marketplace listing not yet submitted → run
    `onchainos agent register --role asp` (GA since 2026-06-30; this is a
    single CLI call, not a code change). The `OkxPaymentAdapter` is fully

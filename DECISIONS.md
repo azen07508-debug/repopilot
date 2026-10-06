@@ -2070,3 +2070,58 @@ this, so the topology is checked in two places that do not need it:
     (route → `402`, no job). The reasoning is written into the test file's
     header so the absence reads as a decision and not an oversight.
 
+## D-039 — A queue name belongs to the database, not the process
+
+- **Date:** 2026-10-06
+- **Status:** Accepted
+- **Context:** `PgBossAuditQueue` is the production driver
+  (`AUDIT_QUEUE_DRIVER=pg-boss`, the split API / worker deployment in
+  `PROJECT_STATE.md`), and until 2026-10-06 nothing had ever run it. The
+  Postgres integration suite exercised `JobRepository` and stopped there, so
+  the queue's behaviour — that `enqueue` reaches a handler, that a failure is
+  retried up to `retryLimit` and then stops, that `consume: false` really does
+  not consume — was read off pg-boss's type declarations rather than observed.
+  `BACKLOG.md` carried it as a release-blocker from rc.2.
+
+  Writing the test ran into a property of the system rather than of the test: a
+  pg-boss queue name is global to the **database**. `QUEUE_NAME` was a module
+  constant (`repopilot_audit_v1`), so every instance pointed at one Postgres
+  polls the same queue — and so would every case in a suite. Each case would
+  consume the others' jobs, fail at random, and pass when run alone.
+
+- **Decision:** `PgBossAuditQueueDeps` takes an optional `queueName`, defaulting
+  to `repopilot_audit_v1`. Production passes nothing, so a restart reattaches to
+  the same queue; the integration suite passes a name derived from the pid and a
+  counter, so no two cases can reach each other.
+
+  The default is the value production keeps. This is not a configuration knob
+  being opened — it is a constant being given a name, so that the one caller
+  which needs a different one can say so.
+
+- **Consequences:** `apps/api/src/tests/pg-boss.integration.test.ts` runs five
+  cases in CI's `db: postgres` matrix leg, each with its own queue. It was
+  verified locally against a real Postgres (`docker run postgres:17-alpine`)
+  before being pushed, not only in CI, and the `consume: false` case was
+  mutation-checked: forcing the guard to `true` turns it red and names the value
+  that should not be there. The `sqlite` leg is unaffected — the file skips,
+  exactly as `postgres.integration.test.ts` does.
+
+- **Alternatives rejected.**
+  - **Keep the constant and clean the queue between cases.** It needs a second
+    `PgBoss` instance that exists only to call `deleteAllJobs`, and "clean, then
+    run" is a race the suite would own: a job left behind by a case that failed
+    mid-flight gets picked up by the next one, which then fails for a reason
+    that has nothing to do with it.
+  - **Give each case its own pg-boss `schema`.** pg-boss supports it and it
+    isolates more than a queue name does. Rejected because it isolates *too*
+    much for what is being tested: the suite would no longer exercise the
+    default `pgboss` schema the deployment actually uses, and
+    `PgBossAuditQueue` would have to expose a `schema` option production has no
+    use for.
+  - **Give each case its own database.** Correct, and slow — a `CREATE
+    DATABASE` plus pg-boss's own schema migration per case.
+  - **Write one case and share the queue.** The cheapest thing that passes, and
+    it would have left the `consume: false` split untested — two consumers on
+    one queue is exactly what a shared name cannot express, and that split is
+    the behaviour the deployment depends on.
+
