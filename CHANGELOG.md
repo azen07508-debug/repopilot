@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`NonceStore`, the injectable home of the burned-nonce record.** One method,
+  `burn(key): Promise<boolean>`, with `true` meaning "this call claimed it".
+  `InMemoryNonceStore` is the adapter's default. The interface is declared in
+  `@repopilot/okx-adapter` and implemented in `apps/api`, the same split
+  `PaymentAdapter` uses, because the adapter package must not learn what a
+  database is — `packages/mcp-server` loads it and has none. `burn` returns a
+  boolean rather than exposing a lookup so that "has it been used" and "record
+  that it has" are one operation: written as two, concurrent callers both read
+  "not burned" and both insert (R-42, D-040).
+- **`NonceRepository` and the `burned_nonces` table.**
+  `apps/api/src/repositories/nonce-repository.ts`, over
+  `key TEXT PRIMARY KEY, burned_at`. The table is created in both migration
+  paths in `apps/api/src/db/client.ts` — `TEXT` for SQLite, `TIMESTAMPTZ` for
+  Postgres — following `report_cache`, which is also raw SQL with no Drizzle
+  table definition. Rows are never pruned: an authorization past its
+  `validBefore` is rejected before the store is consulted, so a retention job
+  would only be deleting rows that are already inert.
+- **`apps/api/src/tests/nonce-store.integration.test.ts`.** Three cases on
+  SQLite and three against a real Postgres, the latter gated on `DATABASE_URL`
+  exactly as `postgres.integration.test.ts` is. The Postgres case that matters
+  is the concurrent burst, and it carries a warning about its own warm-up: see
+  the Fixed entry above for why a cold pool makes that case pass against a racy
+  implementation.
 - **`PgBossAuditQueue` is exercised end to end, against a live Postgres.**
   `apps/api/src/tests/pg-boss.integration.test.ts`, five cases: an enqueued
   job reaches `runOne` exactly once; a failing job is retried and then stops
@@ -720,6 +743,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`buildPaymentAdapter(cfg, deps?)` takes a second argument.**
+  `buildPaymentAdapter(cfg, { nonceStore })` forwards the store to the OKX
+  adapter; the parameter is optional and `packages/mcp-server` still calls it
+  with one argument, unchanged. The default — an `InMemoryNonceStore` — lives on
+  the adapter rather than in the factory, so a directly constructed
+  `OkxPaymentAdapter` behaves identically and there is one default instead of
+  two. `factory.test.ts` asserts the forwarding: a dropped store would leave
+  every other test in the repository green while the fix was dead in production
+  (R-42).
+
 - **The payment types stopped declaring things that were never true.** Same
   class as the entry below: a declaration with no consumer, kept alive by
   nobody looking. Deleted (R-39):
@@ -1175,6 +1208,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One signed authorization could buy an audit again after a restart.** R-40
+  made an EIP-3009 authorization single-use by burning the `(from, nonce)` pair
+  on first successful verification, but the record was a `Set` inside the
+  adapter: a restart emptied it, and a second replica never had it, so the
+  signature a buyer already held worked again. The burn is now a call on an
+  injected `NonceStore`, and `apps/api` injects `NonceRepository` — backed by a
+  `burned_nonces` table whose primary key is that pair, so the insert *is* the
+  single-use check rather than a `SELECT` followed by one. `packages/mcp-server`
+  keeps the in-memory default deliberately: it verifies payments only in
+  `PAYMENT_MODE=mock`, where no nonce is reached, and wiring a database into that
+  process would be wiring one for a code path it cannot take. The burn is
+  **not** in the same transaction as the job it pays for, and that is a decision
+  rather than an omission — the route creates the job row before it mints the
+  challenge, so a buyer cannot hold a `paymentId` whose job does not exist yet,
+  and there is no window for a shared transaction to close. What that costs is
+  recorded too: a failure *after* the burn (a refused enqueue, a 503) spends the
+  buyer's authorization, and the retry is answered `failed`. At-most-once is the
+  property a payment gate has to hold. A store that throws is likewise not
+  caught, because `record('failed')` writes a receipt and receipts are cached by
+  `paymentId` — swallowing an outage would turn a database blip into a permanent
+  verdict for that id (R-42, D-040).
+
+  Mutation-checked on both drivers, and the Postgres half produced a finding
+  worth more than the fix: **`Promise.all` over a cold `pg.Pool` does not
+  race.** The first version of the concurrency case issued ten simultaneous
+  burns and passed against a deliberately racy `SELECT`-then-`INSERT`
+  implementation, 3/3 — the pool opens connections as the event loop reaches
+  them and each new connection's queued work finishes before the next is ready,
+  so the ten calls ran in sequence. Warming the pool first makes it a real race,
+  and the racy implementation then fails 3/3 on
+  `duplicate key value violates unique constraint "burned_nonces_pkey"`. A
+  concurrency test that has never been shown to fail is not evidence of
+  anything.
 - **A Docker build no longer needs GitHub Releases to be reachable.**
   `better-sqlite3` ships a prebuilt binary and `pnpm install` uses it when it
   can; `prebuild-install` looks for it on GitHub Releases, and when that
@@ -1215,11 +1281,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than a boolean, so one parse produces both the verdict and the thing to burn.
   Mutation-checked: removing the nonce guard fails exactly the replay test,
   removing the window comparisons fails exactly the two window tests. The
-  remaining gap is stated rather than implied — `spentNonces` is in-process, so a
-  restart or a second replica forgets it and replay works again; that is why
-  `forgets which nonces it has seen when the process restarts` exists as a test
-  that **asserts the limitation**, and why the durable version (persist the key
-  with a UNIQUE constraint) is in `BACKLOG.md` rather than in this commit (R-40).
+  remaining gap was stated rather than implied — `spentNonces` was in-process,
+  so a restart or a second replica forgot it and replay worked again; that is why
+  `forgets which nonces it has seen when the process restarts` existed as a test
+  that **asserted the limitation**, and why the durable version (persist the key
+  with a UNIQUE constraint) went into `BACKLOG.md` rather than into that commit.
+  Both halves of that are closed by R-42, above (R-40).
 - **A malformed `X-PAYMENT` envelope answered `500` where the contract says
   "unverified payment".** `verifyEip3009` did `a.to.toLowerCase()` and
   `BigInt(a.value)` *outside* its `try`, on a buyer-supplied object that

@@ -4,7 +4,7 @@
 **Repository:** https://github.com/azen07508-debug/repopilot
 **Current version:** 0.1.0-rc.3
 **Current stage:** Release Candidate preparation
-**Last updated:** 2026-10-06 04:08 UTC
+**Last updated:** 2026-10-06 06:18 UTC
 
 > 📚 Single entry point for every document in the repo:
 > [docs/INDEX.md](docs/INDEX.md). This file is the **maintainer
@@ -19,7 +19,7 @@
 - [Process model (0.1.0-rc.3)](#process-model-010-rc3)
 - [MCP server](#mcp-server)
 - [Payment model](#payment-model)
-- [Test baseline (2026-10-06 04:08 UTC)](#test-baseline-2026-10-06-0408-utc)
+- [Test baseline (2026-10-06 06:18 UTC)](#test-baseline-2026-10-06-0618-utc)
 - [Quality gates already passing](#quality-gates-already-passing)
 - [Repository Intelligence upgrade](#repository-intelligence-upgrade-planning-phase-0-done)
 - [Launch Readiness layer](#launch-readiness-layer--p0-core-done-2026-09-20)
@@ -175,19 +175,33 @@ repopilot/
     `paymentId`. The adapter burns the `(from, nonce)` pair on first successful
     verification and enforces the signed `validAfter` / `validBefore` window —
     the local stand-in for EIP-3009's on-chain `authorizationUsed` mapping
-    (R-40, D-038). The nonce set is in-process: a restart forgets it, which is
-    recorded rather than implied (`BACKLOG.md`).
+    (R-40, D-038). The burn goes through an injected `NonceStore`; the API
+    injects `NonceRepository`, backed by the `burned_nonces` table, so it
+    survives a restart and is shared between replicas. `packages/mcp-server`
+    keeps the in-memory default, because it verifies payments only in mock mode
+    and never reaches a nonce (R-42, D-040).
   - All gates documented in `docs/EXTERNAL_ACTIONS.md` and `README_OKX.md`.
 
-## Test baseline (2026-10-06 04:08 UTC)
+## Test baseline (2026-10-06 06:18 UTC)
 
 - @repopilot/core: 904/904
-- @repopilot/okx-adapter: 53/53
-- @repopilot/api: 85/85 + 7 skipped (both Postgres files, run in CI's
+- @repopilot/okx-adapter: 57/57
+- @repopilot/api: 88/88 + 10 skipped (both Postgres files, run in CI's
   `db: postgres` matrix leg)
 - @repopilot/mcp-server: 42/42
 - @repopilot/web: 17/17 (2 instrument self-tests + 15 async-contract tests)
-- **Total: 1101 passed + 7 skipped (1108 with both Postgres files when CI is green)**
+- **Total: 1108 passed + 10 skipped (1118 with both Postgres files when CI is green)**
+
+> The 1101 → 1108 step is +7 tests and no deletions. `okx-adapter` 53 → 57 is
+> R-42's three adapter cases (a replay across two processes sharing one store,
+> the in-memory default, and a store outage not being cached as `failed`) minus
+> the one it replaced — `forgets which nonces it has seen when the process
+> restarts` asserted the *limitation* and is now
+> `still forgets when no store is injected` — plus two `factory.test.ts` cases
+> pinning that `buildPaymentAdapter` forwards the store it is given. `apps/api`
+> 85 → 88 is three SQLite cases for `NonceRepository`, and the skipped count
+> 7 → 10 is the same file's three Postgres cases. Re-measured on both legs, not
+> incremented: 88 + 10 skipped on SQLite, 98 passed with `DATABASE_URL` set.
 
 > The 1079 → 1101 step is +27 tests and −5 of nothing: `okx-adapter` 40 → 53
 > is R-39's `readPaymentId` cases and real EIP-3009 signatures plus R-40's six

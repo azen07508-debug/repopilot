@@ -1799,7 +1799,7 @@ authorization worth one payment were both missing).
 
 **Severity:** Critical
 **Likelihood:** Certain for anyone who tries (the buyer composes the header)
-**Status:** Fixed 2026-10-06 (partially — see the durability gap below)
+**Status:** Fixed 2026-10-06 (R-40), durability gap closed the same day (R-42)
 
 **What it was.** `OkxPaymentAdapter.verifyPayment` verified the buyer's EIP-3009
 authorization and returned `completed` — but the EIP-712 message it verifies is
@@ -1871,14 +1871,33 @@ no consumer of the invariant it implies.
   D-011 — is not mistaken for a replay. Pinned by
   `keeps a retry of the same paymentId idempotent`.
 
-**The durability gap, stated rather than implied away.** `spentNonces` is
-in-process. A restart, or a second replica, forgets it and replay works again.
-This is why the wording above is "replay works only across a restart" and not
-"replay is impossible", and why `forgets which nonces it has seen when the
-process restarts` exists as a **test that asserts the limitation** rather than a
-comment that hopes nobody checks. The durable version needs the nonce key
-persisted with a UNIQUE constraint — `BACKLOG.md` carries it with that design,
-because it is a schema change and this batch is not one.
+**The durability gap, and how it closed.** The burn was an in-process `Set`, so
+a restart or a second replica forgot it and replay worked again. That was
+recorded here rather than implied away — which is why the wording above was
+"replay works only across a restart" and not "replay is impossible", and why
+`forgets which nonces it has seen when the process restarts` existed as a **test
+that asserted the limitation** rather than a comment hoping nobody checked.
+
+R-42 closed it. The burn is now a call on an injected `NonceStore`, and
+`apps/api` injects `NonceRepository` — a `burned_nonces` table whose primary key
+is the `(from, nonce)` pair, so the insert *is* the single-use check.
+`DECISIONS.md` D-040 records the reasoning, including why the burn does not need
+to share a transaction with the job it pays for, and what the buyer gives up in
+exchange for at-most-once. That test was replaced by
+`refuses a replay after a restart, when both processes share the store`, which
+asserts the property instead of the limitation; the old behaviour survives as
+`still forgets when no store is injected`, which pins the default that
+`packages/mcp-server` relies on.
+
+**One finding from closing it, worth more than the fix.** `Promise.all` over a
+cold `pg.Pool` does not race. The first version of the Postgres concurrency case
+issued ten simultaneous burns and passed against a deliberately racy
+`SELECT`-then-`INSERT` implementation, 3/3 — the pool establishes connections as
+the event loop reaches them, and each new connection's queued work finishes
+before the next connection is ready, so the ten calls run in sequence. Warming
+the pool first makes it a real race, and the racy implementation then fails 3/3
+on `duplicate key value violates unique constraint "burned_nonces_pkey"`. A
+concurrency test that has never been shown to fail is not evidence of anything.
 
 **What now pins it.** `packages/okx-adapter/src/okx-adapter.test.ts`:
 `refuses a signature that has already bought an audit`,
@@ -1886,8 +1905,11 @@ because it is a schema change and this batch is not one.
 `refuses an authorization that is not valid yet`,
 `still accepts a second, independently signed authorization` (the guard keys on
 the authorization, not the buyer),
-`keeps a retry of the same paymentId idempotent`, and
-`forgets which nonces it has seen when the process restarts`.
+`keeps a retry of the same paymentId idempotent`,
+`refuses a replay after a restart, when both processes share the store` (R-42),
+`still forgets when no store is injected — which is why the API injects one`
+(R-42, pinning the default), and
+`does not turn a store outage into a cached "failed"` (R-42).
 
 **Mutation-checked.** Removing the `spentNonces` guard fails exactly
 `refuses a signature that has already bought an audit`; removing the two window

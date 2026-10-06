@@ -64,6 +64,14 @@ Architecture Decision Records (ADR-style, lightweight).
   — A tier changes what a report carries, never what it measures
 - [D-036](#d-036--a-payload-an-external-party-reads-is-compared-not-duplicated)
   — A payload an external party reads is compared, not duplicated
+- [D-037](#d-037--one-price-one-product-a-difference-the-buyer-cannot-see-is-not-a-tier)
+  — One price, one product: a difference the buyer cannot see is not a tier
+- [D-038](#d-038--an-invariant-this-service-stands-in-for-this-service-must-perform)
+  — An invariant this service stands in for, this service must perform
+- [D-039](#d-039--a-queue-name-belongs-to-the-database-not-the-process)
+  — A queue name belongs to the database, not the process
+- [D-040](#d-040--a-guard-that-must-survive-a-restart-cannot-live-in-the-process)
+  — A guard that must survive a restart cannot live in the process
 
 ---
 
@@ -2124,4 +2132,118 @@ this, so the topology is checked in two places that do not need it:
     it would have left the `consume: false` split untested — two consumers on
     one queue is exactly what a shared name cannot express, and that split is
     the behaviour the deployment depends on.
+
+---
+
+## D-040 — A guard that must survive a restart cannot live in the process
+
+- **Date:** 2026-10-06
+- **Status:** Accepted
+- **Context:** R-40 closed a critical defect by making an EIP-3009 authorization
+  single-use: `verifyPayment` burns the `(from, nonce)` pair on first successful
+  verification, standing in for the on-chain `authorizationUsed` read this
+  adapter deliberately does not perform. The burn lived in
+  `private spentNonces = new Set<string>()`.
+
+  A `Set` is not a place. The guard is only as long-lived as the process holding
+  it, so both of the events that happen to a deployed service — a restart, and a
+  second replica — restore the original defect, silently and with no code change
+  in between. R-40 recorded that as its "durability gap" and `BACKLOG.md`
+  carried it with the design already sketched. This is the decision that
+  closes it.
+
+- **Decision:** The burn is a call on an injected `NonceStore` — an interface
+  declared in `@repopilot/okx-adapter` with one method:
+
+  ```ts
+  burn(key: string): Promise<boolean>   // true = this call claimed it
+  ```
+
+  `apps/api` injects `NonceRepository`, backed by a new `burned_nonces` table in
+  the database the service already runs on (`key TEXT PRIMARY KEY`, `burned_at`).
+  The adapter keeps an `InMemoryNonceStore` as its default.
+
+- **Why an interface, and not a database dependency inside the adapter.**
+  `@repopilot/okx-adapter` is also loaded by `packages/mcp-server`, which has no
+  database. That package calls `verifyPayment` only in `PAYMENT_MODE=mock` —
+  where it auto-verifies its own `mock:<id>` header so an agent gets a
+  synchronous result — and the mock path never reaches a nonce. Handing it a
+  durable store would be wiring a database into a process for a code path it
+  cannot take. The split — interface in the package that consumes it,
+  implementation in the app that has the database — is the one `PaymentAdapter`
+  already uses, for the same reason.
+
+- **Why `burn()` returns a boolean instead of the caller doing a lookup.**
+  "Has this nonce been used" and "record that it has" are one operation, or they
+  are a race. Written as `SELECT` then `INSERT`, two concurrent requests both
+  read "not burned" and both insert; one of them either wins or dies on the
+  primary key, and either way two buyers got an audit for one signature. So
+  `burn()` is a single statement per driver — `INSERT ... ON CONFLICT (key) DO
+  NOTHING` and `INSERT OR IGNORE` — and the answer is the driver's own report
+  (`rowCount` / `changes`). The insert *is* the comparison.
+
+- **Why the burn is not in the same transaction as the job it pays for.**
+  `BACKLOG.md` proposed one. It is not needed, and the reason is an ordering
+  property of the route rather than a preference: a buyer can only learn a
+  `paymentId` by receiving a `402`, and `routes/audits.ts` creates the job row
+  *before* it mints the challenge (step 3). By the time any `X-PAYMENT` can
+  arrive, the job it refers to already exists. There is no window in which a
+  burned nonce is not backed by a row, so there is nothing a shared transaction
+  would close.
+
+  **The accepted cost, stated.** The burn happens inside `verifyPayment`, which
+  the route calls before it enqueues. A transient failure *after* the burn — the
+  queue refusing the job, a 503 — costs the buyer that authorization: the retry
+  is answered `failed` because the nonce is spent. That is deliberate, and it is
+  the conservative direction. The alternative is to burn after enqueue, which
+  opens a window in which two concurrent replays of one `X-PAYMENT` both pass
+  verification. At-most-once is the property a payment gate has to hold; "the
+  buyer signs again" is recoverable and double-serving is not. The authorization
+  is quoted with a five-minute window, so re-signing is an ordinary retry.
+
+- **Why a store failure is allowed to throw.** `false` is a replay and is
+  permanent. A throw is an outage and is retryable. They must not be collapsed:
+  `record('failed')` writes a receipt, and receipts are cached by `paymentId`, so
+  catching a store outage would convert a transient database blip into a
+  permanent verdict for that payment id — the buyer's retry would be answered
+  from the cache without the store ever being asked again. The throw escapes as
+  a 500, which is what an unreachable database is.
+
+- **Why the rows are never pruned.** An authorization cannot be replayed after
+  its `validBefore` regardless: `verifyEip3009` rejects a closed window before
+  the store is consulted, so a retention job would only be deleting rows that are
+  already inert. One row per paid audit is tens of bytes. If that stops being
+  true, `burned_at` is what a retention rule would read.
+
+- **Consequences:** `apps/api/src/tests/nonce-store.integration.test.ts` runs
+  three cases on SQLite and three against a real Postgres, gated on
+  `DATABASE_URL` exactly as `postgres.integration.test.ts` is. Both halves are
+  mutation-checked, and the Postgres half produced a finding worth keeping:
+  **`Promise.all` over a cold `pg.Pool` does not race.** Ten simultaneous burns
+  on a cold pool are serialized by connection establishment — a
+  `SELECT`-then-`INSERT` implementation passed 3/3 — so the case warms the pool
+  with ten distinct keys first. With that, the racy implementation fails 3/3 on
+  `duplicate key value violates unique constraint "burned_nonces_pkey"`. The
+  test file says so, because "this test proves concurrency" was wrong the first
+  time it was written.
+
+  The adapter-level cases are in `packages/okx-adapter/src/okx-adapter.test.ts`:
+  the replay-across-a-restart case (which replaces the test that used to assert
+  the *limitation*), a case pinning the in-memory default, and a case that a
+  store outage is not cached as `failed`.
+
+- **Alternatives rejected.**
+  - **Keep the `Set` and document the restart.** This is what R-40 did, and it
+    was right for that batch — a schema change and a semantic change in one
+    commit make a failure ambiguous between them. It is not a resting place.
+  - **Persist to Redis or a TTL cache.** A second dependency, and a second thing
+    to lose. The service already has a database, and a nonce row is smaller than
+    the job row it pays for.
+  - **Store the whole authorization and have the job reference it.** More state,
+    no extra answer: the only question this table is ever asked is "has this pair
+    been claimed", and a primary key answers it.
+  - **Make `NonceStore` required on `OkxPaymentAdapterOptions`.** Then every
+    caller must decide, including the ones for which the in-memory answer is
+    correct, and a test that wants an adapter has to build a store to get one.
+    The default lives on the adapter so that there is exactly one of it.
 
