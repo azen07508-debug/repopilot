@@ -122,14 +122,20 @@ jobs:
       # degrades to `any` and produces a wall of TS7006 noise.
       #
       # It has to run before lint, because the root lint also type-checks
-      # every package.
+      # every package. Since R-33 the root lint builds a package whose dist
+      # is older than its src itself, so this step is no longer the only
+      # thing standing between lint and a stale dist — but it is still what
+      # makes the standalone `pnpm -r typecheck` below correct, and it is
+      # still the order a reader should assume.
       - name: Build workspace packages (types for downstream packages)
         run: pnpm --filter "./packages/*" build
 
-      # Every package's own `lint` script is `echo skip-package-lint`, so
-      # `pnpm -r lint` checked nothing at all. The real lint — tsc across
-      # all packages plus the custom rules in scripts/lint.ts — lives at
-      # the root and had never run in CI.
+      # The root lint, not `pnpm -r lint`. The recursive form ran five
+      # `echo skip-package-lint` stubs and checked nothing; those scripts are
+      # deleted and `scripts/lint.ts` now reports any script whose body cannot
+      # fail (R-26), so `pnpm -r lint` fails loudly instead of passing
+      # silently — but the gate is still this one, because it is the one that
+      # runs tsc across all packages plus the custom rules.
       - name: Lint (tsc + custom rules)
         run: pnpm lint
 

@@ -23,8 +23,7 @@
     "start": "node dist/cli.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo skip-package-lint"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.22.0",

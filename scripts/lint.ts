@@ -12,6 +12,7 @@
  *   no-empty-catch     - catch {} blocks
  *   no-floating-promise - Promise.then() without await / return / assignment
  *   bin-needs-shebang  - every `bin` target starts with `#!`
+ *   no-noop-script     - a package.json script that exits 0 without doing work
  *
  * Exits 0 on success, 1 on any issue.
  */
@@ -56,6 +57,66 @@ function walk(dir: string, out: string[] = []): string[] {
     const s = statSync(p);
     if (s.isDirectory()) walk(p, out);
     else if (/\.tsx?$/.test(p)) out.push(p);
+  }
+  return out;
+}
+
+/** Every file under `dir`, `dist` included — the opposite of `walk`. */
+function walkAll(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (name === 'node_modules' || name === '.git') continue;
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) walkAll(p, out);
+    else out.push(p);
+  }
+  return out;
+}
+
+function newestMtime(dir: string): number | null {
+  if (!existsSync(dir)) return null;
+  let newest: number | null = null;
+  for (const p of walkAll(dir)) {
+    const m = statSync(p).mtimeMs;
+    if (newest === null || m > newest) newest = m;
+  }
+  return newest;
+}
+
+/**
+ * Every `packages/*` entry whose `dist` predates its `src`.
+ *
+ * Only the producers are scanned, not `apps/*`, and that is not an oversight:
+ * an app's *own* `dist` is not an input to its `tsc --noEmit`, so an app with a
+ * stale `dist` still type-checks against its real source. The artefact that
+ * poisons the check is the *dependency's*, because `exports` resolves to
+ * `dist`. The apps' own `dist` is `verify:release` step 5's job, and step 5
+ * runs before anything reads it.
+ *
+ * R-33: `apps/*` and `packages/mcp-server` reach `@repopilot/core` through its
+ * `exports` field, which points at `./dist`. Their `tsc --noEmit` therefore
+ * reads `dist/*.d.ts` **from disk**, so a dist that predates the source makes
+ * this gate report a clean tick about the *previous* contract. It has already
+ * happened: `pnpm lint` printed `✓ tsc clean` locally while CI failed on
+ * `Report.omittedSections`, and building first revealed a **second**
+ * independent violation the stale dist had been hiding. A local green is not
+ * evidence about `apps/*` after any change to core's public types.
+ *
+ * The check is a freshness comparison rather than an unconditional build,
+ * because a `lint` command that rewrites `dist` on every run is a lint command
+ * that surprises people. When the dists are current this costs one stat per
+ * file and prints a tick; when they are not, the build runs *before* the
+ * typecheck and says so.
+ */
+function stalePackages(): string[] {
+  const groupDir = join(REPO, 'packages');
+  if (!existsSync(groupDir)) return [];
+  const out: string[] = [];
+  for (const name of readdirSync(groupDir)) {
+    const pkgDir = join('packages', name);
+    const newestSrc = newestMtime(join(REPO, pkgDir, 'src'));
+    if (newestSrc === null) continue; // no src/ — not a compiled package
+    const newestDist = newestMtime(join(REPO, pkgDir, 'dist'));
+    if (newestDist === null || newestSrc > newestDist) out.push(pkgDir);
   }
   return out;
 }
@@ -219,6 +280,70 @@ function flagFloatingPromise(rel: string, i: number, t: string): void {
 }
 
 /**
+ * R-26: a check that never runs is indistinguishable from one that passes.
+ *
+ * The concrete instance: every package's `lint` script was
+ * `echo skip-package-lint`, so `pnpm -r lint` — which the release verifier
+ * ran as its "lint" step — exited 0 having inspected nothing, and the step
+ * printed OK. The stubs are gone. This is the tripwire that keeps them gone,
+ * and it generalises past `lint`: **any** script whose body is a bare `echo`,
+ * `true`, `:` or `exit 0` reports success without doing work, and nothing else
+ * in the repository notices that it does not.
+ *
+ * The rule is deliberately about the *body*, not the name — the name is what
+ * made `pnpm -r lint` look like the gate.
+ *
+ * A no-op is a body that is *only* a no-op: `true`, `:`, `exit 0`, or an `echo`
+ * with nothing chained after it. `echo` counts because `echo skip-package-lint`
+ * is the instance that prompted this; `echo preparing && tsc` does not, because
+ * that script can still fail, and a rule that flags it would be wrong often
+ * enough to get itself deleted.
+ */
+const NOOP_SCRIPT = /^\s*(?:true|:|exit\s+0)\s*$|^\s*echo\b[^&|;]*$/;
+
+function checkNoopScripts(): { issues: Issue[]; inspected: number } {
+  const out: Issue[] = [];
+  let inspected = 0;
+
+  const manifests = ['.', ...['packages', 'apps'].flatMap((group) => {
+    const dir = join(REPO, group);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir).map((name) => join(group, name));
+  })];
+
+  for (const pkgDir of manifests) {
+    const manifestPath = join(REPO, pkgDir, 'package.json');
+    if (!existsSync(manifestPath)) continue;
+    const label = pkgDir === '.' ? 'package.json' : `${pkgDir}/package.json`;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    for (const [name, body] of Object.entries(manifest.scripts ?? {})) {
+      inspected += 1;
+      if (NOOP_SCRIPT.test(body)) {
+        out.push({
+          file: label, line: 1, rule: 'no-noop-script',
+          message:
+            `"${name}" is \`${body}\` — it exits 0 without doing anything, so ` +
+            'anything that runs it reports success. The project gate is the ' +
+            'root `pnpm lint`; if a package needs its own, it has to be able ' +
+            'to fail.',
+        });
+      }
+    }
+  }
+
+  if (inspected === 0) {
+    out.push({
+      file: 'scripts/lint.ts', line: 1, rule: 'no-noop-script',
+      message: 'no package.json scripts were read, so this rule verified nothing.',
+    });
+  }
+
+  return { issues: out, inspected };
+}
+
+/**
  * Every `bin` a package declares is a file npm installs as an executable.
  * When that file carries no shebang, npm does not wrap it — it copies the
  * file verbatim and the shell runs the copy as a script, so `import` is read
@@ -336,8 +461,33 @@ function deriveSourceFromTsconfig(pkgDir: string, target: string): string | null
 console.log('lint: tsc + custom rules');
 console.log('──────────────────────────────────────────────');
 
-// 1. tsc no-emit (all packages)
-console.log('1. tsc --noEmit (all packages)');
+// 1. build any package whose dist is stale, then tsc no-emit (all packages).
+// The build is part of the typecheck, not a step before it: the two have to
+// happen in this order in the same process, or the second one silently reads
+// the artefacts of the first one's previous run (R-33).
+console.log('1. packages + tsc --noEmit (all packages)');
+const packagesDir = join(REPO, 'packages');
+const packageCount = existsSync(packagesDir) ? readdirSync(packagesDir).length : 0;
+const stale = stalePackages();
+if (packageCount === 0) {
+  // Same guard as `checkPackageBins`: a loop over nothing stays green.
+  console.log('  \x1b[31m✗\x1b[0m no workspace packages found — this rule verified nothing');
+  process.exit(1);
+}
+if (stale.length > 0) {
+  console.log(
+    `  \x1b[33m!\x1b[0m dist is older than src in ${stale.join(', ')} — building before the typecheck`,
+  );
+  try {
+    execSync('pnpm --filter "./packages/*" build', { cwd: REPO, stdio: 'inherit' });
+    console.log(`  \x1b[32m✓\x1b[0m rebuilt ${stale.length} package(s)`);
+  } catch {
+    console.log('  \x1b[31m✗\x1b[0m package build failed');
+    process.exit(1);
+  }
+} else {
+  console.log(`  \x1b[32m✓\x1b[0m ${packageCount} package dist(s) are current`);
+}
 try {
   execSync('pnpm -r typecheck', { cwd: REPO, stdio: 'inherit' });
   console.log('  \x1b[32m✓\x1b[0m tsc clean');
@@ -358,6 +508,14 @@ const bins = checkPackageBins();
 issues.push(...bins.issues);
 if (bins.issues.length === 0) {
   console.log(`  \x1b[32m✓\x1b[0m ${bins.bins} bin target(s) declare a shebang`);
+}
+
+// 4. package.json scripts that cannot fail (R-26).
+console.log('4. package.json scripts');
+const noops = checkNoopScripts();
+issues.push(...noops.issues);
+if (noops.issues.length === 0) {
+  console.log(`  \x1b[32m✓\x1b[0m ${noops.inspected} script(s), none of them a no-op`);
 }
 
 if (issues.length === 0) {

@@ -28,6 +28,49 @@ const recipient =
 const port = Number.parseInt(process.env['PORT'] ?? '4093', 10);
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, '');
 
+/**
+ * The 402 body this script reads, declared once.
+ *
+ * It used to be declared twice — here and again as `renderMarkdown`'s
+ * parameter — and the copy at the call site drifted: it was still missing
+ * `resource`, `description` and `mimeType` when the server had been sending
+ * them for months. Nothing noticed, because nothing type-checked `scripts/`
+ * (R-31), and the smoke test that exists to prove the seller side is wired
+ * was asserting a shape the seller side had stopped sending.
+ *
+ * This is still a copy of the adapter's contract, not the contract itself —
+ * `PaymentChallenge.challenge` is deliberately `unknown`. Making the smoke
+ * script read the real type is part of R-31's batch; until then, one copy is
+ * one place to update.
+ */
+interface Audit402Body {
+  jobId: string;
+  status: string;
+  payment: {
+    paymentId: string;
+    mode: string;
+    amount: string;
+    currency: string;
+    challenge: {
+      x402Version: number;
+      accepts: Array<{
+        scheme: string;
+        network: string;
+        maxAmountRequired: string;
+        resource: string;
+        description: string;
+        mimeType: string;
+        payTo: string;
+        maxTimeoutSeconds: number;
+        asset: string;
+        extra?: Record<string, unknown>;
+      }>;
+    };
+    expiresAt: string;
+  };
+  nextAction: string;
+}
+
 function child(): ChildProcess {
   return spawn('node', ['apps/api/dist/server.js'], {
     cwd: REPO,
@@ -93,29 +136,7 @@ async function main(): Promise<void> {
         includeLaunchCopy: true,
       }),
     });
-    const body = (await res.json()) as {
-      jobId: string;
-      status: string;
-      payment: {
-        paymentId: string;
-        mode: string;
-        amount: string;
-        currency: string;
-        challenge: {
-          x402Version: number;
-          accepts: Array<{
-            scheme: string;
-            network: string;
-            maxAmountRequired: string;
-            payTo: string;
-            asset: string;
-            maxTimeoutSeconds: number;
-          }>;
-        };
-        expiresAt: string;
-      };
-      nextAction: string;
-    };
+    const body = (await res.json()) as Audit402Body;
     console.log(`✓ POST /api/v1/audits → ${res.status} in ${Date.now() - t0}ms`);
     console.log(`  paymentId : ${body.payment.paymentId}`);
     console.log(`  amount    : ${body.payment.amount} ${body.payment.currency}`);
@@ -168,33 +189,7 @@ async function main(): Promise<void> {
 }
 
 function renderMarkdown(
-  body: {
-    jobId: string;
-    status: string;
-    payment: {
-      paymentId: string;
-      mode: string;
-      amount: string;
-      currency: string;
-      challenge: {
-        x402Version: number;
-        accepts: Array<{
-          scheme: string;
-          network: string;
-          maxAmountRequired: string;
-          resource: string;
-          description: string;
-          mimeType: string;
-          payTo: string;
-          maxTimeoutSeconds: number;
-          asset: string;
-          extra?: Record<string, unknown>;
-        }>;
-      };
-      expiresAt: string;
-    };
-    nextAction: string;
-  },
+  body: Audit402Body,
   recipient: string,
   port: number,
 ): string {

@@ -16,6 +16,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/test-baseline.ts` — the test totals in `PROJECT_STATE.md` are now
+  generated and checked.** They were the one set of numbers in the repository
+  that nothing verified, and they drifted: the file said `1101` while the suite
+  reported `1108`, and the drift was found by running the tests rather than by
+  a gate. `docs-facts.ts` excludes test totals on purpose — a generator cannot
+  know them without running the suite, which would make the check circular — so
+  this one **consumes** a run instead of producing one: `verify:release` step
+  4b compares the documented totals against the transcript of the run step 4
+  just performed, per leg, and fails with both numbers when they disagree.
+  `pnpm test:baseline --write` regenerates them (running the suite, or from
+  `--from <transcript>`). It reports a parse failure as a failure rather than
+  as `0 passed`, which is R-26's shape.
+- **`no-noop-script`, a lint rule for `package.json` scripts that cannot
+  fail.** It reads every manifest — root, `packages/*`, `apps/*` — and reports
+  any script whose body is a bare `echo`, `true`, `:` or `exit 0`, because such
+  a script exits 0 without doing work and anything that runs it reports
+  success. It exists because five of them did: every package's `lint` script
+  was `echo skip-package-lint`, so `pnpm -r lint` — which `verify:release` ran
+  as its lint step — inspected nothing and passed (R-26). The rule is about
+  the body, not the name, because the name is what made `pnpm -r lint` look
+  like the gate; it carries the same `inspected === 0` guard as `bin-needs-shebang`
+  so a glob that matches no manifest is itself an issue.
+- **`scripts/lint.ts` builds a workspace package whose `dist` is older than its
+  `src`, before it type-checks.** R-33: `apps/*` reach `@repopilot/core`
+  through its `exports` field, so their `tsc --noEmit` reads `dist/*.d.ts` from
+  disk, and a stale `dist` makes the gate print `✓ tsc clean` about the
+  previous contract. The comparison is `newest(src)` vs `newest(dist)` per
+  package, it is conditional rather than an unconditional rebuild so a `lint`
+  command does not rewrite `dist` on every run, and it prints which packages it
+  rebuilt. CI's order (`build` then `lint`) is unaffected.
 - **`NonceStore`, the injectable home of the burned-nonce record.** One method,
   `burn(key): Promise<boolean>`, with `true` meaning "this call claimed it".
   `InMemoryNonceStore` is the adapter's default. The interface is declared in
@@ -743,6 +773,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`verify:release` step 2 runs the lint gate, not a stub of it.** It ran
+  `pnpm -r lint`, and every package's `lint` script was
+  `echo skip-package-lint`; the call was wrapped in `allowFail: true` inside a
+  `try`/`catch` that printed `SKIPPED (no lint configured)`. So the step could
+  not fail and checked nothing, while reporting OK. It runs `pnpm lint` now,
+  unwrapped. The five stub scripts are deleted, so `pnpm -r lint` fails loudly
+  instead of succeeding silently.
+- **`verify:release` step 5 no longer swallows a failed build.** `pnpm build`
+  was called with `allowFail: true`, so a build that failed printed OK and
+  surfaced two steps later as "the api did not answer `/health`" — or not at
+  all, when a `dist` from an earlier run was still on disk. Removing the flag
+  paid for itself on the first run: the step immediately reported a real
+  failure it had been reporting as OK. Steps 2–5 now also print their child's
+  **stdout**, not just its stderr — `execSync`'s error message carries only the
+  latter, and `tsc`, `vite`, `vitest` and `scripts/lint.ts` all write their
+  findings to the former, so a failing step used to read as
+  `Command failed: pnpm build` followed by nothing.
+- **`verify:release`'s startup wait reports *which* failure happened, and
+  carries the child's output.** Three cases, three messages: the process could
+  not be spawned (`'error'` leaves both `exitCode` and `signalCode` at `null`,
+  so this used to look identical to a slow start); the process exited, with its
+  code and its output; or the process is alive and silent, with the elapsed
+  time, the budget and the override. Both spawn sites discarded their child's
+  stdout and stderr, so the old single message —
+  `Timeout waiting for http://127.0.0.1:4099/health after 15000ms` — named the
+  symptom and hid the cause.
+- **`verify:release` gives the MCP child a deliberate environment instead of
+  the caller's.** `child()` merged `process.env` underneath whatever a call
+  site passed, so the step's `{ LOG_LEVEL: 'error' }` was 177 variables plus
+  one, including this IDE's
+  `NODE_OPTIONS=--require=…/node-language-shim.cjs`. That preload costs the
+  child ~20 s of startup (22.4 s against 1.9 s, measured), which the old 5 s
+  budget could not absorb — the gate failed on a server that was fine, for a
+  reason that is not in the repository. `child()` now passes the environment it
+  is given, exactly, and inheritance is written as `{ ...process.env, … }` at
+  the call sites that want it (the two API children, which make real HTTPS
+  calls to github.com and need the caller's CA bundle and proxy settings). The
+  MCP child gets `PATH`, `HOME` and `LOG_LEVEL`, which is what real MCP clients
+  pass: the SDK's own `StdioClientTransport` spawns servers with `HOME`, `PATH`,
+  `SHELL`, `TERM`, `USER` and nothing else. Testing the server the way its
+  clients run it is the point of the step, not a way around the problem.
 - **`buildPaymentAdapter(cfg, deps?)` takes a second argument.**
   `buildPaymentAdapter(cfg, { nonceStore })` forwards the store to the OKX
   adapter; the parameter is optional and `packages/mcp-server` still calls it
@@ -1208,6 +1279,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`RISKS.md` cited `R-42` fourteen times and never defined it.** The
+  references were spread across `RISKS.md` itself (including R-40's own
+  `Status` line), `BACKLOG.md`, `PROJECT_STATE.md` and this file, so a reader
+  following any of them arrived at nothing. The entry now exists: R-42 is the
+  durability gap in R-40's single-use rule — the burned `(from, nonce)` pairs
+  were a `Set` inside `OkxPaymentAdapter`, so a restart forgot every
+  authorization that had already been spent and a second replica kept its own
+  list. `R-41` is unused and the numbering jumps; the Contents list and the
+  reading guide say so rather than leaving the gap to be rediscovered.
+- **`verify:release`'s health budget was 15 s, and 15 s is not enough on this
+  machine.** The three hard-coded waits (15 000 ms for the API, 10 000 ms at
+  each of the two cache cases) are one named `STARTUP_TIMEOUT_MS`, default
+  60 000, overridable with `VERIFY_STARTUP_TIMEOUT_MS`. The number is a budget,
+  not a measurement: 15 s was measured against a 16 844 ms cold start, so the
+  gate failed locally on a codebase that was fine, and CI never saw it because
+  a clean runner starts well inside the old budget. The diagnostics described
+  in the Changed entry above are the part that matters; the number is the part
+  that stopped the false red.
+  Recorded honestly: a later 60 s run failed at the same step with "the
+  process is still running, and it wrote nothing", and a run of the same code
+  afterwards passed it comfortably inside a minute. That failure was not the
+  budget and was never reproduced — it is written down because the improved
+  message is what made it legible as a *third* case (alive and silent) instead
+  of as a slow start.
+- **`verify:release` step 13's 5 s budget was below what the MCP server needs
+  on a machine where `NODE_OPTIONS` injects a preload, and its failure message
+  had nothing after the colon.** The step waited a bare `5000` ms, discarded
+  the child's stderr (`proc.stderr.on('data', () => {})`), and then threw
+  ``no tools in response: `` followed by the empty string it had collected. It
+  now has a named budget (`MCP_TIMEOUT_MS`, default 30 000, overridable with
+  `VERIFY_MCP_TIMEOUT_MS`), the same three-state diagnostics as the health wait
+  (`whyItWillNeverAnswer` is shared by both so they cannot drift), and the
+  child's output. Measured: the server answers in 1.9 s without the IDE's
+  `NODE_OPTIONS` and 22.4 s with it, so the old budget could not pass here.
+- **The x402 challenge shape was declared twice in `okx-seller-smoke.ts`, and
+  the two copies disagreed.** The call-site annotation for the 402 body was
+  missing `resource`, `description` and `mimeType`, while `renderMarkdown`'s
+  parameter had them. Nothing noticed because nothing type-checked `scripts/`
+  (R-31) — so the smoke test that exists to prove the seller side is wired was
+  asserting a shape the seller side had stopped sending. Both are one
+  `Audit402Body` interface now. This is one of the errors a
+  `tsconfig.scripts.json` produces (56 at the time of writing, and the count
+  rises with every new script), and the only one of them that was a real bug
+  rather than a config artefact.
 - **One signed authorization could buy an audit again after a restart.** R-40
   made an EIP-3009 authorization single-use by burning the `(from, nonce)` pair
   on first successful verification, but the record was a `Set` inside the

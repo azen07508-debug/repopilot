@@ -64,6 +64,45 @@ Active risks the team is aware of and how they are mitigated.
   — The OKX paid endpoint answered 400 to every buyer before verifying anything
 - [R-40](#r-40--one-signed-authorization-bought-unlimited-audits)
   — One signed authorization bought unlimited audits
+- [R-42](#r-42--the-burned-nonce-record-lived-in-the-process-so-a-restart-re-opened-the-rail)
+  — The burned-nonce record lived in the process, so a restart re-opened the rail
+  (`R-41` is unused)
+
+---
+
+## How to read this file
+
+Forty-one entries (`R-41` is unused; the numbering jumps). The convention for
+writing down *what state an entry is in* is younger than most of the file, so
+the state is either on a `**Status:**` line or in the entry's own prose. Four
+values, and they mean different things:
+
+- **Fixed `<date>`** — the mitigation is in the tree, and the entry says what
+  would have to break for it to come back.
+- **Accepted residual** — a decision, not a deferral. The entry says why the
+  cost is worth paying and what would change the decision.
+- **Open** — work not done, with the reason it is not in this batch and the
+  trigger that would move it up.
+- **Mitigated in `<version>`** — the older spelling of *Fixed*, used by the
+  entries written during the `0.1.0-rc.*` work.
+
+Twenty of the forty-one carry a `**Status:**` line as of 2026-10-08, after the
+batch that closed R-26 and R-33. The other twenty-one predate the convention
+and were not touched by that batch; their state is in the prose ("Still open",
+"Mitigated by…"), or in the fact that nothing has been heard from them. Giving
+all of them a Status line is a documentation cleanup listed in `BACKLOG.md`, not
+a risk.
+
+The reason this section exists: "which of these are still open?" was, until
+now, only answerable by reading every entry end to end. Twenty-one of them say
+nothing greppable about their state, so a reader who searched for "open" got a
+partial answer that looked like a complete one.
+
+One more reading rule, learned the hard way in this batch: **a reference to an
+entry that does not exist is a defect, not a shorthand.** Fourteen references to
+`R-42` lived across four documents while no such entry existed, so every reader
+following one of them arrived at nothing. If you cite a risk, write it down in
+the same change.
 
 ---
 
@@ -511,7 +550,7 @@ contract test reports `pass` where `fail` is required.
 is strictly finer than the fingerprint alone. The gate now counts what
 the report lists.
 
-**Still open, by design:** `diffReports` keys on the fingerprint, so two
+**Accepted residual, by design:** `diffReports` keys on the fingerprint, so two
 hits removed from one line read as `resolved: 1`, and a report that added
 a second credential to a line already carrying one reads as `persistent`
 with no change. This is not an oversight to be fixed the same way:
@@ -573,7 +612,7 @@ like GitHub rate limiting rather than like a misconfiguration.
    forwarding `X-Forwarded-For`. Both checks were falsified: removing the
    header line and re-publishing the API on `0.0.0.0` each make it exit 1.
 
-**Still open, by design.** The `keyGenerator` is not changed. Preferring the
+**Accepted residual, by design.** The `keyGenerator` is not changed. Preferring the
 header is the correct behaviour behind a proxy, and dropping the loopback
 entries would break local development, where there is no proxy and the client
 genuinely is `127.0.0.1`. The fix belongs in deployment configuration, which is
@@ -584,6 +623,7 @@ it, so the trap is recorded here rather than left to be rediscovered.
 
 **Severity:** High
 **Likelihood:** Likely — every fresh deployment starts in this state
+**Status:** Accepted residual — decided, not deferred. See below.
 
 **What happens.** `/health` answers HTTP 200 in both the good and the bad
 state; only the body distinguishes them. `status: 'ok'` requires `dbOk &&
@@ -622,16 +662,26 @@ was also live until 2026-09-29, including in the docs — which presented
 3. `docs/DEPLOYMENT.md` names the step in every platform section that needs
    it, and describes what the failure looks like when it is missed.
 
-**Still open.** Nothing in the API distinguishes "I cannot serve" from "a probe
-failed", so no status-code-only check can detect this class. Changing that is a
-larger decision about what `/health` means; the deliberate 200 is recorded as a
-rejected alternative in D-031, so that the next person to meet this does not
-have to re-litigate it from first principles.
+**Why it is accepted, and what would change it.** Mitigated on the compose
+path by D-031 and documented in every platform section of
+`docs/DEPLOYMENT.md`; the deliberate 200 is recorded as a rejected alternative
+in D-031, so this is not a piece of unfinished work — it is a decision with a
+known cost.
+
+Nothing in the API distinguishes "I cannot serve" from "a probe failed", so no
+status-code-only check can detect this class. Changing that is a larger
+decision about what `/health` means, and it is a decision about the *product's*
+public contract, not about this gate: a readiness endpoint that answers 503
+until the schema is migrated is a different product promise from one that
+always answers 200 and puts the truth in the body. **The trigger to revisit it
+is the first non-compose deployment** — the first Railway, Render or plain-VPS
+install that someone other than us operates. Until there is one, the operator
+is the mitigation.
 
 ## R-26 — A check that never runs is indistinguishable from one that passes
 
 **Severity:** High
-**Likelihood:** Certain — it has already happened three times in this repository
+**Likelihood:** Certain — it has already happened five times in this repository
 
 **What happens.** A green dashboard means "nothing that ran found a problem",
 which is not the same claim as "nothing is wrong". When the thing that would
@@ -674,18 +724,44 @@ anyone is to ask whether it ever executes.
    rather than the repository (D-029 decision 7), so the mutations are
    documented in `DECISIONS.md` and `CHANGELOG.md` instead of being committed.
 
-**Still open.** `pnpm -r lint` is only as strong as each package's `lint`
-script, and every package's is `echo skip-package-lint` — the recursive form
-still checks nothing, and the real lint is the root `pnpm lint`, which only
-runs because `ci.yml` names it explicitly. The same question should be asked of
-every script in `package.json` before the next release: *what runs this, and
-what would it take for it to fail?*
+**Status:** **Fixed 2026-10-08 for the `lint` instance; the rule now has a
+mechanical tripwire.** Two more instances were found while closing this out,
+both inside the release verifier, and both are the same shape:
+
+1. **`verify:release` step 2 ran `pnpm -r lint`.** That is not the gate. Every
+   package's `lint` script was `echo skip-package-lint`, so the recursive form
+   exited 0 having inspected nothing — and the step was wrapped in
+   `allowFail: true` inside a `try`/`catch` that printed
+   `SKIPPED (no lint configured)`, so it could not fail either way. The
+   release verifier reported OK for a lint it never ran. It now runs
+   `pnpm lint`, unwrapped.
+2. **`verify:release` step 5 ran `pnpm build` with `allowFail: true`.** A
+   failed build printed OK and surfaced two steps later as "the api did not
+   answer `/health`" — or not at all, when a `dist` from an earlier run was
+   still on disk. The `allowFail` is gone.
+
+The five `echo skip-package-lint` stubs are deleted, so `pnpm -r lint` now
+fails loudly instead of succeeding silently. Deleting them alone would leave
+the pattern available to the next person, so `scripts/lint.ts` gained a fourth
+step, `no-noop-script`, which fails on **any** `package.json` script whose body
+is a bare `echo`, `true`, `:` or `exit 0` — the rule is about the body, not the
+name, because the name is what made `pnpm -r lint` look like the gate. It
+carries the same `inspected === 0` guard as the other rules.
+
+**Still open, and it is the general form.** The tripwire catches scripts that
+are obviously empty. It cannot catch a script that runs something which
+inspects nothing — `pnpm -r test` over a workspace whose `test` script is
+`vitest run --passWithNoTests`, or a check whose glob matches no files. For
+those the question remains a human one: *what runs this, and what would it take
+for it to fail?* Five instances now, and the last two were in the release
+verifier itself.
 
 ## R-27 — A check that can never pass is indistinguishable from one that found nothing
 
 **Severity:** High
 **Likelihood:** Certain — two instances in one session, both found by
 auditing real repositories rather than by reading the code
+**Status:** Accepted residual — the mitigation is a question, not a check.
 
 **What happens.** R-26 is about a check that never runs. This is its
 mirror: the check runs on every audit, and its answer is fixed before it
@@ -745,7 +821,7 @@ input can produce a yes, the check is not a check. That question is now
 the third one in the `mutation-check` skill, alongside the two it already
 asked.
 
-**Still open.** Nothing enforces rule 3 mechanically. It is a question a
+**Accepted residual.** Nothing enforces rule 3 mechanically. It is a question a
 reviewer has to ask, and the two instances here were both found by running
 the tool against real repositories — not by reading it. That is an argument
 for keeping the three-repository audit as a repeatable exercise rather than
@@ -755,6 +831,8 @@ a one-off.
 
 **Severity:** High
 **Likelihood:** Certain — measured on a real self-audit
+**Status:** Accepted residual — the test is the three-repository audit, run by
+hand. See below.
 
 **What happens.** A checklist row is a claim. When the claim is false in
 the *passing* direction, nothing in the report contradicts it: the row is
@@ -806,7 +884,7 @@ flatters it.
    failed" also says *which file* and *how many* — the information that
    lets a reader check the claim instead of trusting it.
 
-**Still open.** Nothing tests the *whole report* against a repository whose
+**Accepted residual.** Nothing tests the *whole report* against a repository whose
 correct answer is known. The three-repository audit is that test, run by
 hand. The self-audit is the hardest case of the three and it is the one
 that found all of this; it should be run before every release, and its
@@ -1135,7 +1213,9 @@ radius. Recorded rather than folded in.
 ## R-31 — The typecheck gate does not cover `scripts/`
 
 **Severity:** Medium
-**Likelihood:** Certain — measured on 2026-10-02
+**Likelihood:** Certain — measured on 2026-10-02, re-measured 2026-10-08 (56,
+then 55, then 56, then 52 — the number tracks how many scripts exist and how
+carefully they are written, not progress)
 
 **What happens.** `pnpm lint` step 1 runs `tsc --noEmit` and prints
 `Scope: 5 of 6 workspace projects` followed by `✓ tsc clean`. All five
@@ -1194,20 +1274,54 @@ directory, which is R-26's shape and R-28's shape.
 question "is `scripts/docs-facts.ts` typechecked at all" was asked about a
 change to that file. It is not.
 
-**Mitigation.** None yet, deliberately. It is a batch of its own, and doing
-half of it is worse than doing none: moving `"type": "module"` into
-`package.json` fixes four errors and produces no new coverage, while adding
-the tsconfig without moving the field produces four new failures. The batch
-is: a real `tsconfig.scripts.json`, `"type": "module"` moved to where it
-belongs, the root `tsconfig.json` replaced with something that is a tsconfig,
-`zod` declared at the root (or `env-check.ts` excluded with a reason), and
-the ~30 `noUncheckedIndexedAccess` sites worked through one at a time —
-starting with the `okx-seller-smoke.ts` mismatch, which is a finding in its
-own right.
+**Mitigation, in part.** One of the fifty-six errors was not a config
+artefact and is now fixed: the x402 `accepts[]` literal in
+`okx-seller-smoke.ts` was missing `resource`, `description` and `mimeType`, and
+the file declared the 402 body shape **twice** — once at the call site, once as
+`renderMarkdown`'s parameter — so the two copies could and did disagree. It is
+one `Audit402Body` interface now. The remaining errors are config and
+`noUncheckedIndexedAccess` noise, and they are still a batch of their own: doing
+half of it is worse than doing none, because moving `"type": "module"` into
+`package.json` fixes ten errors and produces no new coverage, while adding the
+tsconfig without moving the field produces ten new failures. The batch is: a
+real `tsconfig.scripts.json`, `"type": "module"` moved to where it belongs, the
+root `tsconfig.json` replaced with something that is a tsconfig, `zod`
+resolvable from the root (or `env-check.ts` excluded with a reason), and the
+`noUncheckedIndexedAccess` sites worked through one at a time.
 
-**Still open.** Until then, `scripts/` has no static checking, and the
-`✓ tsc clean` line should be read as covering five workspaces and nothing
-else.
+**Re-measured 2026-10-08, and the number moves with the code.** A
+`tsconfig.scripts.json` extending `tsconfig.base.json` with
+`"include": ["scripts/**/*.ts", "scripts/**/*.mts"]` produced **56** errors, up
+from the 51 measured on 2026-10-02 — five batches of new script code, none of it
+type-checked. It has since been 55 (fixing the one real error below), 56 again
+(this batch added `scripts/test-baseline.ts`, one more `import.meta`), and
+**52**, because refactoring `verify-release.ts` into a single `spawnChild`
+helper with optional chaining removed four `possibly null` sites. It is 52 now:
+
+| count | what |
+|---|---|
+| 10 | `TS1470` — one per file, `import.meta` not allowed, "files which will build into CommonJS output". Fixed by `"type": "module"` in the root `package.json`; there are no `.js` files at the root or in `scripts/`, so nothing else changes. |
+| 1 | `TS2307` — `env-check.ts` cannot resolve `zod`. It resolves at runtime (`pnpm env:check` runs in `verify:release` step 1), so this is a type-resolution difference, not a missing dependency — but it has to be understood before the gate can be added. |
+| 1 | `TS2454` + 3 × `TS2322` in `compose-check.ts` — `parsed` used before being assigned, and `process.exit` used where a `void` callback is expected. Real, and in the compose gate. |
+| 2 | `TS18047` — `proc.stdout` / `proc.stderr` possibly null, both in `okx-seller-smoke.ts`. Real. `verify-release.ts` used to contribute four; the `spawnChild` refactor removed them. |
+| 30 | The `noUncheckedIndexedAccess` family: 15 × `TS2345` ("argument of type `string \| undefined`"), 11 × `TS18048`, 4 × `TS2532`. Two thirds are in `docs-facts.ts` (23) and `lint.ts` (13), and they are mostly `lines[i]` reads whose bounds the enclosing loop already guarantees. This is the only group where the honest answer might be to narrow the flag for `scripts/` in the new tsconfig, with the reason written down. |
+
+Per file: `docs-facts.ts` 23, `lint.ts` 13, `compose-check.ts` 5,
+`okx-seller-smoke.ts` 3, `audit-diff.ts` 2, `env-check.ts` 2, and one each in
+`mcp-audit.ts`, `preflight-production.ts`, `test-baseline.ts`,
+`verify-release.ts`.
+
+**Status:** Open — deferred, with the batch above defined and the cost now
+measured twice. It is deferred because it is *tooling*: the product does not
+behave differently with the gate on, and the same week's budget bought the
+payment-path work in R-42 and the two gate fixes in R-26 and R-33, both of
+which changed what a green tick means. **The trigger to do it is the next time
+a real error is found in `scripts/` by hand** — which is now twice: the
+`api.kill` type error during R-42, and the `okx-seller-smoke.ts` mismatch
+above.
+
+Until then, `scripts/` has no static checking, and the `✓ tsc clean` line
+should be read as covering five workspaces and nothing else.
 
 
 ## R-32 — The injection rule reports the sentence that documents the injection rule
@@ -1309,19 +1423,41 @@ that the local gate had already approved. This is the second time a CI-only
 failure has been traced to a local gate that was not the gate the reader
 thought it was.
 
-**Mitigation.** None yet, deliberately. The fix is small — build the workspace
-packages before the typecheck in `scripts/lint.ts`, or make the local gate run
-CI's order — but it is a change *to a gate*, and landing it inside the R-30
-batch would have made the next CI failure ambiguous between "the fix was
-wrong" and "the gate was still wrong". It gets its own batch, with a test that
-proves the order is enforced rather than merely written down.
+**Status:** **Fixed 2026-10-08.** `scripts/lint.ts` step 1 is now "packages +
+`tsc --noEmit`" rather than "`tsc --noEmit`": before it type-checks, it
+compares each workspace package's newest `src` mtime against its newest `dist`
+mtime, and builds the ones whose `dist` is older — in the same step, in the
+same process, printing which packages it rebuilt. CI's order (`build` then
+`lint`, `.github/workflows/ci.yml:127`) is unaffected: when the dists are
+current the comparison costs one `stat` per file and prints a tick.
 
-**Still open.** Until then, `pnpm lint` is not the gate CI runs, and a local
-green is not evidence about `apps/*` after any change to `packages/core`'s
-public types. Build first:
+**The build is conditional, and that is deliberate.** A `lint` command that
+rewrites `dist` on every run is a `lint` command that surprises people, and an
+unconditional build would also have hidden the defect: the gate would have
+been *silently* correct instead of *visibly* doing something about a stale
+tree.
+
+**How the fix was verified.** Not by reading it. A core public type was
+changed without rebuilding, and `pnpm lint` was run in both states:
+
+| state | before the fix | after the fix |
+|---|---|---|
+| `packages/core/dist` stale, one contract violation | `✓ tsc clean` | `! dist is older than src in packages/core — building before the typecheck` → `✓ rebuilt 1 package(s)` → **the real error, from `apps/api`** |
+
+The fix is also the reason the second violation is no longer hidden: the
+typecheck now runs against the source it was written against, so it reports
+every consumer that disagrees instead of only the ones whose `dist` happened
+to be rebuilt.
+
+**What is still true.** `pnpm typecheck` — the standalone script, which
+`ci.yml:137` runs after `lint` — does not build first, and neither does a bare
+`tsc -p apps/api/tsconfig.json`. Both are still capable of reading a stale
+`dist`; the difference is that they are no longer the gate, and the gate is
+what a reader trusts. Anyone running them by hand after a change to core's
+public types should build first:
 
 ```
-pnpm --filter "./packages/*" build && pnpm lint
+pnpm --filter "./packages/*" build && pnpm -r typecheck
 ```
 
 **Related.** R-31 (a gate whose scope is narrower than it looks), D-034 (the
@@ -1925,3 +2061,58 @@ the pre-fix run above, not by that mutation.
 payment at all), R-38 (a declared capability with no consumer), D-011 (each POST
 mints a fresh `paymentId` — which is *why* there is always a new challenge to
 point a stale signature at).
+
+## R-42 — The burned-nonce record lived in the process, so a restart re-opened the rail
+
+**Severity:** High
+**Likelihood:** Certain — it happened on every restart and on every second
+replica, which is the normal state of a deployed service
+**Status:** **Fixed 2026-10-08 (R-40's follow-up).** See below.
+
+**What happens.** R-40 made an EIP-3009 authorization single-use: the first
+successful verification burns the `(from, nonce)` pair so a replayed signature
+is refused. The record of what had been burned was a `Set` inside
+`OkxPaymentAdapter` — which means it was a record of what *that process* had
+burned. Two consequences, both silent:
+
+1. **A restart forgets everything.** `docker compose restart api` re-opens every
+   authorization that was already spent, and nothing in the logs says so: the
+   replay verifies, the nonce is absent from the fresh `Set`, and the audit runs
+   a second time for a payment that was already made.
+2. **A second replica has its own memory.** `docker-compose.yml` runs one `api`
+   service, but nothing stops a deployment from scaling it, and behind a load
+   balancer a replay only has to land on a different instance to be accepted.
+
+The guard was correct about *what* to remember and wrong about *where* to keep
+it. This is the same shape as R-16 (an in-process queue) one layer down: state
+that has to outlive the process, kept in the process.
+
+**Why this entry is written now, and what it fixes.** Fourteen references to
+`R-42` existed across `RISKS.md`, `BACKLOG.md`, `PROJECT_STATE.md` and
+`CHANGELOG.md` — including R-40's own `Status` line — and no entry by that name
+was ever written. The references were added with the fix and the entry was not,
+so the file pointed at itself from four directions and a reader following any of
+them arrived at nothing. Writing it down is the last piece of the fix, not
+paperwork about it. (`R-41` is unused; the numbering jumps.)
+
+**What the fix is.** The burn is a call on an injected `NonceStore`
+(`packages/okx-adapter/src/nonce-store.ts`) with one method,
+`burn(key): Promise<boolean>`, where `true` means "this call claimed it". The
+adapter's default is still `InMemoryNonceStore`, so nothing changes for a
+single-process deployment; `apps/api` injects a store that survives a restart
+and is shared between replicas. `packages/mcp-server` deliberately keeps the
+in-memory default, because it verifies payments only in mock mode and never
+reaches a nonce. The interface is declared rather than concrete because the
+question "does this survive a restart" is answered by the *caller*, which is the
+only place that knows whether there is a second replica.
+
+**What is still true.** `InMemoryNonceStore` is the adapter's default, so a
+caller that forgets to inject one gets the old behaviour. That is deliberate —
+the default has to be usable by the tests and by `mcp-server` — and it is
+recorded here rather than left as a trap, together with the pinning test
+(`refuses a replay after a restart, when both processes share the store`) that
+makes the injected path the one with evidence behind it.
+
+**Related.** R-40 (the single-use rule this makes durable), D-040 (a guard that
+must survive a restart cannot live in the process), R-16 (the same mistake in
+the queue), D-039 (a queue name belongs to the database, not the process).

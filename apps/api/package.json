@@ -17,8 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts",
-    "lint": "echo skip-package-lint"
+    "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

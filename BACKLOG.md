@@ -66,6 +66,66 @@ Tracked work, in priority order, updated as items are completed.
 
 ## P1 — post-rc.2
 
+- [x] **The lint gate builds before it type-checks.** Done in R-33. `apps/*`
+  reach `@repopilot/core` through its `exports` field, so their `tsc --noEmit`
+  reads `dist/*.d.ts` from disk; a stale `dist` made `pnpm lint` print
+  `✓ tsc clean` about the previous contract — and it did, hiding two
+  independent violations that CI found. `scripts/lint.ts` step 1 now compares
+  each package's newest `src` mtime against its newest `dist` mtime and builds
+  the ones whose `dist` is older, in the same step, printing which it rebuilt.
+  Conditional rather than unconditional so a `lint` run does not rewrite `dist`
+  on every invocation and so a stale tree is a fact the gate *reports* rather
+  than one it silently repairs. `DECISIONS.md` D-041.
+- [x] **A step that cannot fail is not a step.** Done in R-26. `verify:release`
+  step 2 ran `pnpm -r lint` — five `echo skip-package-lint` stubs — with
+  `allowFail: true` inside a `try`/`catch`, so the release verifier reported OK
+  for a lint it never ran; step 5 ran `pnpm build` with `allowFail: true`, so a
+  failed build printed OK and surfaced as "the api did not answer `/health`" or
+  not at all. The stubs are deleted, both `allowFail`s are gone, step 2 runs
+  the real gate and prints its output, and `scripts/lint.ts` gained
+  `no-noop-script` — it reports any manifest script whose body is a bare
+  `echo`, `true`, `:` or `exit 0`. `DECISIONS.md` D-042.
+- [ ] **Type-check `scripts/`.** R-31, still open and now measured twice:
+  a `tsconfig.scripts.json` over `scripts/**/*.ts` produces **52** errors
+  (51 when the risk was written on 2026-10-02; 56 on 2026-10-08, 55 after the
+  `okx-seller-smoke.ts` fix, 56 when this batch added `scripts/test-baseline.ts`,
+  and 52 once the `verify-release.ts` refactor removed four `possibly null`
+  sites — the number tracks the code, not progress). Ten are `TS1470`, one per
+  file, and go away with `"type": "module"` in the root `package.json`; one is
+  `zod` resolving at runtime but not for `tsc`; two are real null-safety sites
+  in `okx-seller-smoke.ts`; the remaining thirty are the
+  `noUncheckedIndexedAccess` family, two thirds of them in `docs-facts.ts` (23)
+  and `lint.ts` (13) — the only group where narrowing the flag for `scripts/`,
+  with the reason written down, may be the honest answer. All-or-nothing: the
+  config cannot land until the count is zero. It has now cost two real errors
+  found by hand (`api.kill` during R-42, the x402 `accepts[]` mismatch), which
+  is the trigger written into `RISKS.md` R-31.
+- [ ] **Check the Postgres test baseline in CI.** `scripts/test-baseline.ts`
+  landed with `verify:release` step 4b, but `verify:release` runs in CI's
+  sqlite leg only (`.github/workflows/ci.yml:187`), so the
+  `**postgres**` line in `PROJECT_STATE.md` is verified by **nothing**. The
+  fix is small and needs a transcript: the existing `Test` step captures
+  `pnpm -r test | tee "$RUNNER_TEMP/test-output.txt"` with
+  `set -o pipefail` (without it the pipeline returns `tee`'s exit code and a
+  failing suite reports success — the trap that makes this more than a
+  one-liner), then a `pnpm test:baseline --check --from
+  "$RUNNER_TEMP/test-output.txt"` step runs on both legs, each checking its
+  own line. Not done in the same batch as the generator because it is a CI
+  behaviour change that cannot be exercised locally, and a gate change that
+  lands unverified is how R-33 happened.
+- [x] **The test baseline in `PROJECT_STATE.md` is generated and checked.**
+  Done — `scripts/test-baseline.ts`. It had drifted in this batch (the file
+  said 1101 while the suite reported 1108) and the drift was found by running
+  the tests, not by a gate. `scripts/docs-facts.ts` excludes test totals on
+  purpose — a generator cannot know them without running the suite, which
+  would make the check circular — so this one **consumes** a run instead of
+  producing one: `verify:release` step 4b parses the transcript of the run
+  step 4 just performed and compares it against the generated block in
+  `PROJECT_STATE.md`, per leg, failing with both numbers when they disagree.
+  `pnpm test:baseline --write` regenerates the block. Two properties are
+  load-bearing and both are mutation-tested: a transcript with no summary
+  lines reports a **parse failure**, not `0 passed` (R-26's shape), and a
+  drifted total reports both numbers rather than "mismatch".
 - [x] **Persist the burned authorization nonces.** Done in R-42. The burn is a
   call on an injected `NonceStore` (`packages/okx-adapter/src/nonce-store.ts`)
   instead of `OkxPaymentAdapter`'s in-process `Set`, and `apps/api` injects
@@ -109,6 +169,24 @@ Tracked work, in priority order, updated as items are completed.
 
 ## P2 — backlog
 
+- [ ] **`scripts/okx-seller-smoke.ts` has the startup-wait defect that was just
+  fixed in `verify:release.ts`, in a third copy.** `waitForHealth(15_000)`
+  hard-codes the same budget that was too short on a cold start, and the script
+  discards the child's stdout and stderr (`proc.stdout.on('data', () => {})`),
+  so a server that died on a port clash produces one message that names the
+  symptom and hides the cause. Not in the R-26/R-33 batch on purpose: it is not
+  run in CI, so the cost of leaving it is a confusing local failure rather than
+  a false green, and mixing an unrelated refactor into a gate-fix commit makes
+  the next CI failure ambiguous. The fix is to reuse the three-state wait
+  (`spawnError` / exited / alive-and-silent) that `verify-release.ts` now has —
+  which probably means lifting it into a small shared module rather than
+  copying it a fourth time.
+- [ ] **Give every entry in `RISKS.md` a `Status:` line.** Twenty of forty-one
+  have one as of 2026-10-08; the other twenty-one predate the convention and
+  are closed in fact rather than in form. Without the line, "which of these are
+  still open?" is only answerable by reading every entry end to end — a search
+  for "open" returns a partial answer that looks complete. A one-line-per-entry
+  sweep, then the convention is uniform and the grep is reliable.
 - [ ] Drizzle migration generator for Postgres (currently the SQLite schema
   is hand-written; would be nice to drive it from `drizzle-kit generate`)
 - [ ] Admin UI: job list / job detail (currently only a single-shot form)

@@ -8,8 +8,7 @@
     "dev": "vite",
     "preview": "vite preview --port 4173",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo skip-package-lint"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@repopilot/core": "workspace:*",

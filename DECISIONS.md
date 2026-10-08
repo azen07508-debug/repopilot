@@ -72,6 +72,10 @@ Architecture Decision Records (ADR-style, lightweight).
   — A queue name belongs to the database, not the process
 - [D-040](#d-040--a-guard-that-must-survive-a-restart-cannot-live-in-the-process)
   — A guard that must survive a restart cannot live in the process
+- [D-041](#d-041--a-gate-that-reads-build-artefacts-owns-the-build)
+  — A gate that reads build artefacts owns the build
+- [D-042](#d-042--a-script-that-cannot-fail-is-a-script-that-reports-success)
+  — A script that cannot fail is a script that reports success
 
 ---
 
@@ -2247,3 +2251,129 @@ this, so the topology is checked in two places that do not need it:
     correct, and a test that wants an adapter has to build a store to get one.
     The default lives on the adapter so that there is exactly one of it.
 
+## D-041 — A gate that reads build artefacts owns the build
+
+**Date:** 2026-10-08
+**Status:** Accepted
+
+**Context.** `apps/web` and `apps/api` import `@repopilot/core` through its
+`exports` field, which points at `./dist`. Their `tsc --noEmit` therefore reads
+`dist/*.d.ts` **from disk**, not from `packages/core/src`. `scripts/lint.ts`
+ran `pnpm -r typecheck` as its first step and never built, so whenever core's
+source changed and its `dist` was not rebuilt the gate validated the apps
+against the *previous* contract and printed `✓ tsc clean`.
+
+This is not hypothetical. It happened: `pnpm lint` was green locally while CI
+failed on a missing `Report.omittedSections`, and rebuilding first revealed a
+**second** independent violation the stale `dist` had been hiding. One stale
+artefact masked two contract breaks, and the local gate was the weaker of the
+two while looking identical.
+
+**Decision.** The step that type-checks also builds. Before `pnpm -r typecheck`
+runs, `scripts/lint.ts` compares each workspace package's newest `src` mtime
+against its newest `dist` mtime and builds the packages whose `dist` is older,
+in the same step, printing which ones it rebuilt.
+
+**Why the build is conditional rather than unconditional.** Two reasons, and
+the second is the one that decided it:
+
+1. A `lint` command that rewrites `dist` on every run is a `lint` command that
+   surprises people. CI already builds before linting, so an unconditional
+   build would be pure cost on the path that runs most often.
+2. An unconditional build would have hidden the defect rather than fixed it.
+   The gate would have been *silently* correct. With the comparison, a stale
+   tree is a fact the gate reports — `! dist is older than src in
+   packages/core — building before the typecheck` — and a reader learns that
+   the thing they were about to trust had been wrong a moment ago.
+
+**Why not make the apps resolve core from source instead.** `paths` in the
+apps' tsconfigs would remove the staleness entirely, and it was considered
+first. It fails for a concrete reason: the apps' `tsc -p` **emits**, so pulling
+`packages/core/src` into the apps' program would write core's compiled output
+into `apps/api/dist/`. A typecheck-only tsconfig would fix the gate and leave
+`pnpm build` — and every other consumer of `dist` — on the old behaviour.
+
+**What this does not cover.** `pnpm typecheck` and a bare
+`tsc -p apps/api/tsconfig.json` still do not build, and still read whatever
+`dist` is on disk. They are no longer the gate, which is the part that matters,
+but a reader running them by hand after a change to core's public types should
+build first.
+
+**Alternatives rejected.**
+
+- **Leave it and document "build first".** That was the state for five days.
+  A requirement that lives in prose and nowhere else is not enforced; the
+  person who needs it is the person who has not read the prose.
+- **Make CI's order the only order and delete the local gate.** The local gate
+  is the one that runs most often, and CI's order is itself only written down
+  in a workflow file.
+- **Fail when `dist` is stale and make the operator build.** Strongest of the
+  three, and rejected on friction: it makes `pnpm lint` fail for a reason the
+  gate can fix itself, every time someone edits core. The failure message would
+  be read as noise within a week.
+
+**Related.** R-33 (the risk), R-31 (a gate whose scope is narrower than it
+looks), D-034 (the scope of a check is part of the check), D-042.
+
+
+## D-042 — A script that cannot fail is a script that reports success
+
+**Date:** 2026-10-08
+**Status:** Accepted
+
+**Context.** Every package's `lint` script was `echo skip-package-lint`. The
+root gate is `pnpm lint`, but `pnpm -r lint` was a five-line no-op that exited
+0 — and `scripts/verify-release.ts` step 2 ran exactly that, with
+`allowFail: true`, inside a `try`/`catch` that printed
+`SKIPPED (no lint configured)`. The release verifier reported OK for a lint it
+never ran.
+
+Two more instances were found in the same file while closing this out: step 5
+ran `pnpm build` with `allowFail: true`, so a failed build printed OK and
+surfaced two steps later as "the api did not answer `/health`" — or not at all,
+when a `dist` from an earlier run was still on disk.
+
+**Decision.** Three things, and they are one decision:
+
+1. **Delete the stubs.** `pnpm -r lint` now fails loudly instead of succeeding
+   silently. A check that does not exist is easier to read than a check that
+   exists and does nothing.
+2. **A step that cannot fail is not a step.** The `allowFail` on the lint and
+   build steps is gone; a failure there is reported where it happened.
+3. **Add `no-noop-script` to `scripts/lint.ts`.** It reads every manifest —
+   root, `packages/*`, `apps/*` — and reports any script whose body is a bare
+   `echo`, `true`, `:` or `exit 0`.
+
+**Why the rule looks at the body and not the name.** The name is what made
+`pnpm -r lint` look like the gate. A rule keyed on the name `lint` would have
+passed the next stub, named something else.
+
+**Why a rule at all, rather than just deleting them.** Deleting five scripts
+fixes today. The pattern is what recurs — five instances in this repository —
+and the rule is what makes a sixth visible. It carries the same
+`inspected === 0` guard as `bin-needs-shebang`, because a glob that matches no
+manifest would otherwise make the rule report success.
+
+**What it cannot catch, and this is the honest limit.** The rule catches
+scripts that are *obviously* empty. It cannot catch a script that runs
+something which inspects nothing — `pnpm -r test` over a workspace whose `test`
+script is `vitest run --passWithNoTests`, or a check whose glob matches no
+files. For those the question stays a human one: *what runs this, and what
+would it take for it to fail?* That question is the reason the rule exists, and
+the rule is not a substitute for asking it.
+
+**Alternatives rejected.**
+
+- **Make each package's `lint` script real (`tsc -p tsconfig.json --noEmit`).**
+  It would remove the lie while keeping the surface, and the surface is the
+  problem: `pnpm -r lint` would return green while missing the custom rules,
+  the package-bin check, the no-op-script check and the scripts typecheck.
+  Green would still mean less than it looked like.
+- **Keep `allowFail` on the build step, because the next step would catch it.**
+  It would not always: the API runs from `apps/api/dist/server.js`, so a build
+  that failed while an older `dist` was on disk produces a green run against
+  the previous build. That is R-33's shape in a third place.
+- **Key the rule on a list of known-noop commands.** The list is the thing that
+  goes stale; the shape of a body that does no work does not.
+
+**Related.** R-26 (the risk), D-041, D-034.
