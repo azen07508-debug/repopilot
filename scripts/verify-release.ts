@@ -210,6 +210,25 @@ const STARTUP_TIMEOUT_MS = Number(process.env['VERIFY_STARTUP_TIMEOUT_MS'] ?? 60
  */
 const MCP_TIMEOUT_MS = Number(process.env['VERIFY_MCP_TIMEOUT_MS'] ?? 30_000);
 
+/**
+ * How long to wait for an audit job to reach a terminal state.
+ *
+ * A budget, not a measurement — the same reasoning as `STARTUP_TIMEOUT_MS`,
+ * and the third instance of the same defect in this file. The old value was a
+ * bare `90_000` default on `pollUntilDone`, and the cache-miss case it guards
+ * runs a real GitHub crawl whose observed baseline is ~57 s: under 2× headroom.
+ * It failed on 2026-10-08 while the proxy's selected node changed underneath
+ * the run, which is not a defect in this repository and is not something a
+ * fixed wall-clock guess can absorb. 180 s, overridable with
+ * `VERIFY_JOB_TIMEOUT_MS`.
+ *
+ * Note what a timeout here does *not* mean: `pollUntilDone` returns as soon as
+ * the job is `completed` **or** `failed`, so reaching the budget means the job
+ * never left `queued`/`processing` — it is slow, not broken. The message says
+ * which of the two it was last seen in, because they are different problems.
+ */
+const JOB_TIMEOUT_MS = Number(process.env['VERIFY_JOB_TIMEOUT_MS'] ?? 180_000);
+
 /** A spawned child process, plus the tail of what it has written. */
 interface SpawnedChild {
   proc: ChildProcess;
@@ -257,11 +276,25 @@ function spawnChild(
   return { proc, output: () => log, spawnError: () => failed };
 }
 
-/** The child's last few lines, prefixed, for an error message. */
+/**
+ * The child's last few lines, prefixed, for an error message.
+ *
+ * Each line is capped, because a JSON-RPC child writes its entire `tools/list`
+ * payload on one line: the first version of this printed all of it, so the
+ * failure report was ~12 KB of JSON whose first line — the only part that says
+ * what went wrong — was buried. A report nobody reads is not a diagnostic.
+ */
+const MAX_REPORTED_LINE = 400;
+
 function lastOutput(text: string): string {
   const lines = text.trimEnd().split('\n').slice(-25);
   if (lines.length === 1 && lines[0] === '') return '    (the process wrote nothing)';
-  return lines.map((l) => `    | ${l}`).join('\n');
+  return lines
+    .map((l) =>
+      l.length > MAX_REPORTED_LINE ? `${l.slice(0, MAX_REPORTED_LINE)}… (+${l.length - MAX_REPORTED_LINE} chars)` : l,
+    )
+    .map((l) => `    | ${l}`)
+    .join('\n');
 }
 
 /**
@@ -273,6 +306,12 @@ function lastOutput(text: string): string {
  * `signalCode` at `null` (see `spawnError`), and an exited child will not come
  * back; in each case the child's own output is the whole diagnosis and the
  * budget is just time spent not reading it.
+ *
+ * Note what this does **not** mean: an exited child is not necessarily an
+ * unhelpful one. A stdio server is *supposed* to answer and then exit when its
+ * stdin closes, so a caller must check whether the answer already arrived
+ * before asking this — see `waitForOutput`, where getting that order wrong made
+ * the step fail on CI against a server that had answered correctly.
  *
  * Shared by `waitForApi` and `waitForOutput` so the two cannot drift: the
  * second one was written with none of this, which is how it came to report an
@@ -346,9 +385,18 @@ async function waitForOutput(
 ): Promise<string> {
   const t0 = Date.now();
   while (Date.now() - t0 < MCP_TIMEOUT_MS) {
+    // The answer is checked **before** liveness, and that order is the point.
+    // A stdio server answers and then exits when its stdin closes, so
+    // `exitCode === 0` alongside the answer already in the buffer is success,
+    // not death. Checking liveness first made this step fail in CI against a
+    // server that had answered correctly: the child finished inside a single
+    // 200 ms poll interval, so the loop's first look saw an exited process and
+    // a perfectly good `tools/list` in the same buffer, and reported the
+    // former. It passed locally only because this machine is slow enough to
+    // lose that race — which is why the bug reached CI at all.
+    if (pattern.test(c.output())) return c.output();
     const dead = whyItWillNeverAnswer(c, label, what);
     if (dead) throw new Error(dead);
-    if (pattern.test(c.output())) return c.output();
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(
@@ -374,18 +422,33 @@ interface AuditJobResult {
 async function pollUntilDone(
   port: number,
   jobId: string,
-  timeoutMs = 90_000,
+  timeoutMs = JOB_TIMEOUT_MS,
 ): Promise<AuditJobResult> {
   const t0 = Date.now();
+  // Tracked so the timeout can say what the job was last doing. `queued` and
+  // `processing` need different investigations, and the old message said
+  // neither — it named the job id and the number of milliseconds, which is the
+  // symptom and not the state.
+  let last = '(the API never answered)';
   while (Date.now() - t0 < timeoutMs) {
     const res = await fetch(`http://127.0.0.1:${port}/api/v1/audits/${jobId}`);
     if (res.status === 200) {
       const body = (await res.json()) as AuditJobResult;
       if (body.status === 'completed' || body.status === 'failed') return body;
+      last = body.status;
+    } else {
+      last = `HTTP ${res.status}`;
     }
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error(`Timeout waiting for job ${jobId} after ${timeoutMs}ms`);
+  throw new Error(
+    `job ${jobId} was still ${last} after ${timeoutMs}ms. This is a budget, not ` +
+      `a check on the audit — the job runs a real GitHub crawl, so raise ` +
+      `VERIFY_JOB_TIMEOUT_MS on a slow connection or when the proxy is changing ` +
+      `node. If it never left queued/processing, the usual cause is GitHub's ` +
+      `anonymous API limit — 60 requests per hour per IP, and one audit spends ` +
+      `many — in which case set GITHUB_TOKEN, which raises the limit to 5 000.`,
+  );
 }
 
 async function main(): Promise<void> {

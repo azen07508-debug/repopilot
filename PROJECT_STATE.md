@@ -350,16 +350,32 @@ knowable by running the suite.
   Retry-After, cache miss/hit, cache disabled, free-check 200. Its lint step now
   runs the real gate rather than `pnpm -r lint`, its build step can fail, and
   step 4b checks the generated test totals against the run step 4 just
-  performed)
+  performed. The audit steps need real GitHub access, and **without
+  `GITHUB_TOKEN` they share the anonymous limit of 60 requests per hour per
+  IP — which one run can spend**, after which the cache case sits in
+  `processing` until its budget expires. Set `GITHUB_TOKEN` (5 000/hour) for a
+  local run, or read a timeout there as a quota problem before reading it as a
+  hang)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit
   lifecycle, cache miss/hit, cache disabled
 - MCP smoke: stdio initialize + tools/list
-- **`pnpm verify:release` all green (2026-07-19 12:38 UTC).** 17 steps pass, including live
-  `octocat/Hello-World` audit (3s, full report, score 45.2/100), cache miss/hit, cache
-  disabled, free-check, MCP stdio tools/list. Fixed bug: `AuditWorker.classify()` regex
-  `/not found|404/` was case-sensitive; GitHub's "Not Found" (capital N/F) didn't match,
-  so 404s fell through to `UPSTREAM_FAILED` (retryable=true) and stuck the inline queue
-  at `processing` forever. Added `/i` flag, rebuilt, retest → 1434ms.
+- **`pnpm verify:release` all green (2026-10-08).** 16 steps pass, including a live
+  `octocat/Hello-World` audit, cache miss/hit, cache disabled, free-check and MCP stdio
+  `tools/list`. The count is 16, not the 17 this line carried until today: that number came
+  from a 2026-07-19 run and nothing recounted it, which is the same defect as the test
+  totals — a number written down confidently and never checked.
+- **The gate is ~8× slower on this machine than in CI, and it is not the code.** 21 m 48 s
+  end to end here (`test` 662 s, `build` 302 s, `lint` 83 s), against 2 m 10 s–2 m 40 s per
+  leg on GitHub's runners. The cause is an injected `NODE_OPTIONS` preload, which costs
+  every child process ~20 s of startup and which this gate pays dozens of times over:
+  `pnpm test:mcp` takes 61 s with it and 13 s without, over the same 42 tests, with the
+  `tests` phase unchanged (448 ms against 555 ms) and only `collect` moving (49 s → 10 s).
+  Unset `NODE_OPTIONS` before timing the gate locally, or the numbers are about the IDE.
+- **A 2026-07-19 run found a real bug and the fix is still in the tree.**
+  `AuditWorker.classify()`'s regex `/not found|404/` was case-sensitive; GitHub's
+  "Not Found" (capital N/F) did not match, so 404s fell through to `UPSTREAM_FAILED`
+  (retryable=true) and stuck the inline queue at `processing` forever. Adding the `/i`
+  flag fixed it (retest → 1434 ms).
 - **`onchainos 4.2.6` binary** downloaded and preflight-passed (BLOCKING step complete).
   `web3.okx.com` is unreachable from the sandbox (HTTP CONNECT times out) so the actual
   wallet login must run on the user's host. See `docs/OKX_LIVE_INTEGRATION.md`.

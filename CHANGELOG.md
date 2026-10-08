@@ -1279,6 +1279,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`verify:release`'s audit-job budget was a bare `90_000`, under 2× the
+  measured baseline, and its timeout message named neither the job's state nor
+  the override.** The cache-miss case runs a real GitHub crawl with an observed
+  baseline of ~57 s, so 90 s had little headroom — and a run on 2026-10-08
+  timed out there while the proxy's selected node changed underneath it. That is
+  an environment event rather than a defect in this repository, but it is also
+  the thing a fixed wall-clock guess cannot absorb, which is why the guess was
+  the wrong instrument. It is `JOB_TIMEOUT_MS` now (180 s, overridable with
+  `VERIFY_JOB_TIMEOUT_MS`), and the timeout reports the status the job was last
+  seen in, because `queued` and `processing` are different investigations. Note
+  what a timeout here does not mean: `pollUntilDone` returns on `completed` or
+  `failed` alike, so reaching the budget means the job never went terminal — it
+  is slow, not broken. Third budget in this file fixed the same way, after the
+  15 s health wait and the 5 s MCP wait.
+  The cause of both timeouts was then found, and it is worth writing down
+  because the message had been pointing away from it: the proxy's exit IP had
+  exhausted GitHub's **anonymous** API limit — `GET /rate_limit` reported
+  `core: {limit: 60, remaining: 0, used: 60}` and a plain
+  `GET /repos/octocat/Hello-World` answered 403. The audit never left
+  `processing` because it could not read the repository, and the first run of
+  the day had passed this same step in 57 s before the quota was spent. The
+  timeout message now names that as the likely cause and points at
+  `GITHUB_TOKEN` (5 000 requests per hour), rather than leaving a reader to
+  conclude the audit code had hung.
+- **`verify:release` step 13 failed in CI against a server that had answered
+  correctly — and the bug was in the fix, not the server.** The new
+  `waitForOutput` asked whether the child had exited *before* asking whether it
+  had answered, and a stdio server is supposed to do both: it writes the
+  `tools/list` result and then exits when its stdin closes. On CI the child
+  finished inside a single 200 ms poll interval, so the loop's first look saw
+  `exitCode === 0` and a perfectly good answer in the same buffer, and reported
+  `mcp server exited before answering tools/list (code=0, signal=null)`. It
+  passed locally only because this machine is slow enough to lose that race,
+  which makes this the one place in the batch where the local run was the
+  *less* trustworthy signal and CI was right. The answer is checked first now,
+  so an exited child that answered is success. The same failure exposed a
+  second problem: `lastOutput` printed the child's entire `tools/list` payload
+  — ~12 KB on one line — which buried the single line that said what happened.
+  Lines are capped at 400 characters.
 - **`RISKS.md` cited `R-42` fourteen times and never defined it.** The
   references were spread across `RISKS.md` itself (including R-40's own
   `Status` line), `BACKLOG.md`, `PROJECT_STATE.md` and this file, so a reader
