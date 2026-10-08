@@ -447,7 +447,9 @@ async function pollUntilDone(
       `VERIFY_JOB_TIMEOUT_MS on a slow connection or when the proxy is changing ` +
       `node. If it never left queued/processing, the usual cause is GitHub's ` +
       `anonymous API limit — 60 requests per hour per IP, and one audit spends ` +
-      `many — in which case set GITHUB_TOKEN, which raises the limit to 5 000.`,
+      `many — in which case set GITHUB_TOKEN, which raises the limit to 5 000. ` +
+      `Check that before reading this as a hang: if the quota is fine, the job ` +
+      `is not slow, it is stuck, and R-43 is where that is written down.`,
   );
 }
 

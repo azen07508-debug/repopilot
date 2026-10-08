@@ -1303,6 +1303,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeout message now names that as the likely cause and points at
   `GITHUB_TOKEN` (5 000 requests per hour), rather than leaving a reader to
   conclude the audit code had hung.
+  A later timeout at step 11b had a **different** cause, and the same
+  investigation ruled the quota out rather than settling for it: `/rate_limit`
+  reported 52 of 60 requests remaining while that job sat at HTTP 202. That one
+  is R-43 — the inline queue driver has neither a retry nor a job deadline, so a
+  *retryable* failure leaves the row in `processing` forever. It is recorded as
+  a risk and a `BACKLOG.md` item rather than fixed here, because it is a
+  behaviour change to product code that needs its own test.
 - **`verify:release` step 13 failed in CI against a server that had answered
   correctly — and the bug was in the fix, not the server.** The new
   `waitForOutput` asked whether the child had exited *before* asking whether it

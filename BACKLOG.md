@@ -85,6 +85,19 @@ Tracked work, in priority order, updated as items are completed.
   the real gate and prints its output, and `scripts/lint.ts` gained
   `no-noop-script` — it reports any manifest script whose body is a bare
   `echo`, `true`, `:` or `exit 0`. `DECISIONS.md` D-042.
+- [ ] **Give the inline queue a deadline and a terminal state.** R-43, found by
+  this batch. `AuditWorker.runOnce` reverts a *retryable* failure to
+  `processing` and re-throws so the queue can re-deliver; `pg-boss` re-delivers
+  and expires the job at `expireInSeconds` (300 s), while `buildAuditQueue`
+  hands the inline driver neither `retryLimit` nor `jobTimeoutMs` and
+  `InlineAuditQueue.dispatch()` swallows the throw — so the row stays
+  `processing` and nothing moves it. Reachable in local dev, tests and
+  `verify:release`, not in production (R-16 refuses the driver there). Fix:
+  wrap `runOne` in the `AUDIT_QUEUE_JOB_TIMEOUT_MS` that `build-queue.ts`
+  already reads, and mark the row `failed` with `errorCode: 'UPSTREAM_FAILED'`
+  on expiry or on a thrown retryable error. Needs a test pinning that a
+  retryable failure on the inline driver reaches a terminal state — which is
+  why it is not in this batch.
 - [ ] **Type-check `scripts/`.** R-31, still open and now measured twice:
   a `tsconfig.scripts.json` over `scripts/**/*.ts` produces **52** errors
   (51 when the risk was written on 2026-10-02; 56 on 2026-10-08, 55 after the

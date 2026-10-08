@@ -67,12 +67,14 @@ Active risks the team is aware of and how they are mitigated.
 - [R-42](#r-42--the-burned-nonce-record-lived-in-the-process-so-a-restart-re-opened-the-rail)
   — The burned-nonce record lived in the process, so a restart re-opened the rail
   (`R-41` is unused)
+- [R-43](#r-43--the-inline-queue-never-retries-and-never-terminates-a-retryable-failure)
+  — The inline queue never retries and never terminates a retryable failure
 
 ---
 
 ## How to read this file
 
-Forty-one entries (`R-41` is unused; the numbering jumps). The convention for
+Forty-two entries (`R-41` is unused; the numbering jumps). The convention for
 writing down *what state an entry is in* is younger than most of the file, so
 the state is either on a `**Status:**` line or in the entry's own prose. Four
 values, and they mean different things:
@@ -86,8 +88,8 @@ values, and they mean different things:
 - **Mitigated in `<version>`** — the older spelling of *Fixed*, used by the
   entries written during the `0.1.0-rc.*` work.
 
-Twenty of the forty-one carry a `**Status:**` line as of 2026-10-08, after the
-batch that closed R-26 and R-33. The other twenty-one predate the convention
+Twenty-one of the forty-two carry a `**Status:**` line as of 2026-10-08, after
+the batch that closed R-26 and R-33 and added R-43. The other twenty-one predate the convention
 and were not touched by that batch; their state is in the prose ("Still open",
 "Mitigated by…"), or in the fact that nothing has been heard from them. Giving
 all of them a Status line is a documentation cleanup listed in `BACKLOG.md`, not
@@ -2116,3 +2118,59 @@ makes the injected path the one with evidence behind it.
 **Related.** R-40 (the single-use rule this makes durable), D-040 (a guard that
 must survive a restart cannot live in the process), R-16 (the same mistake in
 the queue), D-039 (a queue name belongs to the database, not the process).
+
+---
+
+## R-43 — The inline queue never retries and never terminates a retryable failure
+
+**Severity:** Low
+**Likelihood:** Confirmed — observed in `verify:release` on 2026-10-08
+**Status:** Open — found by this batch, recorded rather than fixed in it.
+
+**What happens.** `AuditWorker.runOnce` classifies a failure, and when the
+classification is *retryable* it deliberately leaves the row in `processing` —
+"revert to processing so we are honest about state" — and re-throws so the queue
+can re-deliver. The `pg-boss` driver does exactly that, and bounds the whole
+thing with `expireInSeconds` (300 s, derived from `AUDIT_QUEUE_JOB_TIMEOUT_MS`).
+The **inline** driver does neither. `buildAuditQueue` reads `retryLimit` and
+`jobTimeoutMs` and then passes the inline branch only `runOne`,
+`shutdownGraceMs` and `concurrency`; `InlineAuditQueue.dispatch()` catches the
+throw and logs `audit job failed in InlineAuditQueue`. No retry, no terminal
+transition — so the row stays `processing` and nothing in the process will ever
+move it.
+
+**Why Low and not High.** Production cannot select the inline driver:
+`config.ts` refuses `NODE_ENV=production` with `AUDIT_QUEUE_DRIVER=inline`
+(R-16), so this is reachable in local development, in tests and in
+`verify:release`, not by a paying caller. What it costs there is a job row that
+never goes terminal and a client that polls `GET /audits/:jobId` forever.
+
+**Evidence.** `verify:release` step 11b audits a deliberately non-existent
+repository and polls its job to a terminal state. It passed in 1 505 ms on the
+first run of the day; on a later run the same step sat at HTTP 202 until the
+gate's own budget expired. The two runs differ in *how the request failed*, and
+that is the whole story: a clean 404 classifies as `REPO_NOT_FOUND`
+(`retryable: false`), which the worker marks `failed` immediately, but a
+*network* failure on the same request falls through `classify`'s regex
+heuristic to `UPSTREAM_FAILED` (`retryable: true`) — the one path with no way
+out. GitHub's anonymous rate limit was **not** the cause that time:
+`/rate_limit` reported 52 of 60 requests remaining while the job sat there,
+which is what ruled the quota explanation out rather than leaving it as a
+plausible story.
+
+**What the fix is.** Give the inline driver the bounds the pg-boss driver has,
+because `runOnce`'s contract assumes a queue that re-delivers and a queue that
+expires. Concretely: wrap `runOne` in a deadline from the
+`AUDIT_QUEUE_JOB_TIMEOUT_MS` that `build-queue.ts` already reads and then drops
+for this driver, and on expiry — or on a thrown retryable error — mark the row
+`failed` with `errorCode: 'UPSTREAM_FAILED'`, the terminal state a client
+already understands. It needs a test pinning "a retryable failure on the inline
+driver reaches a terminal state", which is why it is a batch of its own rather
+than a line added to the end of this one. It is listed in `BACKLOG.md`.
+
+**Related.** R-16 (the inline driver reaching production — a different property
+of the same driver), R-42 and D-039 (state that must outlive the process),
+`apps/api/src/services/job-service.ts`, whose state diagram says
+`processing -> failed (terminal, after retries)` — true of the pg-boss path
+only, and the diagram is the reason the gap was not obvious from the worker
+alone.
