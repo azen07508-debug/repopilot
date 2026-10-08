@@ -19,6 +19,10 @@
  *     schedule a second run.
  *   - `stop()` is a graceful drain: it refuses new enqueues, then waits
  *     up to `SHUTDOWN_GRACE_PERIOD_MS` for in-flight tasks.
+ *   - A job that fails is re-attempted up to `retryLimit` times. The worker
+ *     signals "another attempt is warranted" by throwing, and stops throwing
+ *     once its own budget is spent — so this loop is the whole of the driver's
+ *     retry policy, and it never has to know how many attempts are left.
  *   - The queue can never be silently selected in production: the
  *     config validator refuses `NODE_ENV=production + AUDIT_QUEUE_DRIVER=inline`.
  */
@@ -31,8 +35,17 @@ import type {
 } from './audit-queue.js';
 
 export interface InlineAuditQueueDeps {
-  /** Invokes the actual audit logic for one jobId. */
+  /** Invokes the actual audit logic for one jobId. One call is one attempt. */
   runOne: (jobId: string) => Promise<void>;
+  /**
+   * How many times a failed job may be re-attempted, after the first attempt.
+   * Mirrors `AUDIT_QUEUE_RETRY_LIMIT`, which is also what pg-boss's own
+   * `retryLimit` is set to, so both drivers make the same number of attempts
+   * for the same configuration.
+   *
+   * Default 0. A driver handed no budget must not invent one.
+   */
+  retryLimit?: number;
   /** How long `stop()` waits for in-flight jobs to drain. */
   shutdownGraceMs: number;
   /** Max parallel jobs. Default 1. */
@@ -53,6 +66,7 @@ export class InlineAuditQueue implements AuditQueue {
   readonly driver: AuditQueueDriver = 'inline';
 
   private readonly runOne: InlineAuditQueueDeps['runOne'];
+  private readonly retryLimit: number;
   private readonly shutdownGraceMs: number;
   private readonly concurrency: number;
   private readonly log: NoopLogger;
@@ -67,6 +81,7 @@ export class InlineAuditQueue implements AuditQueue {
 
   constructor(deps: InlineAuditQueueDeps) {
     this.runOne = deps.runOne;
+    this.retryLimit = Math.max(0, deps.retryLimit ?? 0);
     this.shutdownGraceMs = deps.shutdownGraceMs;
     this.concurrency = Math.max(1, deps.concurrency);
     this.log = deps.log ?? NOOP_LOG;
@@ -149,9 +164,13 @@ export class InlineAuditQueue implements AuditQueue {
       const p = this.runJob(jobId)
         // eslint-disable-next-line no-floating-promise
         .catch((err: unknown) => {
+          // `runJob` consumes the failures it knows how to consume, so reaching
+          // here means something threw past it — the logger itself, or a bug in
+          // the loop. Kept as a net so that becomes a log line rather than an
+          // unhandled rejection.
           this.log.warn(
             { jobId, err: (err as Error)?.message ?? 'unknown' },
-            'audit job failed in InlineAuditQueue',
+            'audit job threw past InlineAuditQueue',
           );
         })
         // eslint-disable-next-line no-floating-promise
@@ -171,9 +190,41 @@ export class InlineAuditQueue implements AuditQueue {
     }
   }
 
+  /**
+   * One job, attempted up to `retryLimit + 1` times.
+   *
+   * The worker throws to ask for another attempt and stops throwing once its
+   * budget is spent — on the last one it writes the terminal state itself — so
+   * this loop spends a budget rather than deciding anything. That split is
+   * deliberate: only the row knows how many attempts it has had, and the inline
+   * driver has no other way to find out.
+   */
   private async runJob(jobId: string): Promise<void> {
     try {
-      await this.runOne(jobId);
+      let lastErr: unknown;
+      for (let attempt = 0; attempt <= this.retryLimit; attempt++) {
+        try {
+          await this.runOne(jobId);
+          return;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      // Every attempt was thrown away without the worker getting as far as the
+      // row — a DB error on the way in, most likely, since anything after the
+      // take is recorded and terminal-led by the worker itself. Deliberately
+      // *not* marked `failed` here: `failed` is terminal, and a job that was
+      // never audited should not be permanently failed by a hiccup that may
+      // well be transient. It stays `queued`, which is true, and is logged
+      // because nothing else will mention it.
+      this.log.warn(
+        {
+          jobId,
+          attempts: this.retryLimit + 1,
+          err: (lastErr as Error)?.message ?? 'unknown',
+        },
+        'audit job never reached the worker; leaving it queued',
+      );
     } finally {
       this.inFlight.delete(jobId);
     }

@@ -16,6 +16,13 @@
  *   - `inline`: in-process scheduler (SQLite / tests / `verify:release`)
  *   - `pg-boss`: pg-boss backed by PostgreSQL (production, multi-replica)
  *
+ * Both drivers are given the same three bounds — concurrency, `retryLimit` and
+ * a per-attempt deadline — because the worker's contract assumes a caller that
+ * re-delivers a thrown failure and stops somewhere. The inline branch used to
+ * receive only `concurrency` and `shutdownGraceMs`: the other two were read
+ * from config and dropped, so a retryable failure parked the row in
+ * `processing` with nothing left to move it (R-43).
+ *
  * Production guards (R-02) live in `config.ts::validateProductionConfig`:
  * the API process refuses to start with `PAYMENT_MODE=mock` in
  * production, and the worker process refuses to start with
@@ -100,6 +107,8 @@ export function buildAuditQueue(deps: BuildAuditQueueDeps): AuditQueue {
     cacheEnabled: deps.cacheEnabled,
     metadataAnalyzer: deps.metadataAnalyzer,
     allowedHosts: deps.allowedHosts,
+    retryLimit,
+    jobTimeoutMs,
     log: logShim,
   });
 
@@ -117,7 +126,13 @@ export function buildAuditQueue(deps: BuildAuditQueueDeps): AuditQueue {
       },
       concurrency,
       retryLimit,
-      expireInSeconds: Math.max(60, Math.ceil(jobTimeoutMs / 1000)),
+      // pg-boss's expiry is the outer net, for a handler stuck somewhere the
+      // worker's own deadline does not reach. It needs headroom: pg-boss
+      // expires the job by killing it, without giving the worker a chance to
+      // write the row's terminal state, so when the two bounds are equal which
+      // one wins is a coin flip — and losing it leaves the row in whatever
+      // state the aborted attempt last wrote.
+      expireInSeconds: Math.max(60, Math.ceil(jobTimeoutMs / 1000) + 30),
       consume: deps.consumeOverride,
       log: logShim,
     });
@@ -127,6 +142,7 @@ export function buildAuditQueue(deps: BuildAuditQueueDeps): AuditQueue {
     runOne: async (jobId) => {
       await worker.runOnce(jobId);
     },
+    retryLimit,
     shutdownGraceMs,
     concurrency,
     log: logShim,

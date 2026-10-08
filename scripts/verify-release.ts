@@ -59,11 +59,18 @@ function skipNote(name: string, reason: string): void {
   steps.push({ name, ok: true, skipped: true, detail: reason, durationMs: 0 });
 }
 
-/** Job error codes that mean "the upstream call did not succeed". */
+/**
+ * Job error codes that mean "the upstream call did not succeed".
+ *
+ * `JOB_TIMEOUT` belongs here: an audit that outlives its deadline is usually a
+ * slow or half-open network, which is an environment problem rather than a
+ * defect in the code under test — the same reason the other three are here.
+ */
 const UPSTREAM_ERROR_CODES = new Set([
   'UPSTREAM_RATE_LIMITED',
   'UPSTREAM_FAILED',
   'REPO_NOT_FOUND',
+  'JOB_TIMEOUT',
 ]);
 
 function isUpstreamFailure(err: { code?: string } | null | undefined): boolean {

@@ -1,6 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // `dist` belongs to `vite build`, which empties it before writing. `tsc` is
+    // in the build only to type-check (`--noEmit`), so nothing here is emitted.
+    // With emit on it wrote 61 files that the very next command deleted: work
+    // whose result is discarded, and — under any bulk-delete guard — a build
+    // that cannot be run twice. `outDir` stays because it documents which
+    // directory vite owns; do not re-enable emit against it.
     "outDir": "./dist",
     "rootDir": "./src",
     "jsx": "react-jsx",

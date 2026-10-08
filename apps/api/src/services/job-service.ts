@@ -9,9 +9,17 @@
  * pipeline + cache.
  *
  * Lifecycle states (state machine):
- *   queued     -> processing     (worker takes the job)
- *   processing -> completed      (pipeline + cache OK)
- *   processing -> failed         (terminal, after retries)
+ *   queued      -> processing    (a worker claims the job)
+ *   processing  -> completed     (pipeline + cache OK)
+ *   processing  -> queued        (retryable failure, and an attempt left)
+ *   processing  -> failed        (terminal: permanent failure, or out of attempts)
+ *
+ * `processing -> queued` is the retry edge, and it is spelled out here because
+ * its absence was R-43: a retryable failure used to be left in `processing`,
+ * which both understated what was happening and blocked the retry — the worker
+ * skips a job it finds in `processing`. `processing -> failed (terminal, after
+ * retries)` was true of neither driver until the attempt budget moved into the
+ * worker.
  */
 import { randomUUID } from 'node:crypto';
 import {

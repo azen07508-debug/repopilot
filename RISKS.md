@@ -67,7 +67,7 @@ Active risks the team is aware of and how they are mitigated.
 - [R-42](#r-42--the-burned-nonce-record-lived-in-the-process-so-a-restart-re-opened-the-rail)
   — The burned-nonce record lived in the process, so a restart re-opened the rail
   (`R-41` is unused)
-- [R-43](#r-43--the-inline-queue-never-retries-and-never-terminates-a-retryable-failure)
+- [R-43](#r-43--a-retryable-failure-could-reach-no-terminal-state-on-either-driver)
   — The inline queue never retries and never terminates a retryable failure
 
 ---
@@ -89,8 +89,10 @@ values, and they mean different things:
   entries written during the `0.1.0-rc.*` work.
 
 Twenty-one of the forty-two carry a `**Status:**` line as of 2026-10-08, after
-the batch that closed R-26 and R-33 and added R-43. The other twenty-one predate the convention
-and were not touched by that batch; their state is in the prose ("Still open",
+the batch that closed R-26 and R-33 and added R-43. The batch that fixed R-43
+moved its line from *Open* to *Fixed* without changing either total. The other
+twenty-one predate the convention
+and were not touched by those batches; their state is in the prose ("Still open",
 "Mitigated by…"), or in the fact that nothing has been heard from them. Giving
 all of them a Status line is a documentation cleanup listed in `BACKLOG.md`, not
 a risk.
@@ -2121,29 +2123,41 @@ the queue), D-039 (a queue name belongs to the database, not the process).
 
 ---
 
-## R-43 — The inline queue never retries and never terminates a retryable failure
+## R-43 — A retryable failure could reach no terminal state, on either driver
 
 **Severity:** Low
 **Likelihood:** Confirmed — observed in `verify:release` on 2026-10-08
-**Status:** Open — found by this batch, recorded rather than fixed in it.
+**Status:** Fixed 2026-10-08 — the attempt budget and the deadline moved into
+`AuditWorker`, and both drivers now spend the same one. See *What the fix is*
+for the two things this entry got wrong before the fix was written.
 
 **What happens.** `AuditWorker.runOnce` classifies a failure, and when the
-classification is *retryable* it deliberately leaves the row in `processing` —
-"revert to processing so we are honest about state" — and re-throws so the queue
-can re-deliver. The `pg-boss` driver does exactly that, and bounds the whole
-thing with `expireInSeconds` (300 s, derived from `AUDIT_QUEUE_JOB_TIMEOUT_MS`).
-The **inline** driver does neither. `buildAuditQueue` reads `retryLimit` and
-`jobTimeoutMs` and then passes the inline branch only `runOne`,
-`shutdownGraceMs` and `concurrency`; `InlineAuditQueue.dispatch()` catches the
-throw and logs `audit job failed in InlineAuditQueue`. No retry, no terminal
-transition — so the row stays `processing` and nothing in the process will ever
-move it.
+classification is *retryable* it deliberately leaves the row for the queue to
+re-deliver. Nothing did.
+
+The **inline** driver did not re-deliver at all: `buildAuditQueue` read
+`retryLimit` and `jobTimeoutMs` and then passed the inline branch only `runOne`,
+`shutdownGraceMs` and `concurrency`, and `InlineAuditQueue.dispatch()` caught the
+throw and logged it. No retry, no terminal transition.
+
+The **pg-boss** driver did re-deliver — and it made no difference, which is the
+part this entry missed when it was written. The worker parked the row in
+`processing`, and `runOnce` opens by skipping a job it finds in `processing`
+("another worker is already running this"). So the redelivery arrived, found its
+own previous attempt's leftovers, and returned without running anything.
+`retryLimit` was configured, read, and meaningless. That `processing` was also
+just untrue — nothing was processing it.
+
+Either way the row never left `processing`, and nothing in the system would ever
+move it. The only three writers of `status: 'failed'` are the worker's terminal
+branch, `JobService.fail()` (which the worker does not call) and the HTTP layer;
+there is no sweep or reconcile anywhere in the repository.
 
 **Why Low and not High.** Production cannot select the inline driver:
 `config.ts` refuses `NODE_ENV=production` with `AUDIT_QUEUE_DRIVER=inline`
-(R-16), so this is reachable in local development, in tests and in
-`verify:release`, not by a paying caller. What it costs there is a job row that
-never goes terminal and a client that polls `GET /audits/:jobId` forever.
+(R-16). But the pg-boss half is reachable by a paying caller, so what this
+actually cost production was the same thing it cost `verify:release`: a job row
+that never goes terminal and a client that polls `GET /audits/:jobId` forever.
 
 **Evidence.** `verify:release` step 11b audits a deliberately non-existent
 repository and polls its job to a terminal state. It passed in 1 505 ms on the
@@ -2158,19 +2172,57 @@ out. GitHub's anonymous rate limit was **not** the cause that time:
 which is what ruled the quota explanation out rather than leaving it as a
 plausible story.
 
-**What the fix is.** Give the inline driver the bounds the pg-boss driver has,
-because `runOnce`'s contract assumes a queue that re-delivers and a queue that
-expires. Concretely: wrap `runOne` in a deadline from the
-`AUDIT_QUEUE_JOB_TIMEOUT_MS` that `build-queue.ts` already reads and then drops
-for this driver, and on expiry — or on a thrown retryable error — mark the row
-`failed` with `errorCode: 'UPSTREAM_FAILED'`, the terminal state a client
-already understands. It needs a test pinning "a retryable failure on the inline
-driver reaches a terminal state", which is why it is a batch of its own rather
-than a line added to the end of this one. It is listed in `BACKLOG.md`.
+Step 11b is a good witness because it was already asserting the right thing.
+Its comment read "The queue retries once, then the job ends in `failed` state" —
+true of neither driver until this fix, and nobody had checked.
+
+**What the fix is.** The attempt budget and the deadline belong to the row and
+the worker, not to the driver, because only the row knows how many attempts it
+has had and pg-boss cannot tell the handler anything the row does not already
+say. Concretely, in `AuditWorker`:
+
+- The take increments `attempts`. A failure is terminal when the classification
+  is permanent **or** when `attempts` has reached `retryLimit + 1`.
+- A retryable failure with an attempt left parks the row in `queued`, not
+  `processing` — true, and claimable by the guarded take, which is what makes
+  the redelivery a retry instead of a no-op.
+- One attempt is wrapped in a `AUDIT_QUEUE_JOB_TIMEOUT_MS` deadline, reported as
+  the new `JOB_TIMEOUT` code. Without it a hang is the one failure no retry
+  logic reaches: `catch` never runs.
+
+`buildAuditQueue` now hands the inline driver the same `retryLimit` the pg-boss
+driver gets, and `InlineAuditQueue` re-invokes `runOne` while the worker keeps
+throwing. pg-boss's `expireInSeconds` gained 30 s of headroom over the worker's
+deadline, because pg-boss's expiry kills the job without letting the worker
+write the row — when the two bounds are equal, which one fires first is a coin
+flip.
+
+Two things this entry had wrong, both caught while writing the fix:
+
+- It named `errorCode: 'UPSTREAM_FAILED'` for the expiry. That reports a cause
+  nobody observed: a hung request is not a rejected one, and the two want
+  different responses. Hence `JOB_TIMEOUT`.
+- It scoped the defect to the inline driver. The pg-boss path was equally
+  broken, one layer down, and a fix that only covered inline would have left the
+  invariant false in production — the one place it is reachable.
+
+**Residual, deliberately not fixed here.** `classify` tests
+`/rate limit|429|403/` before `/not found|404/i`, unanchored, so a repo whose
+name contains a bare `403` classifies as rate-limited (retryable) rather than
+not-found (terminal). This fix shrinks the blast radius from "the row hangs
+forever" to "one wasted retry", which is why it is now a nuisance rather than a
+defect. Also unfixed, and larger: a job whose row cannot be *read* — a DB error
+before the take — is left `queued` by the inline driver and logged, not
+finalised. Finalising it would mark a job that was never audited as permanently
+failed on the strength of a hiccup that may well be transient, and the write
+would probably fail too. A sweep for stale non-terminal rows is the real answer
+and is R-42's territory.
 
 **Related.** R-16 (the inline driver reaching production — a different property
 of the same driver), R-42 and D-039 (state that must outlive the process),
-`apps/api/src/services/job-service.ts`, whose state diagram says
-`processing -> failed (terminal, after retries)` — true of the pg-boss path
-only, and the diagram is the reason the gap was not obvious from the worker
-alone.
+`apps/api/src/services/job-service.ts`, whose state diagram said
+`processing -> failed (terminal, after retries)` — true of neither path, and the
+diagram is part of the reason the gap was not obvious from the worker alone. The
+tests are `apps/api/src/services/audit-worker.test.ts`, and all three mutations
+of this fix (park in `processing` again, drop the exhaustion check, remove the
+deadline) turn them red.

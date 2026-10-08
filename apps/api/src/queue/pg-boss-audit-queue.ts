@@ -12,6 +12,14 @@
  *     configured value (default 1). pg-boss's built-in retry handles
  *     transient errors; the worker classifies errors so the queue
  *     does NOT retry permanent ones (e.g. invalid URL, repo not found).
+ *   - A redelivery is only a retry if the row is claimable when it arrives.
+ *     The worker parks a retryable failure back in `queued` for exactly that
+ *     reason: it skips a job it finds in `processing`, so a row left there made
+ *     pg-boss's retry a delivery that ran nothing (R-43). `retryLimit` is only
+ *     meaningful in combination with that.
+ *   - `expireInSeconds` is the outer bound and is set above the worker's own
+ *     per-attempt deadline, which is the inner one. pg-boss's expiry kills the
+ *     job without letting the worker write the row, so it must not fire first.
  *   - The worker is idempotent: it uses the job-state-machine
  *     (queued -> processing -> completed | failed) in the `jobs` table
  *     to make sure a redelivery cannot create a duplicate report or

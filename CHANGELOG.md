@@ -1279,6 +1279,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed audit job could reach no terminal state, on either queue driver.**
+  R-43, and wider than the risk was first written: the entry named the inline
+  driver, but pg-boss had the same defect one layer down. `AuditWorker.runOnce`
+  left a *retryable* failure in `processing` and re-threw so the queue could
+  re-deliver. The inline driver never re-delivered and never terminated
+  (`buildAuditQueue` read `retryLimit` and `jobTimeoutMs` and passed the inline
+  branch neither, and `dispatch()` caught the throw and logged it). pg-boss did
+  re-deliver — and it made no difference, because `runOnce` skips a job it finds
+  in `processing`, so the redelivery arrived, found its own previous attempt's
+  leftovers, and returned without running anything. `retryLimit` was
+  configured, read, and meaningless on both drivers. The consequence is a job
+  row that never goes terminal and a client that polls `GET /audits/:jobId`
+  forever; the only three writers of `status: 'failed'` are the worker's
+  terminal branch, `JobService.fail()` (which the worker does not call) and the
+  HTTP layer, and there is no sweep anywhere in the repository.
+  `verify:release` step 11b is the witness — it polls a job for a deliberately
+  non-existent repository to a terminal state and carried the comment "The queue
+  retries once, then the job ends in `failed` state", which was true of neither
+  driver.
+  The fix moves the attempt budget and the deadline into the worker, because
+  only the row knows how many attempts it has had and pg-boss cannot tell the
+  handler anything the row does not already say: the take increments `attempts`,
+  a failure is terminal when the classification is permanent **or** the budget
+  (`retryLimit + 1`) is spent, a retryable failure with an attempt left parks
+  the row in `queued` — true, and claimable by the guarded take, which is what
+  makes a redelivery a retry instead of a no-op — and one attempt is wrapped in
+  `AUDIT_QUEUE_JOB_TIMEOUT_MS`. `buildAuditQueue` now hands the inline driver
+  the same `retryLimit` pg-boss gets, and pg-boss's `expireInSeconds` gained
+  30 s of headroom over the worker's deadline, since pg-boss's expiry kills the
+  job without letting the worker write the row.
+  `apps/api/src/services/audit-worker.test.ts` pins the invariant, and three
+  mutations of the fix turn it red: parking the row in `processing` again,
+  dropping the exhaustion check, and removing the deadline.
+- **A job that outlived its deadline was reported as an upstream failure.**
+  A new `JOB_TIMEOUT` code, because `UPSTREAM_FAILED` claims a cause nobody
+  observed — a hung request is not a rejected one, and the two want different
+  responses. `scripts/verify-release.ts` treats it as environmental alongside
+  the three existing upstream codes, for the same reason: a slow or half-open
+  network is not a defect in the code under test.
+- **`apps/web`'s build emitted 61 files that the next command deleted.**
+  `build` was `tsc -p tsconfig.json && vite build`, and both write `./dist` —
+  `tsc` from its `outDir`, `vite` from `build.outDir`. `vite build` empties its
+  output directory before writing, so every file `tsc` produced was gone by the
+  time the build finished, and nothing consumes them either way: `@repopilot/web`
+  is private with no `main`, `exports`, `types` or `files`, no package depends on
+  it, and the `web` image serves `dist` as static files. `tsc` is in that script
+  only to type-check — the package already had a `typecheck` script saying so —
+  so it is `--noEmit` now. Found by trying to run `verify:release` twice: the
+  second run's `vite build` had 61 files to empty, which trips any bulk-delete
+  guard, so the gate could not be re-run in this environment. The wasted emit was
+  the cause; the guard was only the messenger. Same family as this batch's other
+  findings — a step whose output is discarded is work that cannot be verified,
+  because there is nothing to look at.
 - **`verify:release`'s audit-job budget was a bare `90_000`, under 2× the
   measured baseline, and its timeout message named neither the job's state nor
   the override.** The cache-miss case runs a real GitHub crawl with an observed

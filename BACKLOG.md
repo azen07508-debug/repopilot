@@ -85,19 +85,37 @@ Tracked work, in priority order, updated as items are completed.
   the real gate and prints its output, and `scripts/lint.ts` gained
   `no-noop-script` — it reports any manifest script whose body is a bare
   `echo`, `true`, `:` or `exit 0`. `DECISIONS.md` D-042.
-- [ ] **Give the inline queue a deadline and a terminal state.** R-43, found by
-  this batch. `AuditWorker.runOnce` reverts a *retryable* failure to
-  `processing` and re-throws so the queue can re-deliver; `pg-boss` re-delivers
-  and expires the job at `expireInSeconds` (300 s), while `buildAuditQueue`
-  hands the inline driver neither `retryLimit` nor `jobTimeoutMs` and
-  `InlineAuditQueue.dispatch()` swallows the throw — so the row stays
-  `processing` and nothing moves it. Reachable in local dev, tests and
-  `verify:release`, not in production (R-16 refuses the driver there). Fix:
-  wrap `runOne` in the `AUDIT_QUEUE_JOB_TIMEOUT_MS` that `build-queue.ts`
-  already reads, and mark the row `failed` with `errorCode: 'UPSTREAM_FAILED'`
-  on expiry or on a thrown retryable error. Needs a test pinning that a
-  retryable failure on the inline driver reaches a terminal state — which is
-  why it is not in this batch.
+- [x] **`apps/web`'s build emitted 61 files that the next command deleted.**
+  Done, and found by trying to run the gate twice. `build` was
+  `tsc -p tsconfig.json && vite build` with both writing `./dist`, and
+  `vite build` empties its output directory first — so the emit was discarded
+  before the build finished, and nothing consumes it (`@repopilot/web` is private
+  with no `main`/`exports`/`types`/`files`, nothing depends on it, and the `web`
+  image serves `dist` as static files). `tsc` is there to type-check, which the
+  package's own `typecheck` script already said, so it is `--noEmit` now. The
+  visible symptom was a gate that could not be re-run: the second run had 61
+  files to empty, over the bulk-delete guard's threshold. Worth writing down
+  because the guard was the messenger, not the cause.
+- [x] **Give the inline queue a deadline and a terminal state.** Done — and it
+  was not only the inline queue. `AuditWorker.runOnce` left a *retryable*
+  failure in `processing`; the inline driver never re-delivered and never
+  terminated, and the pg-boss driver *did* re-deliver but the retry was a no-op
+  — `runOnce` skips a job it finds in `processing`, so the redelivery arrived,
+  found its own leftovers, and returned. `retryLimit` was configured, read, and
+  meaningless on both. The fix puts the attempt budget and the deadline in the
+  worker, where the row's `attempts` count is: the take increments it, a failure
+  is terminal when the classification is permanent *or* the budget is spent, a
+  retryable failure with an attempt left parks the row in `queued` (claimable,
+  and true), and one attempt is bounded by `AUDIT_QUEUE_JOB_TIMEOUT_MS` and
+  reported as the new `JOB_TIMEOUT`. `buildAuditQueue` hands the inline driver
+  the same `retryLimit` pg-boss gets, and pg-boss's `expireInSeconds` gained
+  30 s of headroom so the worker's deadline is the one that fires.
+  `apps/api/src/services/audit-worker.test.ts` pins the invariant, and three
+  mutations of the fix turn it red. Two corrections to what this item said: the
+  expiry code is `JOB_TIMEOUT`, not `UPSTREAM_FAILED` (a hung request is not a
+  rejected one), and the defect was not inline-only — the production driver had
+  it too, one layer down. Residuals (the `classify` ordering heuristic, and a
+  row that cannot be read at all) are recorded in `RISKS.md` R-43.
 - [ ] **Type-check `scripts/`.** R-31, still open and now measured twice:
   a `tsconfig.scripts.json` over `scripts/**/*.ts` produces **52** errors
   (51 when the risk was written on 2026-10-02; 56 on 2026-10-08, 55 after the
