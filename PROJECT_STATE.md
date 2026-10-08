@@ -380,6 +380,14 @@ knowable by running the suite.
   is information rather than a failure. Use `--no-run` to compare the outputs
   already in `screenshots/` without hitting GitHub, and `--only <substring>` to
   run one audit)
+- `pnpm probe:child-wait` (not a gate — five cases over `scripts/child-wait.ts`,
+  the wait `verify:release` and `okx-seller-smoke` share. One case per branch:
+  a child that exits, a child that cannot be spawned, a child that is alive and
+  silent, an answer on the third probe, and a child that answers and *then*
+  exits. It asserts on the failure *messages*, because a wait whose branches
+  have been merged still "works" in every case. Exits 1 with the diff, ~2 s, no
+  network. It is a hand-run probe rather than a test because `scripts/` has no
+  runner to hang a test on — see `BACKLOG.md`)
 - `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
   Retry-After, cache miss/hit, cache disabled, free-check 200. Its lint step now
   runs the real gate rather than `pnpm -r lint`, its build step can fail, its
@@ -388,9 +396,12 @@ knowable by running the suite.
   against the run step 4 just performed. The audit steps need real GitHub
   access, and **without `GITHUB_TOKEN` they share the anonymous limit of 60
   requests per hour per IP — which one run can spend**, after which the cache
-  case sits in `processing` until its budget expires. Set `GITHUB_TOKEN`
-  (5 000/hour) for a local run, or read a timeout there as a quota problem
-  before reading it as a hang)
+  case sits in `processing` until its budget expires. The cache case needs
+  GitHub even on a *hit*: the cache key is built from the commit SHA, so a hit
+  still requires HEAD to be resolved, and an exhausted quota makes `hit=true`
+  unobservable rather than merely slow. Set `GITHUB_TOKEN` (5 000/hour) for a
+  local run, or read a timeout there as a quota problem before reading it as a
+  hang)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit
   lifecycle, cache miss/hit, cache disabled
 - MCP smoke: stdio initialize + tools/list

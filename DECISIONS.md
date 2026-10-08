@@ -76,6 +76,10 @@ Architecture Decision Records (ADR-style, lightweight).
   — A gate that reads build artefacts owns the build
 - [D-042](#d-042--a-script-that-cannot-fail-is-a-script-that-reports-success)
   — A script that cannot fail is a script that reports success
+- [D-043](#d-043--a-setting-in-a-file-nothing-reads-is-a-setting-that-is-off)
+  — A setting in a file nothing reads is a setting that is off
+- [D-044](#d-044--a-wait-that-cannot-say-which-way-it-failed-is-not-a-diagnostic)
+  — A wait that cannot say which way it failed is not a diagnostic
 
 ---
 
@@ -2455,3 +2459,85 @@ second batch in a row where the plan's shape was right and its details were not
 — R-43's entry records the same thing about the same week.
 
 **Related.** R-31 (the risk), D-034, D-042, R-43.
+
+
+## D-044 — A wait that cannot say which way it failed is not a diagnostic
+
+**Date:** 2026-10-08
+**Status:** Accepted
+
+**Context.** Two scripts in this repository start a server, wait for it to
+answer and kill it: `scripts/verify-release.ts` and `scripts/okx-seller-smoke.ts`.
+Each had its own copy of that wait, and the copies had not drifted in the happy
+path — four lines — but in the failure path, which is where the diagnosis lives.
+
+`verify-release.ts` had already grown the three-state wait, after two separate
+bugs where the message named the wrong failure: a slow machine reported as a
+broken build, and a spawned child that never ran reported as "still not
+answering". `okx-seller-smoke.ts` kept the original shape — a bare
+`waitForHealth(15_000)` with the child's stdout and stderr drained into
+`() => {}` — so a server that died on a port clash produced exactly one line,
+`API never came up with paymentMode=okx after 15000ms`, naming the symptom and
+hiding the cause. The cause was sitting in the pipe the script was discarding.
+
+**Decision.** Three things, and they are one decision:
+
+1. **One implementation, `scripts/child-wait.ts`.** The caller supplies what
+   counts as an answer — an HTTP status, a pattern in the output, a JSON field —
+   and the module supplies the loop, the three states and the three messages.
+   `verify-release.ts`'s `waitForApi` and `waitForOutput` became thin wrappers,
+   so there are two call shapes and one implementation rather than three copies.
+2. **A budget is a named constant with a named override.** Every wait takes
+   `{ timeoutMs, envVar }`, and the timeout message says which variable to
+   raise. A bare `15000` in a call site cannot say that, which is how a budget
+   that was too short on a cold machine survived as a bare `15000` in three
+   places.
+3. **`scripts/child-wait-probe.ts` + `pnpm probe:child-wait`.** Five cases, one
+   per branch, asserting on the *message* and exiting non-zero. The wait is
+   worth having only for its failure branches, and those are the branches no
+   gate exercises: `verify:release` proves the success path on every push and
+   nothing proved that a dead child still reports its exit code.
+
+**Why the answer is checked before liveness.** A stdio server answers and then
+exits when its stdin closes, so an exited child with the answer already in the
+buffer is success. Checking liveness first made a step fail in CI against a
+server that had answered correctly, because the child finished inside one poll
+interval and the loop's first look saw both at once. It passed locally only
+because that machine was slow enough to lose the race. The order is now a
+property of the shared function rather than of one caller, and case 5 of the
+probe pins it.
+
+**Why the budget is not the fix.** Raising the number is necessary and
+insufficient. A fixed wall-clock guess is wrong on some machine whatever it is
+set to, so the fix is that a timeout says *which* thing went wrong and what the
+child said. The first attempt at this change used an 8 s override to reproduce
+the port clash and reported "alive and silent" for a child that was merely still
+booting, because this machine's shell preloads `NODE_OPTIONS` and that costs
+~20 s of startup — a number that is not in this repository. A wrong measurement
+of a budget is indistinguishable from a wrong budget, which is the argument for
+the override and for the message naming it.
+
+**What it cannot catch, and this is the honest limit.** A child that is alive
+and silent for a reason it does not log can only be reported as alive and
+silent; the message says so and prints the (empty) output rather than guessing.
+The probe is the caller's, so a caller whose probe treats a real error as "not
+yet" gets a timeout message — `waitForApi` counts a 5xx as not-an-answer on
+purpose, and that is a judgement each caller makes. And `await probe()` is not
+itself bounded by `timeoutMs`: a probe that connects and never answers hangs the
+loop. That hole predates this module and is not closed by it.
+
+**Alternatives rejected.**
+
+- **Leave the third copy.** The two copies had already diverged in the one place
+  that matters, and the divergence was invisible because both scripts still
+  worked. A fourth copy was the trajectory.
+- **Extract the helpers, but let `okx-seller-smoke.ts` keep its own loop.** That
+  leaves two implementations of the same three messages, which is the thing that
+  drifted; the messages are the artifact, not the loop.
+- **Have `okx-seller-smoke.ts` reuse `waitForApi`'s rule ("any status below
+  500").** It would have accepted a server answering `paymentMode=mock` and
+  reported success, because a wrong answer is not an answer. That is why `what`
+  is phrased as the claim being waited on — "`/health` reporting
+  `paymentMode=okx`" — so the timeout message can be read literally.
+
+**Related.** `BACKLOG.md` (the item, closed 2026-10-08), R-26, D-042, D-041.

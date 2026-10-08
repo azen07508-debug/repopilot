@@ -221,18 +221,38 @@ Tracked work, in priority order, updated as items are completed.
 
 ## P2 — backlog
 
-- [ ] **`scripts/okx-seller-smoke.ts` has the startup-wait defect that was just
-  fixed in `verify:release.ts`, in a third copy.** `waitForHealth(15_000)`
-  hard-codes the same budget that was too short on a cold start, and the script
-  discards the child's stdout and stderr (`proc.stdout.on('data', () => {})`),
-  so a server that died on a port clash produces one message that names the
-  symptom and hides the cause. Not in the R-26/R-33 batch on purpose: it is not
-  run in CI, so the cost of leaving it is a confusing local failure rather than
-  a false green, and mixing an unrelated refactor into a gate-fix commit makes
-  the next CI failure ambiguous. The fix is to reuse the three-state wait
-  (`spawnError` / exited / alive-and-silent) that `verify-release.ts` now has —
-  which probably means lifting it into a small shared module rather than
-  copying it a fourth time.
+- [x] **`scripts/okx-seller-smoke.ts` had the startup-wait defect that was just
+  fixed in `verify:release.ts`, in a third copy.** Done — 2026-10-08, and the
+  guess in this entry was right: the fix was to lift the wait into a shared
+  module (`scripts/child-wait.ts`) rather than copy it a fourth time. What the
+  entry could not say, because it had not been measured, is which of the two
+  halves was doing the work. It was the *diagnostics*: with the port occupied,
+  the child exits with `EADDRINUSE` and prints why, and the only reason nobody
+  saw it was that the script discarded the pipe. `waitForHealth(15_000)` was
+  also too short, but that is a second-order problem — a short budget costs
+  time, a hidden cause costs an afternoon. Measured before and after in
+  `CHANGELOG.md`. Two notes for whoever reads this next:
+  - the shared wait is worth having only for its failure branches, so they now
+    have a probe (`pnpm probe:child-wait`, five cases, exits non-zero). It is a
+    probe and not a test because there is nowhere to put a test yet — see the
+    entry below;
+  - the first attempt at reproducing the port clash used an 8 s override and
+    reported "alive and silent" for a child that was merely still booting. This
+    machine's shell preloads `NODE_OPTIONS` and that costs ~20 s of startup. A
+    wrong measurement of a budget looks exactly like a wrong budget.
+- [ ] **`scripts/` has no test runner, so a test next to a script is a test
+  nothing runs.** `pnpm -r test` walks the workspace packages and the root is
+  not one of them — the same fact that made `scripts/` invisible to `tsc` for
+  six months (R-31), one directory over. It is why `scripts/child-wait-probe.ts`
+  is a hand-run probe rather than a `*.test.ts`, and it is the reason the
+  module's failure branches needed a bespoke mechanism at all. Three answers,
+  and they differ in what a change to `scripts/` costs: give the root a `test`
+  script and add a step to `verify:release` (then the test totals and the step
+  list in `PROJECT_STATE.md` both move); move the shared modules into a
+  workspace package so the existing runner picks them up (then `scripts/` stops
+  being a directory with its own rules); or leave it and keep hand-run probes
+  (then every future shared helper has to reinvent this). Recorded rather than
+  picked, because it is a decision about the gate.
 - [ ] **Give every entry in `RISKS.md` a `Status:` line.** Twenty of forty-one
   have one as of 2026-10-08; the other twenty-one predate the convention and
   are closed in fact rather than in form. Without the line, "which of these are

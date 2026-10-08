@@ -16,6 +16,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/child-wait.ts` — one wait, three failure messages, shared by
+  `verify:release` and `okx-seller-smoke`.** Both scripts start a server, wait
+  for it to answer and kill it, and both had their own copy of that wait. The
+  copies had not drifted in the happy path — which is four lines — but in the
+  failure path, which is where the diagnosis lives: `verify-release.ts` grew the
+  three-state wait (spawn failure / exited / alive-and-silent) after two bugs
+  where a message named the wrong failure, while `okx-seller-smoke.ts` kept a
+  bare `waitForHealth(15_000)` that drained its child's stdout and stderr into
+  `() => {}`. There is now one function, `waitForAnswer(child, opts, probe)`,
+  and the only thing a caller supplies is what counts as an answer — an HTTP
+  status, a pattern in the output, a JSON field. `verify-release.ts`'s
+  `waitForApi` and `waitForOutput` are thin wrappers over it, so there are two
+  call shapes and one implementation. Every wait also takes `{ timeoutMs,
+  envVar }` and the timeout message names the variable to raise; a bare `15000`
+  in a call site cannot. `spawnChild` moved with the wait and now requires `cwd`
+  and `env` rather than defaulting them — the scripts here derive the repository
+  root from `__dirname`, and a shared module is the wrong place to bake in an
+  assumption about where it was started. See D-044.
+- **`scripts/child-wait-probe.ts` + `pnpm probe:child-wait`.** Five cases, one
+  per branch of the wait, asserting on the *message* rather than on the return
+  value; exits 1 with the diff, takes ~2 s, needs no network and no server. It
+  exists because the shared wait is worth having only for its failure branches,
+  and those are the branches no gate exercises: `verify:release` proves the
+  success path on every push (three `waitForApi` calls and one `waitForOutput`)
+  and nothing proved that a dead child still reports its exit code, or that the
+  three messages have not collapsed back into the one that named the wrong
+  failure. It is a probe and not a test because `scripts/` has no runner to put
+  a test in — `pnpm -r test` walks the workspace packages and the root is not
+  one of them, so a `*.test.ts` next to the module would be a test nothing runs,
+  which is R-31's shape one directory over. Verified by mutation:
+  `whyItWillNeverAnswer` forced to `return null` turns two cases red, and the
+  output shows the spawn failure reported as "the process is still running" for
+  a process that never ran.
 - **`scripts/test-baseline.ts` — the test totals in `PROJECT_STATE.md` are now
   generated and checked.** They were the one set of numbers in the repository
   that nothing verified, and they drifted: the file said `1101` while the suite
@@ -1314,6 +1347,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`verify:release` step 8d reported an exhausted GitHub quota as a cache
+  defect.** The step makes two calls, and only the first was guarded against the
+  upstream: `UPSTREAM_RATE_LIMITED` on call 1 is a documented SKIP, and the same
+  code on call 2 was a hard failure whose message was `second call expected
+  completed, got failed` — the error code was in the response and thrown away.
+  Call 2 needs GitHub *before* it can consult the cache, because the key is
+  built from the commit SHA (`CACHE_KEY_FIELDS`), so even a cache hit needs HEAD
+  resolved. When the quota expires between the two calls, the first is excused
+  and the second is not, which is what happened on 2026-10-08 and what turned a
+  local gate red for a reason that had nothing to do with the code under test.
+  Call 2 now has the same guard call 1 has, and both status assertions print
+  `failed (UPSTREAM_RATE_LIMITED: …)` instead of the status alone — the same
+  defect as the discarded child output one function up, where the diagnosis was
+  available and the message did not carry it. CI never saw this, because the
+  workflow hands `verify:release` the actions token (5 000/hour) and the quota
+  therefore never expires there: the local path was the only path that could
+  fail, which is the shape this repository has recorded before. Found by
+  isolating the step in a standalone script that drives the built API and none
+  of the changed files: both calls came back `UPSTREAM_RATE_LIMITED` from the
+  exit IP, which is what ruled out this batch's own change.
+- **`okx-seller-smoke.ts` reported a symptom and hid the cause.** It held the
+  third copy of the startup wait (see *Added*): `waitForHealth(15_000)`
+  hard-coded a budget that is too short on a cold start, and the child's stdout
+  and stderr were drained into `() => {}`, so a server that died on a port clash
+  produced one message — `API never came up with paymentMode=okx after 15000ms`
+  — naming the symptom while the cause sat unread in the pipe it was discarding.
+  Measured on the port clash: before, that line and nothing else; after, `api
+  exited before answering http://127.0.0.1:4093/health reporting
+  paymentMode=okx (code=1, signal=null)` followed by the child's own `Failed to
+  start: Error: listen EADDRINUSE: address already in use 127.0.0.1:4093`. The
+  budget is now a named `STARTUP_TIMEOUT_MS` overridable with
+  `OKX_SMOKE_STARTUP_TIMEOUT_MS`, which the measurement needed: the first
+  attempt used an 8 s override and reported "alive and silent" for a child that
+  was merely still booting, because this machine's shell preloads `NODE_OPTIONS`
+  and that costs ~20 s of startup. The happy path was re-run after the change
+  and still passes end to end (`402` with the real x402 v2 challenge, `payTo`,
+  `asset` and `maxAmountRequired` all as before).
 - **`scripts/` is type-checked, and the 52 errors it had been hiding are gone.**
   R-31, the last gate whose scope was narrower than its tick: `pnpm lint` step 1
   ran `pnpm -r typecheck`, which walks the *workspace* packages. pnpm printed

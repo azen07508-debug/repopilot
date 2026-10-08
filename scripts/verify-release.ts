@@ -21,12 +21,12 @@
  *  13. start MCP server briefly, call listTools, get_repopilot_capabilities
  *  14. shutdown + cleanup
  */
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { checkAgainstRun } from './test-baseline.js';
+import { spawnChild, waitForAnswer, type SpawnedChild } from './child-wait.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
@@ -75,6 +75,21 @@ const UPSTREAM_ERROR_CODES = new Set([
 
 function isUpstreamFailure(err: { code?: string } | null | undefined): boolean {
   return typeof err?.code === 'string' && UPSTREAM_ERROR_CODES.has(err.code);
+}
+
+/**
+ * A terminal job status, with the error code and message when there is one.
+ *
+ * Both of the cache step's status assertions used to print the status alone —
+ * `second call expected completed, got failed` — so the one run that failed
+ * there for an environmental reason read exactly like a cache defect, and the
+ * code that said `UPSTREAM_RATE_LIMITED` was in the response and thrown away.
+ * That is the same defect as the discarded child output one function up: the
+ * diagnosis was already available and the message did not carry it.
+ */
+function jobOutcome(job: AuditJobResult): string {
+  if (!job.error) return job.status;
+  return `${job.status} (${job.error.code}: ${job.error.message})`;
 }
 
 function sh(
@@ -159,26 +174,6 @@ function header(s: string): void {
 }
 
 /**
- * Spawn a child with **exactly** the environment given.
- *
- * It used to merge `process.env` underneath `opts.env`, which looks harmless
- * and is not: a caller that passed a deliberately narrow environment still got
- * all 177 variables of the caller's shell, silently. The first version of the
- * MCP fix below was wrong for exactly that reason — it passed `{ PATH, HOME,
- * LOG_LEVEL }` and the child still inherited `NODE_OPTIONS`, so the ~20 s it
- * was meant to remove stayed. Inheritance is now something a call site asks
- * for by writing `{ ...process.env, … }`, which is visible at the point where
- * the decision is made.
- */
-function child(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): ChildProcess {
-  return spawn(cmd, args, {
-    cwd: opts.cwd ?? REPO,
-    env: opts.env ?? process.env,
-    stdio: 'pipe',
-  });
-}
-
-/**
  * How long to wait for a freshly spawned API to answer `/health`.
  *
  * **A budget, not a measurement.** It exists so a process that never comes up
@@ -236,151 +231,42 @@ const MCP_TIMEOUT_MS = Number(process.env['VERIFY_MCP_TIMEOUT_MS'] ?? 30_000);
  */
 const JOB_TIMEOUT_MS = Number(process.env['VERIFY_JOB_TIMEOUT_MS'] ?? 180_000);
 
-/** A spawned child process, plus the tail of what it has written. */
-interface SpawnedChild {
-  proc: ChildProcess;
-  /**
-   * The child's stdout+stderr, most recent last, capped at ~20 KB.
-   *
-   * Captured because the failure this replaces was unreadable: all three spawn
-   * sites discarded their child's output (`api.stdout.on('data', () => {})`),
-   * so a server that died on a port clash or a failed migration produced only
-   * `Timeout waiting for http://127.0.0.1:4099/health after 15000ms` — a
-   * message that names the symptom and hides the cause. The third site, the
-   * MCP server in step 13, did not even have a number in its message: it threw
-   * ``no tools in response: `` with an empty string after the colon.
-   */
-  output(): string;
-  /**
-   * Set when the process could not be spawned at all — `ENOENT`, `EACCES`.
-   *
-   * Without this the wait cannot tell "could not start" from "has not started
-   * yet": a failed spawn fires `'error'` and leaves **both** `exitCode` and
-   * `signalCode` at `null`, so the loop spins out the whole budget and then
-   * reports that the process is still running. It is not running. It never
-   * ran. This is the same shape as the bug the rest of this function exists to
-   * fix — a message that names the wrong failure.
-   */
-  spawnError(): Error | null;
-}
-
-function spawnChild(
-  cmd: string,
-  args: string[],
-  env: NodeJS.ProcessEnv,
-): SpawnedChild {
-  const proc = child(cmd, args, { env });
-  let log = '';
-  let failed: Error | null = null;
-  const push = (chunk: Buffer): void => {
-    log = (log + chunk.toString('utf8')).slice(-20_000);
-  };
-  proc.on('error', (err) => {
-    failed = err;
-  });
-  proc.stdout?.on('data', push);
-  proc.stderr?.on('data', push);
-  return { proc, output: () => log, spawnError: () => failed };
-}
-
-/**
- * The child's last few lines, prefixed, for an error message.
- *
- * Each line is capped, because a JSON-RPC child writes its entire `tools/list`
- * payload on one line: the first version of this printed all of it, so the
- * failure report was ~12 KB of JSON whose first line — the only part that says
- * what went wrong — was buried. A report nobody reads is not a diagnostic.
- */
-const MAX_REPORTED_LINE = 400;
-
-function lastOutput(text: string): string {
-  const lines = text.trimEnd().split('\n').slice(-25);
-  if (lines.length === 1 && lines[0] === '') return '    (the process wrote nothing)';
-  return lines
-    .map((l) =>
-      l.length > MAX_REPORTED_LINE ? `${l.slice(0, MAX_REPORTED_LINE)}… (+${l.length - MAX_REPORTED_LINE} chars)` : l,
-    )
-    .map((l) => `    | ${l}`)
-    .join('\n');
-}
-
-/**
- * Why the child will never answer `what`, or `null` while it still might.
- *
- * Two of the three failure modes are permanent, and both used to be reported
- * as "still not answering" — the message for the one case where waiting
- * longer could help. A spawn failure leaves **both** `exitCode` and
- * `signalCode` at `null` (see `spawnError`), and an exited child will not come
- * back; in each case the child's own output is the whole diagnosis and the
- * budget is just time spent not reading it.
- *
- * Note what this does **not** mean: an exited child is not necessarily an
- * unhelpful one. A stdio server is *supposed* to answer and then exit when its
- * stdin closes, so a caller must check whether the answer already arrived
- * before asking this — see `waitForOutput`, where getting that order wrong made
- * the step fail on CI against a server that had answered correctly.
- *
- * Shared by `waitForApi` and `waitForOutput` so the two cannot drift: the
- * second one was written with none of this, which is how it came to report an
- * empty `no tools in response: ` with nothing after the colon.
- */
-function whyItWillNeverAnswer(c: SpawnedChild, label: string, what: string): string | null {
-  const spawnError = c.spawnError();
-  if (spawnError) return `${label} could not be spawned at all: ${spawnError.message}`;
-  if (c.proc.exitCode !== null || c.proc.signalCode !== null) {
-    return (
-      `${label} exited before answering ${what} ` +
-      `(code=${c.proc.exitCode ?? 'null'}, signal=${c.proc.signalCode ?? 'null'})\n` +
-      lastOutput(c.output())
-    );
-  }
-  return null;
-}
-
 /**
  * Wait for `url` to answer below 500, or explain why it will not.
  *
- * Three failure modes get three messages, because they need three responses:
- *
- *   - **The child could not be spawned.** Report it immediately; it will never
- *     answer, and the error is the whole diagnosis.
- *   - **The child exited.** Report its exit code and its own output, now. It
- *     will never answer, so waiting out the budget first only delays the news,
- *     and the output is the whole diagnosis.
- *   - **The child is alive and silent.** Report the elapsed time, the budget,
- *     the override, and the output so far. That is a slow machine or a hang.
- *     The old single message read like the second case, which is why a slow
- *     machine looked like a broken build.
+ * The three-state wait itself — spawn failure, exit, alive-and-silent — lives
+ * in `scripts/child-wait.ts`. It moved there when `okx-seller-smoke.ts` turned
+ * out to need the same thing and had a worse version of it; the alternative
+ * was a third copy of the diagnostics, which is how the two copies drifted in
+ * the first place. What stays here is the one thing that is this script's
+ * business: **what counts as an answer.** Below 500 is an answer; a 5xx means
+ * the server is up and refusing to serve, which is not what this wait is for.
  */
 async function waitForApi(api: SpawnedChild, url: string, label: string): Promise<void> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < STARTUP_TIMEOUT_MS) {
-    const dead = whyItWillNeverAnswer(api, label, url);
-    if (dead) throw new Error(dead);
-    try {
-      const res = await fetch(url);
-      if (res.status < 500) return;
-    } catch {
-      /* not listening yet */
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(
-    `${label} was still not answering ${url} after ${STARTUP_TIMEOUT_MS}ms. ` +
-      `This is a startup budget, not a check on the server — on a slower machine or a cold ` +
-      `cache, raise VERIFY_STARTUP_TIMEOUT_MS. The process is still running. ` +
-      `Output so far:\n${lastOutput(api.output())}`,
+  await waitForAnswer(
+    api,
+    { label, what: url, timeoutMs: STARTUP_TIMEOUT_MS, envVar: 'VERIFY_STARTUP_TIMEOUT_MS' },
+    async () => {
+      try {
+        const res = await fetch(url);
+        return res.status < 500 ? res : null;
+      } catch {
+        // Not listening yet. A refused connection is the state being waited
+        // on, not an error to report.
+        return null;
+      }
+    },
   );
 }
 
 /**
  * Wait for `pattern` to appear in a child's output, or explain why it will not.
  *
- * The same three cases as `waitForApi`, and the same reasoning — which is the
- * point: this step used to have none of it. It waited a fixed 5 s, discarded
- * the child's stderr (`proc.stderr.on('data', () => {})`), and then threw
- * `no tools in response: ` followed by the empty string it had collected. A
- * reader got a colon and nothing after it.
+ * The same three cases as `waitForApi`, and the same shared wait — which is
+ * the point: this step used to have none of it. It waited a fixed 5 s,
+ * discarded the child's stderr (`proc.stderr.on('data', () => {})`), and then
+ * threw `no tools in response: ` followed by the empty string it had
+ * collected. A reader got a colon and nothing after it.
  *
  * Returns what the child wrote, so a caller can assert on it.
  */
@@ -390,27 +276,10 @@ async function waitForOutput(
   label: string,
   what: string,
 ): Promise<string> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < MCP_TIMEOUT_MS) {
-    // The answer is checked **before** liveness, and that order is the point.
-    // A stdio server answers and then exits when its stdin closes, so
-    // `exitCode === 0` alongside the answer already in the buffer is success,
-    // not death. Checking liveness first made this step fail in CI against a
-    // server that had answered correctly: the child finished inside a single
-    // 200 ms poll interval, so the loop's first look saw an exited process and
-    // a perfectly good `tools/list` in the same buffer, and reported the
-    // former. It passed locally only because this machine is slow enough to
-    // lose that race — which is why the bug reached CI at all.
-    if (pattern.test(c.output())) return c.output();
-    const dead = whyItWillNeverAnswer(c, label, what);
-    if (dead) throw new Error(dead);
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(
-    `${label} was still not answering ${what} after ${MCP_TIMEOUT_MS}ms. ` +
-      `This is a startup budget, not a check on the server — raise ` +
-      `VERIFY_MCP_TIMEOUT_MS if this machine is genuinely slower. ` +
-      `The process is still running. Output so far:\n${lastOutput(c.output())}`,
+  return waitForAnswer(
+    c,
+    { label, what, timeoutMs: MCP_TIMEOUT_MS, envVar: 'VERIFY_MCP_TIMEOUT_MS' },
+    async () => (pattern.test(c.output()) ? c.output() : null),
   );
 }
 
@@ -534,15 +403,18 @@ async function main(): Promise<void> {
   // the caller's shell uses to reach the network (`NODE_EXTRA_CA_CERTS`,
   // proxies). The variables below are the ones the contract depends on.
   const api = spawnChild('node', ['apps/api/dist/server.js'], {
-    ...process.env,
-    NODE_ENV: 'development',
-    PAYMENT_MODE: 'mock',
-    LOG_LEVEL: 'warn',
-    HOST: '127.0.0.1',
-    PORT: '4099',
-    DATABASE_URL: `file:${join(dataDir, 'verify.db')}`,
-    CORS_ORIGINS: 'http://localhost:5173',
-    ALLOWED_REPO_HOSTS: 'github.com,raw.githubusercontent.com',
+    cwd: REPO,
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      PAYMENT_MODE: 'mock',
+      LOG_LEVEL: 'warn',
+      HOST: '127.0.0.1',
+      PORT: '4099',
+      DATABASE_URL: `file:${join(dataDir, 'verify.db')}`,
+      CORS_ORIGINS: 'http://localhost:5173',
+      ALLOWED_REPO_HOSTS: 'github.com,raw.githubusercontent.com',
+    },
   });
 
   try {
@@ -639,7 +511,7 @@ async function main(): Promise<void> {
         DATABASE_URL: `file:${cacheTestDb}`,
       };
       if (existsSync(cacheTestDb)) rmSync(cacheTestDb, { force: true });
-      const cacheApi = spawnChild('node', ['apps/api/dist/server.js'], env);
+      const cacheApi = spawnChild('node', ['apps/api/dist/server.js'], { cwd: REPO, env });
       try {
         await waitForApi(cacheApi, `http://127.0.0.1:${cacheTestPort}/health`, 'api (cache: miss/hit)');
         const repoUrl = LIVE ? liveUrl : 'https://github.com/octocat/Hello-World';
@@ -681,7 +553,7 @@ async function main(): Promise<void> {
           );
           return;
         }
-        if (pb1.status !== 'completed') throw new Error(`first call expected completed, got ${pb1.status}`);
+        if (pb1.status !== 'completed') throw new Error(`first call expected completed, got ${jobOutcome(pb1)}`);
         if (!pb1.cache) throw new Error('cache field missing on first call');
         if (pb1.cache.hit !== false) throw new Error(`expected first call miss, got hit=${pb1.cache.hit}`);
         if (pb1.cache.keyVersion !== 'v1') throw new Error('keyVersion mismatch');
@@ -691,7 +563,23 @@ async function main(): Promise<void> {
         //    worker should find the row the first call wrote.
         const j2 = await submit();
         const pb2 = await pollUntilDone(cacheTestPort, j2.jobId);
-        if (pb2.status !== 'completed') throw new Error(`second call expected completed, got ${pb2.status}`);
+        // The upstream guard belongs on this call for the same reason it is on
+        // the first, and it was missing — making this the one place in the gate
+        // where an exhausted GitHub quota was reported as a defect. The second
+        // call needs GitHub *before* it can consult the cache: the key is built
+        // from the commit SHA (`CACHE_KEY_FIELDS`), so even a cache hit needs
+        // HEAD resolved. When the quota runs out between the two calls — which
+        // is what happened on 2026-10-08, and the first call had already been
+        // excused for exactly that — the second one is not excused.
+        if (pb2.status === 'failed' && isUpstreamFailure(pb2.error)) {
+          skipNote(
+            'cache: miss/hit',
+            `the second call's upstream lookup failed (${pb2.error?.code}) — the cache key is built ` +
+              `from the commit SHA, so even a hit needs GitHub; set GITHUB_TOKEN to exercise this end to end`,
+          );
+          return;
+        }
+        if (pb2.status !== 'completed') throw new Error(`second call expected completed, got ${jobOutcome(pb2)}`);
         if (!pb2.cache) throw new Error('cache field missing on second call');
         if (pb2.cache.hit !== true) throw new Error(`expected second call hit, got hit=${pb2.cache.hit}`);
         if (!pb2.cache.expiresAt) throw new Error('expiresAt missing on hit');
@@ -716,7 +604,7 @@ async function main(): Promise<void> {
         DATABASE_URL: `file:${cacheTestDb}`,
       };
       if (existsSync(cacheTestDb)) rmSync(cacheTestDb, { force: true });
-      const cacheApi = spawnChild('node', ['apps/api/dist/server.js'], env);
+      const cacheApi = spawnChild('node', ['apps/api/dist/server.js'], { cwd: REPO, env });
       try {
         await waitForApi(cacheApi, `http://127.0.0.1:${cacheTestPort}/health`, 'api (cache: disabled)');
         const repoUrl = LIVE ? liveUrl : 'https://github.com/octocat/Hello-World';
@@ -943,9 +831,12 @@ async function main(): Promise<void> {
       // the extra variables bought nothing; testing the server the way its
       // clients run it is the point of the step.
       const mcp = spawnChild('node', ['packages/mcp-server/dist/cli.js'], {
-        PATH: process.env['PATH'] ?? '',
-        HOME: process.env['HOME'] ?? '',
-        LOG_LEVEL: 'error',
+        cwd: REPO,
+        env: {
+          PATH: process.env['PATH'] ?? '',
+          HOME: process.env['HOME'] ?? '',
+          LOG_LEVEL: 'error',
+        },
       });
 
       // initialize, notifications/initialized, tools/list — one write, because

@@ -11,10 +11,10 @@
  * Defaults to the value committed in docs (a representative test
  * address). To smoke against a real wallet, pass it as argv[2].
  */
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnChild, waitForAnswer, type SpawnedChild } from './child-wait.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
@@ -38,9 +38,11 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, '');
  * (R-31), and the smoke test that exists to prove the seller side is wired
  * was asserting a shape the seller side had stopped sending.
  *
- * This is still a copy of the adapter's contract, not the contract itself —
- * `PaymentChallenge.challenge` is deliberately `unknown`. Making the smoke
- * script read the real type is part of R-31's batch; until then, one copy is
+ * This is still a copy of the adapter's contract, not the contract itself, and
+ * it stays one: `PaymentChallenge.challenge` is deliberately `unknown`, so
+ * there is no exported type for a caller to read. R-31 listed "make the smoke
+ * script read the real type" as part of its batch; closing R-31 showed there is
+ * no real type to read, so that item is withdrawn rather than done. One copy is
  * one place to update.
  */
 interface Audit402Body {
@@ -71,8 +73,27 @@ interface Audit402Body {
   nextAction: string;
 }
 
-function child(): ChildProcess {
-  return spawn('node', ['apps/api/dist/server.js'], {
+/**
+ * How long to wait for the API to answer `/health` with `paymentMode=okx`.
+ *
+ * A budget, not a measurement — the same reasoning as
+ * `verify-release.ts`'s `STARTUP_TIMEOUT_MS`, and this script had the same
+ * defect in a third copy: a bare `waitForHealth(15_000)` with no note on it,
+ * and the child's stdout and stderr drained into `() => {}`. A server that
+ * died on a port clash therefore produced one message that named the symptom
+ * (`API never came up with paymentMode=okx after 15000ms`) and hid the cause.
+ *
+ * The wait and its diagnostics are now shared with `verify:release` — see
+ * `scripts/child-wait.ts` — so a dead child reports its exit code and its own
+ * output, and this budget is named and overridable.
+ *
+ * Override with `OKX_SMOKE_STARTUP_TIMEOUT_MS` on a slower machine or a colder
+ * cache.
+ */
+const STARTUP_TIMEOUT_MS = Number(process.env['OKX_SMOKE_STARTUP_TIMEOUT_MS'] ?? 60_000);
+
+function child(): SpawnedChild {
+  return spawnChild('node', ['apps/api/dist/server.js'], {
     cwd: REPO,
     env: {
       ...process.env,
@@ -89,25 +110,7 @@ function child(): ChildProcess {
       ALLOWED_REPO_HOSTS: 'github.com,raw.githubusercontent.com',
       AUDIT_QUEUE_DRIVER: 'inline',
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
   });
-}
-
-async function waitForHealth(timeoutMs: number): Promise<void> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/health`);
-      if (res.status === 200) {
-        const body = (await res.json()) as { paymentMode?: string };
-        if (body.paymentMode === 'okx') return;
-      }
-    } catch {
-      /* keep polling */
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`API never came up with paymentMode=okx after ${timeoutMs}ms`);
 }
 
 async function main(): Promise<void> {
@@ -115,23 +118,33 @@ async function main(): Promise<void> {
   if (existsSync(DATA_DIR)) rmSync(DATA_DIR, { recursive: true, force: true });
   mkdirSync(DATA_DIR, { recursive: true });
 
-  const proc = child();
-  // `child()` spawns with `['ignore', 'pipe', 'pipe']`, so both streams exist;
-  // `spawn` types them as nullable because `stdio` is also allowed to be
-  // `'ignore'` or `'inherit'`. Draining them is not cosmetic — an undrained
-  // pipe fills and blocks the child — so a `stdio` change fails here rather
-  // than quietly turning the drain into a no-op.
-  if (!proc.stdout || !proc.stderr) {
-    throw new Error(
-      'okx-seller-smoke: the API child was spawned without piped stdout/stderr, ' +
-        'so its output would never be drained. Fix child() rather than skipping this.',
-    );
-  }
-  proc.stdout.on('data', () => {});
-  proc.stderr.on('data', () => {});
-
+  const api = child();
   try {
-    await waitForHealth(15_000);
+    await waitForAnswer(
+      api,
+      {
+        label: 'api',
+        // Phrased as the claim being waited on rather than as the URL alone, so
+        // the timeout message can be read literally: a server that is up and
+        // answering `paymentMode=mock` has not "not answered", it has not
+        // answered *that*, and the two are different investigations.
+        what: `http://127.0.0.1:${port}/health reporting paymentMode=okx`,
+        timeoutMs: STARTUP_TIMEOUT_MS,
+        envVar: 'OKX_SMOKE_STARTUP_TIMEOUT_MS',
+      },
+      async () => {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/health`);
+          if (res.status !== 200) return null;
+          const body = (await res.json()) as { paymentMode?: string };
+          return body.paymentMode === 'okx' ? body : null;
+        } catch {
+          // Not listening yet. A refused connection is the state being waited
+          // on, not an error to report.
+          return null;
+        }
+      },
+    );
     console.log(`✓ API up with paymentMode=okx on :${port}`);
 
     // 1. POST /api/v1/audits — should return 402 with x402 challenge
@@ -193,9 +206,9 @@ async function main(): Promise<void> {
     console.log(`maxAmount : ${accept.maxAmountRequired} atomic = ${body.payment.amount} ${body.payment.currency}`);
     console.log(`expires   : ${body.payment.expiresAt}`);
   } finally {
-    proc.kill('SIGTERM');
+    api.proc.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 200));
-    if (!proc.killed) proc.kill('SIGKILL');
+    if (!api.proc.killed) api.proc.kill('SIGKILL');
   }
 }
 
