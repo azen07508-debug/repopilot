@@ -355,8 +355,8 @@ for (const audit of selected) {
 
 console.log('\n── current ──');
 console.log(header());
-for (const label of Object.keys(current)) {
-  console.log(row(label, current[label]));
+for (const [label, m] of Object.entries(current)) {
+  console.log(row(label, m));
 }
 failures.push(...tableProblems());
 

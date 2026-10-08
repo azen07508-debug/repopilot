@@ -1,6 +1,51 @@
 {
-  "name": "@repopilot/root",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module"
+  // The tsconfig for `scripts/` — the directory that holds this repository's
+  // own gates: `lint.ts`, `docs-facts.ts`, `test-baseline.ts`,
+  // `verify-release.ts`, `compose-check.ts` and the rest.
+  //
+  // ## Why this is the root file and not `tsconfig.scripts.json`
+  //
+  // `scripts/` is the only TypeScript at the repository root, and an editor
+  // resolves the *nearest* `tsconfig.json`, which for `scripts/foo.ts` is this
+  // file. A second config under a different name would be the same rules under
+  // a name the editor does not look for: the gate would check one thing and the
+  // editor would show another. The recorded plan (RISKS.md R-31, BACKLOG.md)
+  // named `tsconfig.scripts.json`; this is that config, in the file that is
+  // actually resolved, and there is deliberately no second one.
+  //
+  // ## What this file used to be
+  //
+  // The root `package.json`'s metadata header, verbatim, since the first commit
+  // (`f95ccb5`):
+  //
+  //     { "name": "@repopilot/root", "version": "0.1.0", "private": true,
+  //       "type": "module" }
+  //
+  // Two silent consequences, both of them R-31:
+  //
+  //   1. `"type": "module"` was in a file TypeScript never reads it from, and
+  //      the root `package.json` did not have it — so every `scripts/*.ts` was
+  //      compiled as CommonJS, which is what the ten `TS1470`s were. It is in
+  //      `package.json` now, where it has an effect. There are no `.js` files
+  //      at the root or under `scripts/`, so nothing else changes.
+  //   2. With no `include`, a bare `tsc` in this directory would have included
+  //      every `.ts` file under the repository — the whole tree, a second time.
+  //      `include` is now one directory.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // Type-check only. These files are run by `tsx`, which does its own
+    // transform; `tsc` is here to have an opinion about them, not to produce
+    // anything. Emitting would write `scripts/*.js` beside the sources, and
+    // `scripts/` is a directory `lint.ts` walks — so the gate would then be
+    // inspecting its own output.
+    "noEmit": true,
+    // The scripts reach into `apps/api/src` and `packages/*/src`, so the root
+    // has to be the repository rather than `scripts/`. Without this the
+    // inherited `declaration`/`declarationMap` options have nowhere to put the
+    // imported files and `tsc` reports them as outside the root.
+    "rootDir": ".",
+    // `scripts/**/*.mts` is not redundant: `intelligence-smoke.mts` is ESM by
+    // extension and `*.ts` is not a superset of it.
+  },
+  "include": ["scripts/**/*.ts", "scripts/**/*.mts"]
 }

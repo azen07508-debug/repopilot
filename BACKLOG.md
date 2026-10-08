@@ -116,21 +116,38 @@ Tracked work, in priority order, updated as items are completed.
   rejected one), and the defect was not inline-only — the production driver had
   it too, one layer down. Residuals (the `classify` ordering heuristic, and a
   row that cannot be read at all) are recorded in `RISKS.md` R-43.
-- [ ] **Type-check `scripts/`.** R-31, still open and now measured twice:
-  a `tsconfig.scripts.json` over `scripts/**/*.ts` produces **52** errors
-  (51 when the risk was written on 2026-10-02; 56 on 2026-10-08, 55 after the
-  `okx-seller-smoke.ts` fix, 56 when this batch added `scripts/test-baseline.ts`,
-  and 52 once the `verify-release.ts` refactor removed four `possibly null`
-  sites — the number tracks the code, not progress). Ten are `TS1470`, one per
-  file, and go away with `"type": "module"` in the root `package.json`; one is
-  `zod` resolving at runtime but not for `tsc`; two are real null-safety sites
-  in `okx-seller-smoke.ts`; the remaining thirty are the
-  `noUncheckedIndexedAccess` family, two thirds of them in `docs-facts.ts` (23)
-  and `lint.ts` (13) — the only group where narrowing the flag for `scripts/`,
-  with the reason written down, may be the honest answer. All-or-nothing: the
-  config cannot land until the count is zero. It has now cost two real errors
-  found by hand (`api.kill` during R-42, the x402 `accepts[]` mismatch), which
-  is the trigger written into `RISKS.md` R-31.
+- [x] **Type-check `scripts/`.** Done — R-31, closed 2026-10-08 with the count at
+  **0**. The number had been measured four times (51, 56, 55, 56) and tracked the
+  code rather than progress; the final measurement was 52, and this entry's own
+  breakdown of it was right except in three places, all corrected in `RISKS.md`:
+  - the ten `TS1470`s went away with `"type": "module"` in the root
+    `package.json`. It had been sitting in the root `tsconfig.json`, which is a
+    `package.json` header — and TypeScript never reads that field from a
+    tsconfig, so it had no effect anywhere;
+  - the `zod` error was **not** a type-resolution difference. `env-check.ts`
+    imported `z` and never used it, and `tsx`'s esbuild transform elides unused
+    imports, so nothing resolved it at runtime either. One deleted line, no
+    dependency added to the root;
+  - the thirty `noUncheckedIndexedAccess` sites were not noise, so the flag was
+    **not** narrowed. `lines[i] ?? ''` would have made every rule in `lint.ts`
+    silently skip its line — R-26's shape — where `lines.entries()` removes the
+    index, and `docs-facts.ts` already had `required()` throwing "fix the
+    pattern rather than trusting the result" for a new `capture()` to extend.
+
+  The config is the root `tsconfig.json`, not the `tsconfig.scripts.json` this
+  entry named: `scripts/` is the only TypeScript at the root and an editor
+  resolves the *nearest* `tsconfig.json`, so a second file would be the same
+  rules under a name the editor does not look for. `pnpm lint` step 1 now runs
+  two `tsc` passes and prints a tick for each, and `pnpm typecheck` at the root
+  covers both — the gate names its scope, because the scope of a tick is part of
+  the tick (`Scope: 5 of 6 workspace projects` was pnpm's own output, sitting
+  directly above `✓ tsc clean`, saying so all along). Eight of the 42 non-config
+  errors were real defects and are listed in `CHANGELOG.md`. Three mutations
+  confirm the new tick can fail: one probe file tripping all six line-reading
+  rules, one planted `TS2322` in `scripts/env-check.ts` (caught by the new pass,
+  exit 1), and a poisoned `capture()` (`docs:check` exit 1).
+  `fixtures/` is deliberately still uncovered — its seven `.ts` files sit inside
+  sample repositories read as data, and `lint.ts` already excludes them by path.
 - [x] **Check the Postgres test baseline in CI.** Done. `scripts/test-baseline.ts`
   landed with `verify:release` step 4b, and `verify:release` runs in CI's sqlite
   leg only (`.github/workflows/ci.yml`), so the `**postgres**` line in

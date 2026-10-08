@@ -127,8 +127,13 @@ function checkFile(p: string): void {
 
   const content = readFileSync(p, 'utf8');
   const lines = content.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  // `entries()` and not an index. Under `noUncheckedIndexedAccess` a read of
+  // `lines[i]` is a `string | undefined`, and the two ways to satisfy that are
+  // not equivalent: `lines[i] ?? ''` makes every rule below silently *skip* the
+  // line — a rule that does not run looking like a rule that passes, which is
+  // R-26's shape — while the loop bound is already the proof that the element
+  // exists. Iterating the array says so once, in the loop header.
+  for (const [i, line] of lines.entries()) {
     const stripped = line.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '');
 
     // console.log outside scripts/ + apps/web
@@ -147,7 +152,10 @@ function checkFile(p: string): void {
       // we are inside a docblock.
       let inDocBlock = false;
       for (let j = i - 1; j >= 0; j--) {
-        const prev = lines[j].trim();
+        // `?? ''` here is the meaning, not a way around the type: past the
+        // start of the file there is no earlier line, which is the same answer
+        // as a blank one, and a blank one continues the walk.
+        const prev = (lines[j] ?? '').trim();
         if (prev === '' || prev.startsWith('*')) continue;
         if (prev.endsWith('/**') || prev.startsWith('/**')) {
           inDocBlock = true;
@@ -182,8 +190,11 @@ function checkFile(p: string): void {
     // - Must NOT be a known-public value (EVM addresses start with 0x and
     //   are flagged separately; we whitelist them here)
     const secretMatch = /((?:api[_-]?key|apikey|api[_-]?token|access[_-]?token|auth[_-]?token|client[_-]?secret|jwt[_-]?secret|secret|password|private[_-]?key|mnemonic))\s*[:=]\s*['"]([^'"]{16,})['"]/i.exec(line);
-    if (secretMatch) {
-      const value = secretMatch[2];
+    // Group 2 is `[^'"]{16,}` and so is always present when the pattern
+    // matches at all; reading it through the optional chain is what says so,
+    // and a match with no literal in it has nothing to report.
+    const value = secretMatch?.[2];
+    if (value) {
       // EVM address (0x + 40 hex) is a public identifier, not a secret
       if (/^0x[a-fA-F0-9]{40}$/.test(value)) continue;
       // Public token contract addresses start with 0x and are 42 chars
@@ -465,7 +476,7 @@ console.log('──────────────────────�
 // The build is part of the typecheck, not a step before it: the two have to
 // happen in this order in the same process, or the second one silently reads
 // the artefacts of the first one's previous run (R-33).
-console.log('1. packages + tsc --noEmit (all packages)');
+console.log('1. tsc --noEmit (workspaces + scripts/)');
 const packagesDir = join(REPO, 'packages');
 const packageCount = existsSync(packagesDir) ? readdirSync(packagesDir).length : 0;
 const stale = stalePackages();
@@ -488,13 +499,31 @@ if (stale.length > 0) {
 } else {
   console.log(`  \x1b[32m✓\x1b[0m ${packageCount} package dist(s) are current`);
 }
-try {
-  execSync('pnpm -r typecheck', { cwd: REPO, stdio: 'inherit' });
-  console.log('  \x1b[32m✓\x1b[0m tsc clean');
-} catch {
-  console.log('  \x1b[31m✗\x1b[0m tsc failed');
-  process.exit(1);
+// Two calls, and not one `pnpm typecheck`, even though the root `typecheck`
+// script is exactly these two commands.
+//
+// R-31 is why. `pnpm -r typecheck` walks the *workspace* packages, and the root
+// is not one of them — pnpm says so itself, one line above this tick, in
+// `Scope: 5 of 6 workspace projects`. The sixth is `scripts/`, which holds this
+// file, `docs-facts.ts` and `verify-release.ts`, and it was outside every `tsc`
+// the repository ran. The gate printed `✓ tsc clean` over the directory that
+// holds the gate.
+//
+// So each tick names the scope it is ticking. A single `pnpm typecheck` would
+// make `✓ tsc clean` a claim about whatever the root script happens to contain,
+// which is the same defect one level up: a green line whose scope is not the
+// scope it appears to cover.
+function tscStep(label: string, command: string): void {
+  try {
+    execSync(command, { cwd: REPO, stdio: 'inherit' });
+    console.log(`  \x1b[32m✓\x1b[0m tsc clean (${label})`);
+  } catch {
+    console.log(`  \x1b[31m✗\x1b[0m tsc failed (${label})`);
+    process.exit(1);
+  }
 }
+tscStep('workspaces', 'pnpm -r typecheck');
+tscStep('scripts/', 'pnpm typecheck:scripts');
 
 // 2. Custom rules
 console.log('2. custom rules');

@@ -3,6 +3,7 @@
   "version": "0.1.0-rc.3",
   "private": true,
   "description": "RepoPilot — GitHub repository launch-readiness audit service for AI Agents and Web3 developers",
+  "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@11.11.0",
   "engines": {
@@ -29,7 +30,8 @@
     "test:mcp": "pnpm --filter @repopilot/mcp-server test",
     "test:api": "pnpm --filter @repopilot/api test",
     "lint": "tsx scripts/lint.ts",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && pnpm typecheck:scripts",
+    "typecheck:scripts": "tsc -p tsconfig.json",
     "db:generate": "pnpm --filter @repopilot/api db:generate",
     "db:migrate": "pnpm --filter @repopilot/api db:migrate",
     "db:seed": "pnpm --filter @repopilot/api db:seed",

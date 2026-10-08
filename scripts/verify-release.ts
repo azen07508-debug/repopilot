@@ -488,8 +488,13 @@ async function main(): Promise<void> {
   console.log('  OK');
 
   // 3. typecheck
+  //
+  // `pnpm typecheck`, not `pnpm -r typecheck`, for the same reason step 2 runs
+  // the root `lint` and not `pnpm -r lint`: `-r` reaches the workspace packages
+  // and the root is not one of them, so `scripts/` was outside this step's
+  // scope while the step was named `typecheck`. R-31.
   header('3. typecheck');
-  await runStep('typecheck', () => shPrinted('pnpm -r typecheck'));
+  await runStep('typecheck', () => shPrinted('pnpm typecheck'));
   console.log('  OK');
 
   // 4. tests

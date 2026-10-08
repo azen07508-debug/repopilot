@@ -116,6 +116,17 @@ async function main(): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
 
   const proc = child();
+  // `child()` spawns with `['ignore', 'pipe', 'pipe']`, so both streams exist;
+  // `spawn` types them as nullable because `stdio` is also allowed to be
+  // `'ignore'` or `'inherit'`. Draining them is not cosmetic — an undrained
+  // pipe fills and blocks the child — so a `stdio` change fails here rather
+  // than quietly turning the drain into a no-op.
+  if (!proc.stdout || !proc.stderr) {
+    throw new Error(
+      'okx-seller-smoke: the API child was spawned without piped stdout/stderr, ' +
+        'so its output would never be drained. Fix child() rather than skipping this.',
+    );
+  }
   proc.stdout.on('data', () => {});
   proc.stderr.on('data', () => {});
 

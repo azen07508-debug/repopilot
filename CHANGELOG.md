@@ -773,6 +773,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`"type": "module"` moved from the root `tsconfig.json` to the root
+  `package.json`, and the root `tsconfig.json` is now a tsconfig.** The file had
+  held a verbatim copy of `package.json`'s metadata header — `{"name":
+  "@repopilot/root", "version": "0.1.0", "private": true, "type": "module"}` —
+  since the first commit (`f95ccb5`), with two silent consequences: `"type"` is
+  a field TypeScript reads from a *package* manifest and never from a tsconfig,
+  so `scripts/` was compiled as CommonJS; and with no `include`, a bare `tsc` in
+  that directory would have included every `.ts` file under the repository. The
+  header's one meaningful line is now in the file that has an effect, and
+  `include` is `scripts/`. `tsconfig.scripts.json` — the file R-31's plan named —
+  is deliberately **not** created: `scripts/` is the only TypeScript at the
+  repository root and an editor resolves the *nearest* `tsconfig.json`, so a
+  second config under a different name would be the same rules under a name the
+  editor does not look for. `pnpm typecheck` now runs `pnpm -r typecheck &&
+  pnpm typecheck:scripts`, and `verify:release` step 3 calls it rather than
+  `pnpm -r typecheck`, a command whose scope was the workspaces while its step
+  was named `typecheck`.
 - **CI checks the documented test totals on *both* matrix legs, not just the
   sqlite one.** `scripts/test-baseline.ts` landed with `verify:release` step 4b,
   and `verify:release` runs in CI's sqlite leg only — so the `**postgres**` line
@@ -1297,6 +1314,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`scripts/` is type-checked, and the 52 errors it had been hiding are gone.**
+  R-31, the last gate whose scope was narrower than its tick: `pnpm lint` step 1
+  ran `pnpm -r typecheck`, which walks the *workspace* packages. pnpm printed
+  `Scope: 5 of 6 workspace projects` directly above `✓ tsc clean`, and the sixth
+  was `scripts/` — the directory holding the gate itself, `docs-facts.ts` and
+  `verify-release.ts`. Three of the recorded explanations for the 52 were wrong
+  and are corrected in `RISKS.md`: `"type": "module"` had been written into the
+  root `tsconfig.json` (a `package.json` header, see *Changed*) rather than
+  `package.json`, which is what the ten `TS1470`s were; the `zod` error in
+  `env-check.ts` was not "a type-resolution difference" but a **dead import** —
+  `z` was never used and `tsx`'s esbuild transform elides unused imports, so
+  nothing resolved it at runtime either, making this one deleted line rather
+  than a new root dependency; and the thirty `noUncheckedIndexedAccess` sites
+  were fixed rather than silenced, because `lines[i] ?? ''` makes a lint rule
+  silently *skip* its line (R-26's shape) while `lines.entries()` removes the
+  index, and `docs-facts.ts` already had `required()` throwing "fix the pattern
+  rather than trusting the result" for a new `capture()` to extend.
+  Eight were real defects rather than config artefacts: three arrow bodies in
+  `compose-check.ts` declared `void` while returning `push`'s number, `parsed`
+  used before assignment in the same file, `printAndExit` declared `: void`
+  while its name promised it exits (it fell off its own end when there was
+  nothing to report), two nullable streams in `okx-seller-smoke.ts`, and
+  `audit-diff.ts`'s `current[label]` read.
+  The gate now runs two passes and prints a tick for each — `✓ tsc clean
+  (workspaces)` and `✓ tsc clean (scripts/)` — because the scope of a tick is
+  part of the tick, and `pnpm typecheck` at the root covers both. Three
+  mutations confirm the new tick can fail: a probe file tripping all six
+  line-reading rules (six reported, exit 1), a planted `TS2322` in
+  `scripts/env-check.ts` (five packages `Done`, then the new pass reported it
+  and the gate exited 1), and a poisoned `capture()` (`docs:check` exit 1,
+  `unknown block id "MUTANT"`).
 - **A failed audit job could reach no terminal state, on either queue driver.**
   R-43, and wider than the risk was first written: the entry named the inline
   driver, but pg-boss had the same defect one layer down. `AuditWorker.runOnce`
@@ -1436,10 +1484,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter had them. Nothing noticed because nothing type-checked `scripts/`
   (R-31) — so the smoke test that exists to prove the seller side is wired was
   asserting a shape the seller side had stopped sending. Both are one
-  `Audit402Body` interface now. This is one of the errors a
-  `tsconfig.scripts.json` produces (56 at the time of writing, and the count
-  rises with every new script), and the only one of them that was a real bug
-  rather than a config artefact.
+  `Audit402Body` interface now. This was one of the 52 errors a type checker
+  pointed at `scripts/` produced, and at the time it was written it looked like
+  the only one of them that was a real bug rather than a config artefact — R-31's
+  fix (above) later found seven more, and the config is the root `tsconfig.json`
+  rather than the `tsconfig.scripts.json` this sentence names.
 - **One signed authorization could buy an audit again after a restart.** R-40
   made an EIP-3009 authorization single-use by burning the `(from, nonce)` pair
   on first successful verification, but the record was a `Set` inside the

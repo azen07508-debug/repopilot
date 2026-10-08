@@ -12,7 +12,6 @@
  *
  * Invoked via `pnpm env:check` from the repo root.
  */
-import { z } from 'zod';
 import { config as loadDotenv } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';

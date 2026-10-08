@@ -2377,3 +2377,81 @@ the rule is not a substitute for asking it.
   goes stale; the shape of a body that does no work does not.
 
 **Related.** R-26 (the risk), D-041, D-034.
+
+
+## D-043 — A setting in a file nothing reads is a setting that is off
+
+**Date:** 2026-10-08
+**Status:** Accepted
+
+**Context.** The root `tsconfig.json` had contained, since the first commit
+(`f95ccb5`), a verbatim copy of the root `package.json`'s metadata header:
+
+```json
+{ "name": "@repopilot/root", "version": "0.1.0", "private": true, "type": "module" }
+```
+
+TypeScript reads `"type"` from the nearest **package manifest**. A tsconfig is
+not one. So the field had no effect anywhere: every `scripts/*.ts` was compiled
+as CommonJS, and the root `package.json` had no `"type"` at all. The only
+symptom was ten `TS1470`s — `import.meta` is not allowed in files that build
+into CommonJS output, one per script — and they were invisible for six months
+for a circular reason: the type checker was never pointed at `scripts/` (R-31),
+so the file carrying the misplacement was the file that hid it. The same file's
+second defect was the absence of an `include`, which meant a bare `tsc` at the
+root would have type-checked every `.ts` file in the repository, twice.
+
+**Decision.** Three parts, and they are one decision:
+
+1. **A field goes in the file that reads it.** `"type": "module"` is in
+   `package.json`. The inert copy is gone, not duplicated — leaving it would
+   invite the next edit to land in the copy that does nothing.
+2. **A file named `tsconfig.json` is a tsconfig.** The root one extends
+   `tsconfig.base.json`, sets `noEmit`, and its `include` is `scripts/`.
+3. **There is one config for `scripts/`, and it is the root `tsconfig.json`.**
+   Not a new `tsconfig.scripts.json`, which is the file R-31's plan named.
+
+**Why not `tsconfig.scripts.json`.** `scripts/` is the only TypeScript at the
+repository root, and an editor resolves the **nearest** `tsconfig.json`, which
+for `scripts/foo.ts` is the root one. A second config under a different name is
+the same rules under a name the editor does not look for: the gate would check
+one thing and the editor would show another. Two files would also create a
+worse failure than the one being fixed — a `compilerOptions` entry added to
+`tsconfig.json` while the gate names `tsconfig.scripts.json` looks like it
+applies and does not.
+
+**Why this is not D-034.** D-034 is about a *check's scope*: the gate that read
+`✓ tsc clean` while covering five of six projects. This is about a
+*declaration's home*: a setting that was in the wrong file, in a directory no
+checker read. The two defects are independent — either alone would have produced
+the same six months of nothing, and fixing one would not have revealed the
+other. They were found in the same batch because the same act (pointing `tsc` at
+`scripts/`) was the only way to see either.
+
+**What it cannot catch.** A field in the wrong file is silent by construction.
+Nothing validates a config's shape against the set of programs that read it, and
+nothing can: the set is not knowable from the file. The only detector is a
+consumer that actually runs. That is why the placement fix and the gate landed
+in one batch, and why the ten `TS1470`s — present the whole time — appeared the
+moment `include` named the directory.
+
+**A note on the recorded explanations.** Three of R-31's own explanations for
+the 52 errors were wrong, and all three were written with confidence and never
+checked:
+
+- `env-check.ts`'s `zod` import "resolves at runtime, so this is a
+  type-resolution difference, not a missing dependency". It was a **dead
+  import** — `z` was never used, and `tsx`'s esbuild transform elides unused
+  imports, so nothing resolved it at runtime either. One deleted line.
+- the config "should be `tsconfig.scripts.json`". See above.
+- the `noUncheckedIndexedAccess` sites were "the only group where narrowing the
+  flag, with the reason written down, may be the honest answer". The reason does
+  not survive contact with the sites: `lines[i] ?? ''` makes every rule in
+  `lint.ts` silently *skip* its line, which is D-042's shape, and
+  `lines.entries()` removes the index instead.
+
+A defect's recorded explanation is itself an unverified claim, and this is the
+second batch in a row where the plan's shape was right and its details were not
+— R-43's entry records the same thing about the same week.
+
+**Related.** R-31 (the risk), D-034, D-042, R-43.

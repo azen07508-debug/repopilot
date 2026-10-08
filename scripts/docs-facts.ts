@@ -131,7 +131,7 @@ function readMcpTools(): ToolFact[] {
 
   const registered: string[] = [];
   for (const m of src.matchAll(/server\.tool\(\s*'([a-z0-9_]+)'/g)) {
-    registered.push(m[1]);
+    registered.push(capture(m, 1));
   }
   if (registered.length < 5) {
     throw new Error(
@@ -149,7 +149,7 @@ function readMcpTools(): ToolFact[] {
   const billing = src.slice(billingStart, billingEnd);
   const entries: ToolFact[] = [];
   for (const m of billing.matchAll(/([a-z0-9_]+):\s*\{[\s\S]*?paid:\s*(true|false)/g)) {
-    entries.push({ name: m[1], cost: m[2] === 'true' ? 'paid' : 'free' });
+    entries.push({ name: capture(m, 1), cost: capture(m, 2) === 'true' ? 'paid' : 'free' });
   }
 
   const registeredSet = new Set(registered);
@@ -275,10 +275,12 @@ function renderToolsBox(): string {
   const labelWidth = 6; // "paid:" / "free:" plus a gap
 
   for (const cost of ['paid', 'free'] as const) {
-    const group = TOOLS.filter((t) => t.cost === cost);
-    if (group.length === 0) continue;
-    lines.push(`${`  ${cost}:`.padEnd(labelWidth + 2)}${group[0].name}`);
-    for (const tool of group.slice(1)) {
+    const [head, ...rest] = TOOLS.filter((t) => t.cost === cost);
+    // Destructuring says "there is no first element" in the form the type
+    // checker can read; `group.length === 0` said the same thing to a human.
+    if (head === undefined) continue;
+    lines.push(`${`  ${cost}:`.padEnd(labelWidth + 2)}${head.name}`);
+    for (const tool of rest) {
       lines.push(`${' '.repeat(labelWidth + 2)}${tool.name}`);
     }
   }
@@ -451,14 +453,14 @@ function checkBlocks(): Problem[] {
   const problems: Problem[] = [];
   let total = 0;
 
-  for (const path of Object.keys(BLOCK_DOCS)) {
+  for (const [path, declared] of Object.entries(BLOCK_DOCS)) {
     const text = read(path);
     const found: string[] = [];
     for (const m of text.matchAll(BLOCK_RE)) {
       total += 1;
-      const id = m[1];
+      const id = capture(m, 1);
       found.push(id);
-      const actual = m[2].trim();
+      const actual = capture(m, 2).trim();
       const expected = render(id).trim();
       if (actual !== expected) {
         problems.push({
@@ -471,7 +473,6 @@ function checkBlocks(): Problem[] {
     // The blocks this document declares, against the blocks it has. A missing
     // one is the case `checkBlocks()` alone cannot see, because a block that is
     // not there cannot be stale.
-    const declared = BLOCK_DOCS[path];
     for (const id of declared) {
       if (!found.includes(id)) {
         problems.push({
@@ -553,7 +554,7 @@ function checkIndex(): Problem[] {
   const index = read('docs/INDEX.md');
   const targets = new Set<string>();
   for (const m of index.matchAll(/\]\(([^)]+)\)/g)) {
-    const href = m[1];
+    const href = capture(m, 1);
     if (/^[a-z]+:/.test(href) || href.startsWith('#')) continue;
     targets.add(href);
     if (!existsSync(join(ROOT, 'docs', href))) {
@@ -599,7 +600,7 @@ function checkCommandReferences(): Problem[] {
         // workspaces" is not a command reference, and `pnpm -r test` /
         // `pnpm --filter X y` name a script through a flag, not directly.
         for (const m of line.matchAll(/`pnpm ([a-z][a-z0-9:_-]*)`/g)) {
-          const name = m[1];
+          const name = capture(m, 1);
           if (scripts.has(name) || PNPM_BUILTINS.has(name)) continue;
           problems.push({
             where: `${path}:${i + 1}`,
@@ -712,6 +713,34 @@ interface PriceStatement {
   amount: string;
 }
 
+/**
+ * The capture group of a match the pattern guarantees is present.
+ *
+ * `required()` re-runs a pattern and reads group 1 out of a fresh match; this
+ * is the same rule for a match already in hand — a `matchAll` iteration, or an
+ * `exec` whose result has been checked for null. TypeScript types *every*
+ * capture group as `string | undefined`, because a group may be optional
+ * (`(...)?`) and the type is not derived from the pattern; every group read in
+ * this file is mandatory, so the value is always there, and this is how that
+ * gets said out loud.
+ *
+ * It throws rather than substituting a default, for the reason `required()`
+ * does: `docs-facts` exists to fail when the source stops matching the shape it
+ * is reading. An `undefined` that reaches a generated document is a wrong fact
+ * with a green tick beside it.
+ */
+function capture(m: RegExpMatchArray, group: number): string {
+  const v = m[group];
+  if (v === undefined) {
+    const seen = m[0].replace(/\s+/g, ' ').slice(0, 60);
+    throw new Error(
+      `docs-facts: the pattern that matched "${seen}" has no capture group ${group}. ` +
+        'Fix the pattern rather than trusting the result.'
+    );
+  }
+  return v;
+}
+
 /** Read a value that must be there, or fail with a message that says what to fix. */
 function required(pattern: RegExp, text: string, what: string): string {
   const m = pattern.exec(text);
@@ -721,7 +750,7 @@ function required(pattern: RegExp, text: string, what: string): string {
         `fix readPriceStatements() rather than trusting the result.`
     );
   }
-  return m[1];
+  return capture(m, 1);
 }
 
 /**
@@ -884,13 +913,13 @@ function checkPrices(): Problem[] {
 
   const atomic: { where: string; raw: string }[] = [];
   for (const m of snapshot.matchAll(/`service\[(\d)\]\.fee`\s*\|\s*`(\d+)`/g)) {
-    atomic.push({ where: `service[${m[1]}].fee`, raw: m[2] });
+    atomic.push({ where: `service[${capture(m, 1)}].fee`, raw: capture(m, 2) });
   }
   for (const m of snapshot.matchAll(/"maxAmountRequired": "(\d+)"/g)) {
-    atomic.push({ where: 'the 402 example in §5.5', raw: m[1] });
+    atomic.push({ where: 'the 402 example in §5.5', raw: capture(m, 1) });
   }
   for (const m of snapshot.matchAll(/`maxAmountRequired: "(\d+)"`/g)) {
-    atomic.push({ where: 'the 402 prose in §5.5', raw: m[1] });
+    atomic.push({ where: 'the 402 prose in §5.5', raw: capture(m, 1) });
   }
 
   if (atomic.length < 3) {
@@ -947,8 +976,7 @@ function checkChangelogStructure(): Problem[] {
     }
   };
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
+  for (const [i, line] of lines.entries()) {
     if (line.startsWith('## ')) {
       flush();
       release = line.slice(3).trim();
@@ -958,7 +986,7 @@ function checkChangelogStructure(): Problem[] {
     const m = /^### (.+)$/.exec(line);
     if (!m) continue;
     headings += 1;
-    const name = m[1].trim();
+    const name = capture(m, 1).trim();
     if (!CATEGORIES.has(name)) continue;
     seen.set(name, [...(seen.get(name) ?? []), i + 1]);
   }

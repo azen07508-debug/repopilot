@@ -39,9 +39,20 @@ interface Issue {
   message: string;
 }
 const issues: Issue[] = [];
-const err = (field: string, message: string): void => issues.push({ level: 'error', field, message });
-const warn = (field: string, message: string): void => issues.push({ level: 'warning', field, message });
-const info = (field: string, message: string): void => issues.push({ level: 'info', field, message });
+// Braced bodies, not `=> issues.push(...)`: `push` returns a number, and these
+// are declared `void` because nothing reads the result. The concise form is a
+// `number`-returning function wearing a `void` signature, which is exactly the
+// shape the type checker rejects — and it is right to, because the day someone
+// writes `const n = err(...)` the value would be an array length.
+const err = (field: string, message: string): void => {
+  issues.push({ level: 'error', field, message });
+};
+const warn = (field: string, message: string): void => {
+  issues.push({ level: 'warning', field, message });
+};
+const info = (field: string, message: string): void => {
+  issues.push({ level: 'info', field, message });
+};
 
 const raw = readFileSync(COMPOSE_PATH, 'utf8');
 let parsed: Record<string, unknown>;
@@ -267,7 +278,17 @@ if (!existsSync(DOCKERFILE)) {
 
 printAndExit();
 
-function printAndExit(): void {
+/**
+ * Print the collected issues and exit with the code they imply.
+ *
+ * `: never` is the point of the signature, and it is why the failed-parse
+ * branch above can leave `parsed` assigned: the compiler needs to know this
+ * call does not come back. It did not, before — the function fell off its own
+ * end when there was nothing to report, so its name was a promise it only kept
+ * on the error path. The trailing `process.exit(0)` is what makes the name
+ * true, and the type checker now enforces that it stays there.
+ */
+function printAndExit(): never {
   const errors = issues.filter((i) => i.level === 'error');
   const warnings = issues.filter((i) => i.level === 'warning');
   const infos = issues.filter((i) => i.level === 'info');
@@ -284,4 +305,9 @@ function printAndExit(): void {
   console.log(`${errors.length} error(s), ${warnings.length} warning(s), ${infos.length} info(s)`);
   if (errors.length > 0) process.exit(1);
   if (warnings.length > 0) process.exit(2);
+  // Reached only when there is nothing to report — and `printAndExit` exits.
+  // `process.exit(0)` rather than falling off the end, because the type of a
+  // function that always exits is `never`, and that is what the caller above
+  // depends on.
+  process.exit(0);
 }

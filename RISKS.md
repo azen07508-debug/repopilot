@@ -1315,17 +1315,100 @@ Per file: `docs-facts.ts` 23, `lint.ts` 13, `compose-check.ts` 5,
 `mcp-audit.ts`, `preflight-production.ts`, `test-baseline.ts`,
 `verify-release.ts`.
 
-**Status:** Open — deferred, with the batch above defined and the cost now
-measured twice. It is deferred because it is *tooling*: the product does not
-behave differently with the gate on, and the same week's budget bought the
-payment-path work in R-42 and the two gate fixes in R-26 and R-33, both of
-which changed what a green tick means. **The trigger to do it is the next time
-a real error is found in `scripts/` by hand** — which is now twice: the
-`api.kill` type error during R-42, and the `okx-seller-smoke.ts` mismatch
-above.
+**Status:** **Fixed 2026-10-08.** The count is 0, and the gate covers the
+directory: `pnpm lint` step 1 runs two `tsc` passes and prints a tick for each —
+`✓ tsc clean (workspaces)` and `✓ tsc clean (scripts/)` — because the scope of a
+tick is part of the tick.
 
-Until then, `scripts/` has no static checking, and the `✓ tsc clean` line
-should be read as covering five workspaces and nothing else.
+It was deferred three times, and the deferral was reasonable each time: it is
+*tooling*, the product does not behave differently with the gate on, and the
+same weeks bought the payment-path work in R-42 and the gate fixes in R-26 and
+R-33. **The trigger was the next real error found in `scripts/` by hand**, and
+it fired twice — the `api.kill` type error during R-42 and the
+`okx-seller-smoke.ts` mismatch above.
+
+### What the fix was, and the three places this entry was wrong
+
+The recorded plan had the right shape and three wrong details. All three were
+written down confidently and none had been checked, which is the failure mode
+this file exists to notice.
+
+**1. The `zod` error was not a type-resolution difference.** This entry said
+`env-check.ts`'s `import { z } from 'zod'` "resolves at runtime … so this is a
+type-resolution difference, not a missing dependency". Both halves are wrong.
+`z` is never used anywhere in that file: the import is **dead**, and it never
+reached a runtime to be resolved by one. `tsx` transforms with esbuild, which
+elides unused imports, so the specifier was dropped before Node saw it. `TS2307`
+was a *true* finding about a root `package.json` that does not depend on `zod`,
+and the fix is one deleted line. Nothing was added to the root's dependencies.
+
+**2. The config is the root `tsconfig.json`, not a new `tsconfig.scripts.json`.**
+The plan named a new file. It was created, the 52 errors were measured through
+it, and then it was not kept: `scripts/` is the only TypeScript at the
+repository root, and an editor resolves the **nearest** `tsconfig.json`, which
+for `scripts/foo.ts` is the root one. A second config under a different name is
+the same rules under a name the editor does not look for — the gate would check
+one thing and the editor would show another. So the config is the root
+`tsconfig.json`, in the place the `package.json` header used to be, and there is
+deliberately no second file. `"type": "module"` moved to `package.json`, the
+only file TypeScript reads it from; that is the ten `TS1470`s.
+
+**3. The thirty `noUncheckedIndexedAccess` sites were not noise, so the flag was
+not narrowed.** This entry offered narrowing it for `scripts/` "with the reason
+written down" as possibly the honest answer. Read one at a time, it is not, and
+the reason is specific: the two ways to satisfy the flag are not equivalent.
+`lines[i] ?? ''` compiles and makes every rule in `lint.ts` silently *skip* the
+line — a rule that does not run looking like a rule that passes, which is R-26's
+shape. What the sites wanted was `for (const [i, line] of lines.entries())`,
+which removes the index instead of papering over it. In `docs-facts.ts` the file
+already held the right idiom — `required()`, which throws with "fix the pattern
+rather than trusting the result" — and its new sibling `capture()` applies that
+rule to a match already in hand, because every capture group read there is
+mandatory while TypeScript types all of them as optional. The flag stays on, and
+`scripts/` is held to the same standard as `src/`.
+
+Eight of the 42 remaining errors were real rather than config artefacts: four in
+`compose-check.ts` (three arrow bodies declared `void` that returned `push`'s
+number, and `parsed` used before assignment), the two nullable streams in
+`okx-seller-smoke.ts`, `audit-diff.ts`'s `current[label]` read, and the `zod`
+import. Two of those were not null-safety at all — `printAndExit` was declared
+`: void` while its name promised it exits, and it did fall off its own end when
+there was nothing to report, so the signature now says `: never` and the type
+checker enforces the trailing `process.exit(0)` that makes the name true.
+
+### The evidence that the gate is real
+
+Three mutations, because a gate change that lands unverified is how R-33
+happened, and a tick that cannot fail is the defect R-31 *is*:
+
+| mutation | expected | measured |
+|---|---|---|
+| one violation of each of the six rules that read a line (`no-console-log`, `no-todo-stubs`, `no-hardcoded-port`, `no-hardcoded-secret`, `no-empty-catch`, `no-floating-promise`) | six reported | six reported, one per line, exit 1 |
+| `const mutationProbe: number = 'not a number'` in `scripts/env-check.ts` | the new step fails | five packages `Done`, then `$ tsc -p tsconfig.json` reported `scripts/env-check.ts(24,7): error TS2322`, `✗ tsc failed`, exit 1 |
+| `capture()` returning a constant instead of the group | `docs:check` fails | exit 1, `unknown block id "MUTANT"` |
+
+The first is the one that matters for the *refactor*: a green `pnpm lint` after
+rewriting six rules proves nothing, because a rule that stopped firing also
+reports zero issues.
+
+One more thing the fix made legible: `Scope: 5 of 6 workspace projects` is
+**pnpm's own output**, not the repository's. It has been printing above
+`✓ tsc clean` all along, and it was the gate announcing that it was skipping a
+project. Nothing in the repository read that line as a warning because it did
+not come from the repository.
+
+### Residual
+
+- **`fixtures/` is not covered, and should not be.** It holds seven `.ts` files,
+  but they sit inside sample repositories that are read as *data* — `path.resolve`
+  in `apps/api`'s integration test — and some are deliberately broken: a
+  `secret-leak` fixture and a `prompt-injection` one. `lint.ts` already excludes
+  them by path (`isFixture`) for that reason. A type checker pointed there would
+  be reading a sample, not this program.
+- **The gate does not call the root `typecheck` script.** It runs the two
+  commands separately so that each tick names its own scope, which means a later
+  narrowing of the root script cannot make `✓ tsc clean` a claim about less than
+  it appears to cover. `verify:release` step 3 calls `pnpm typecheck`.
 
 
 ## R-32 — The injection rule reports the sentence that documents the injection rule
