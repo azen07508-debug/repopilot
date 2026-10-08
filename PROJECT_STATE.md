@@ -204,19 +204,24 @@ knowable by running the suite.
 - **postgres** (`DATABASE_URL` set): 1124 passed + 0 skipped (1124)
 <!-- test-baseline:end -->
 
-> The **postgres** line above is the one number here that was *derived* rather than
-> measured, and it is worth saying so plainly. The 10 tests SQLite skips are the
-> Postgres-only cases, and they pass when a database is present — that is what
-> `1118 = 1108 + 10` recorded before this batch. Six tests were added and all six
-> run on both legs (they force `driverOverride: 'inline'` and an isolated SQLite
-> URL of their own), so the Postgres total is the SQLite total with the skipped
-> ten run instead of skipped. Nothing on this machine could check that: the
-> sandbox's Docker daemon cannot resolve `registry-1.docker.io`, so there is no
-> Postgres to run the leg against. `scripts/test-baseline.ts` says the same thing
-> in its own header — a SQLite run cannot verify the Postgres line, and
-> `verify:release` only runs in CI's sqlite leg, so **nothing verifies it today**.
-> Giving the `db: postgres` leg a transcript and a `--check` is a `BACKLOG.md` P1,
-> and it is the reason this line has to be updated by hand at all.
+> The **postgres** line above was written by hand, and it is the one number here
+> that no gate checks — so it is worth saying where it came from. It was
+> *derived* first, on a machine that cannot run the leg: the 10 tests SQLite
+> skips are the Postgres-only cases, they pass when a database is present (that
+> is what `1118 = 1108 + 10` recorded before this batch), and the six tests this
+> batch added run on both legs because they force `driverOverride: 'inline'` and
+> an isolated SQLite URL of their own. So the Postgres total is the SQLite total
+> with those ten run instead of skipped.
+>
+> It was then **confirmed against the CI transcript** rather than left as
+> arithmetic: run `37772501733`, job `113295256011` (`Node 22, postgres`) prints
+> `apps/api 104`, `packages/core 904`, `packages/okx-adapter 57`,
+> `apps/web 17`, `packages/mcp-server 42` — 1124 passed, 0 skipped. Which is the
+> derivation, measured. Doing that by hand is the point of the `BACKLOG.md` P1
+> below: `scripts/test-baseline.ts` says the same thing in its own header — a
+> SQLite run cannot verify the Postgres line, and `verify:release` runs in CI's
+> sqlite leg only, so **nothing verifies it today**. Giving the `db: postgres`
+> leg a transcript and a `--check` is what would make this note unnecessary.
 
 > The 1108 → 1114 step is +6 tests and no deletions: `apps/api` 88 → 94 is
 > `apps/api/src/services/audit-worker.test.ts`, which pins R-43 — a retryable
