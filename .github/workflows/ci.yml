@@ -184,7 +184,40 @@ jobs:
           # API. Anonymous access is capped at 60 requests/hour per IP and
           # runner IPs are shared, so a token is required for reliability.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm -r test
+        # `tee` because the next step checks the documented totals against *this*
+        # run rather than a second one — the same reason `verify:release` step
+        # 4b consumes a transcript instead of running the suite again. A number
+        # that is only knowable by running the suite cannot be checked by
+        # running it twice.
+        #
+        # `set -o pipefail` is load-bearing, and it is the whole reason this is
+        # not a one-liner. A pipeline's exit status is the last command's, so
+        # without it `pnpm -r test | tee …` reports `tee`'s 0 and a failing
+        # suite goes green — a check that cannot fail, which is R-26's shape.
+        # GitHub's default shell for `run` is `bash -e`, which does not include
+        # pipefail; `shell: bash` does, but it is spelled out here so the
+        # dependency sits on the line that needs it.
+        run: |
+          set -o pipefail
+          pnpm -r test | tee "$RUNNER_TEMP/test-output.txt"
+
+      # The totals in `PROJECT_STATE.md` are the one set of numbers in the
+      # repository that a generator cannot produce: they are only knowable by
+      # running the suite, so a generator that emitted them would make the check
+      # circular. `scripts/test-baseline.ts` consumes a run instead, and this is
+      # that run.
+      #
+      # It runs on **both** matrix legs, each checking its own line. That is the
+      # point: `verify:release` step 4b does the same check, but `verify:release`
+      # only runs on the sqlite leg, so the `**postgres**` line was verified by
+      # nothing at all. The leg is read from `DATABASE_URL`, the same way the
+      # suite reads it, so what is checked is the line matching the database the
+      # tests actually ran against — and the expression below has to stay
+      # identical to the one on the `Test` step for that to be true.
+      - name: Test baseline (documented totals vs this run)
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgres://repopilot:repopilot_test@localhost:5432/repopilot_test') || 'file::memory:?cache=shared' }}
+        run: pnpm test:baseline --check --from "$RUNNER_TEMP/test-output.txt"
 
       - name: Build
         run: pnpm build

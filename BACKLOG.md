@@ -131,19 +131,23 @@ Tracked work, in priority order, updated as items are completed.
   config cannot land until the count is zero. It has now cost two real errors
   found by hand (`api.kill` during R-42, the x402 `accepts[]` mismatch), which
   is the trigger written into `RISKS.md` R-31.
-- [ ] **Check the Postgres test baseline in CI.** `scripts/test-baseline.ts`
-  landed with `verify:release` step 4b, but `verify:release` runs in CI's
-  sqlite leg only (`.github/workflows/ci.yml:187`), so the
-  `**postgres**` line in `PROJECT_STATE.md` is verified by **nothing**. The
-  fix is small and needs a transcript: the existing `Test` step captures
-  `pnpm -r test | tee "$RUNNER_TEMP/test-output.txt"` with
-  `set -o pipefail` (without it the pipeline returns `tee`'s exit code and a
-  failing suite reports success — the trap that makes this more than a
-  one-liner), then a `pnpm test:baseline --check --from
-  "$RUNNER_TEMP/test-output.txt"` step runs on both legs, each checking its
-  own line. Not done in the same batch as the generator because it is a CI
-  behaviour change that cannot be exercised locally, and a gate change that
-  lands unverified is how R-33 happened.
+- [x] **Check the Postgres test baseline in CI.** Done. `scripts/test-baseline.ts`
+  landed with `verify:release` step 4b, and `verify:release` runs in CI's sqlite
+  leg only (`.github/workflows/ci.yml`), so the `**postgres**` line in
+  `PROJECT_STATE.md` was verified by **nothing**. The `Test` step now captures
+  its output (`pnpm -r test | tee "$RUNNER_TEMP/test-output.txt"` under
+  `set -o pipefail` — without it the pipeline returns `tee`'s exit code and a
+  failing suite reports success, which is the trap that makes this more than a
+  one-liner), and a `test:baseline --check --from …` step runs on **both** matrix
+  legs against that transcript, each checking its own line. The leg is read from
+  `DATABASE_URL`, the same way the suite reads it, so what gets checked is the
+  line matching the database the tests actually ran against — which is why the
+  expression is duplicated rather than replaced by `matrix.db`.
+  The batch that did this also verified the number itself by hand against the
+  postgres leg's own log (run `37772501733`, job `113295256011`: 104 + 904 + 57
+  + 17 + 42 = 1124 passed, 0 skipped), because a CI behaviour change cannot be
+  exercised locally and a gate change that lands unverified is how R-33
+  happened. That check is now automated; what remains manual is nothing.
 - [x] **The test baseline in `PROJECT_STATE.md` is generated and checked.**
   Done — `scripts/test-baseline.ts`. It had drifted in this batch (the file
   said 1101 while the suite reported 1108) and the drift was found by running

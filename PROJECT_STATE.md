@@ -217,11 +217,14 @@ knowable by running the suite.
 > arithmetic: run `37772501733`, job `113295256011` (`Node 22, postgres`) prints
 > `apps/api 104`, `packages/core 904`, `packages/okx-adapter 57`,
 > `apps/web 17`, `packages/mcp-server 42` — 1124 passed, 0 skipped. Which is the
-> derivation, measured. Doing that by hand is the point of the `BACKLOG.md` P1
-> below: `scripts/test-baseline.ts` says the same thing in its own header — a
-> SQLite run cannot verify the Postgres line, and `verify:release` runs in CI's
-> sqlite leg only, so **nothing verifies it today**. Giving the `db: postgres`
-> leg a transcript and a `--check` is what would make this note unnecessary.
+> derivation, measured.
+>
+> That manual step is no longer the only thing standing behind this line. CI now
+> captures the `Test` step's transcript and runs `test:baseline --check` against
+> it on **both** matrix legs, so each leg checks its own line — the `postgres`
+> line included, which `verify:release` could never reach because it is
+> sqlite-only. Two checkers for the sqlite line (`verify:release` step 4b and
+> this one) and one for the postgres line, which is the honest count.
 
 > The 1108 → 1114 step is +6 tests and no deletions: `apps/api` 88 → 94 is
 > `apps/api/src/services/audit-worker.test.ts`, which pins R-43 — a retryable

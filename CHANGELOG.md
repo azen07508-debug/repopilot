@@ -773,6 +773,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI checks the documented test totals on *both* matrix legs, not just the
+  sqlite one.** `scripts/test-baseline.ts` landed with `verify:release` step 4b,
+  and `verify:release` runs in CI's sqlite leg only — so the `**postgres**` line
+  in `PROJECT_STATE.md` was verified by nothing, which the script's own header
+  said out loud. The `Test` step now captures its output
+  (`pnpm -r test | tee "$RUNNER_TEMP/test-output.txt"`) and a
+  `test:baseline --check --from …` step runs on both legs against that
+  transcript, each checking its own line. The leg is read from `DATABASE_URL`,
+  the same way the suite reads it, so what is checked is the line matching the
+  database the tests actually ran against.
+  Two things about the `Test` step are load-bearing and both were verified
+  rather than assumed: `set -o pipefail` (a pipeline reports the last command's
+  status, so without it `pnpm -r test | tee …` returns `tee`'s 0 and a failing
+  suite goes green — measured: exit 0 without, exit 1 with), and `tee` itself,
+  because a total that is only knowable by running the suite cannot be checked
+  by running it twice. The check was exercised in both directions against a
+  reconstructed postgres transcript before landing: it passes on the matching
+  leg and reports both numbers, exiting 1, on the mismatching one.
 - **`verify:release` step 2 runs the lint gate, not a stub of it.** It ran
   `pnpm -r lint`, and every package's `lint` script was
   `echo skip-package-lint`; the call was wrapped in `allowFail: true` inside a

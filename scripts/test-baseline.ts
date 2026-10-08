@@ -40,13 +40,16 @@
  *     associating a vitest summary with the package that printed it depends on
  *     pnpm's recursive output format. The total is the number that drifted and
  *     the number quoted elsewhere, so the total is what is checked.
- *   - **Only the leg it ran on, and only one leg is covered.** A SQLite run
- *     cannot verify the Postgres numbers; `--check` says which line it
- *     verified and leaves the other alone. It is worth being blunt about the
- *     consequence: `verify:release` runs in CI's sqlite leg only, so the
- *     Postgres line is currently verified by **nothing**. Closing that means
- *     giving the `db: postgres` leg a transcript and a `--check` against it;
- *     it is listed in `BACKLOG.md` rather than half-done here.
+ *   - **Only the leg it ran on.** A SQLite run cannot verify the Postgres
+ *     numbers, so `--check` says which line it verified and leaves the other
+ *     alone. Both lines are covered in CI, by two different callers:
+ *     `verify:release` step 4b checks the sqlite leg from the transcript of the
+ *     run it just performed, and `.github/workflows/ci.yml` runs this same
+ *     `--check` on **both** matrix legs against the `Test` step's captured
+ *     transcript. The second one is what closed the gap where the
+ *     `**postgres**` line was verified by nothing. What is still not covered is
+ *     `verify:release` itself against Postgres — it is sqlite-only — so the
+ *     postgres line has one checker, not two.
  *   - **Nothing about whether the tests are any good.** This is a count of
  *     assertions that ran. R-26 and R-27 are about checks that cannot fail.
  */
@@ -253,10 +256,11 @@ export function checkAgainstRun(output: string, opts: { doc?: string; leg?: Leg 
       message:
         `PROJECT_STATE.md matches this run on the ${leg} leg: ` +
         `${observed.passed} passed + ${observed.skipped} skipped. ` +
-        `The other leg is carried, not verified by this run — and nothing ` +
-        `verifies it today: \`verify:release\` runs in CI's sqlite leg only, ` +
-        `so the ${leg === 'sqlite' ? 'postgres' : 'sqlite'} line is checked ` +
-        'nowhere and has to be updated by hand after a run on that database.',
+        `The other leg is carried, not verified by *this* run — a ${leg} ` +
+        `transcript cannot say anything about the ` +
+        `${leg === 'sqlite' ? 'postgres' : 'sqlite'} numbers. That leg has its ` +
+        'own checker: `.github/workflows/ci.yml` runs this command on both ' +
+        "matrix legs, against each leg's own transcript.",
     };
   }
 
