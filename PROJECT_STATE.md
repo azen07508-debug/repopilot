@@ -343,9 +343,13 @@ knowable by running the suite.
 - `pnpm lint` (tsc + project-specific static rules; 0 issues. Since R-33 it
   builds any workspace package whose `dist` is older than its `src` *before* it
   type-checks, because `apps/*` read `@repopilot/core` through `exports` →
-  `dist`; and since R-26 it reports any `package.json` script whose body is a
+  `dist`; since R-26 it reports any `package.json` script whose body is a
   bare `echo` / `true` / `:` / `exit 0`, because five of them were
-  `echo skip-package-lint`)
+  `echo skip-package-lint`; and since R-31 its typecheck covers `scripts/` as
+  well as the five workspaces — `pnpm -r typecheck` never reached the root, so
+  the directory holding the gate was the one directory nothing type-checked.
+  The two passes print a tick each, `✓ tsc clean (workspaces)` and
+  `✓ tsc clean (scripts/)`, because the scope of a tick is part of the tick)
 - `pnpm docker:check` (static review of the Dockerfile and the compose file;
   **exits non-zero** on any finding, so it is a gate rather than advice.
   Covers the Node base image against `engines.node`, builder install/build
@@ -378,14 +382,15 @@ knowable by running the suite.
   run one audit)
 - `pnpm verify:release` (full end-to-end smoke; covers 202 + Location +
   Retry-After, cache miss/hit, cache disabled, free-check 200. Its lint step now
-  runs the real gate rather than `pnpm -r lint`, its build step can fail, and
-  step 4b checks the generated test totals against the run step 4 just
-  performed. The audit steps need real GitHub access, and **without
-  `GITHUB_TOKEN` they share the anonymous limit of 60 requests per hour per
-  IP — which one run can spend**, after which the cache case sits in
-  `processing` until its budget expires. Set `GITHUB_TOKEN` (5 000/hour) for a
-  local run, or read a timeout there as a quota problem before reading it as a
-  hang)
+  runs the real gate rather than `pnpm -r lint`, its build step can fail, its
+  typecheck step runs `pnpm typecheck` rather than `pnpm -r typecheck` so
+  `scripts/` is in scope (R-31), and step 4b checks the generated test totals
+  against the run step 4 just performed. The audit steps need real GitHub
+  access, and **without `GITHUB_TOKEN` they share the anonymous limit of 60
+  requests per hour per IP — which one run can spend**, after which the cache
+  case sits in `processing` until its budget expires. Set `GITHUB_TOKEN`
+  (5 000/hour) for a local run, or read a timeout there as a quota problem
+  before reading it as a hang)
 - API smoke: `/health`, `/api/v1/capabilities`, free-check, paid audit
   lifecycle, cache miss/hit, cache disabled
 - MCP smoke: stdio initialize + tools/list
