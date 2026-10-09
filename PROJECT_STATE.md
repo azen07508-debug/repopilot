@@ -360,20 +360,30 @@ knowable by running the suite.
   schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm docs:check` (**exits non-zero** when a document disagrees with the code.
   Recomputes the generated blocks — MCP tool list and count, compose service
-  table, workspace package names and count, fixture count — and asserts five
+  table, workspace package names and count, fixture count — and asserts six
   invariants that carry no block: the `BILLING` map against the `server.tool()`
   registrations, `docs/INDEX.md` against the `docs/` directory, every
   `pnpm <script>` a document names against the root `package.json`, that
   every markdown file is classified as either generated or deliberately not,
-  and that all six statements of an audit price agree with each other and
-  with the atomic registration values.
-  See D-033, D-034, D-036 and D-037. Verified by mutation: 16 injections, 16
+  that all six statements of an audit price agree with each other and
+  with the atomic registration values, and that `RISKS.md` is shaped like a
+  register — every `## R-NN` heading indexed and nothing else indexed, every
+  Contents anchor resolving against the heading it names, and exactly one
+  line-starting `**Status:**` per entry from a five-value vocabulary
+  (`checkRisksRegister()`; the vocabulary is the check's, so a sixth value
+  added to the file without being added to the script fails. It carries the
+  `entries.length === 0` guard, because a register is the one document here
+  that is deliberately block-free and `checkBlocks()` cannot see it at all).
+  See D-033, D-034, D-036 and D-037. Verified by mutation: 21 injections, 21
   caught (12 for the block and scope checks, measured 2026-10-04 and untouched
   by the repricing; 4 for the price check, re-measured 2026-10-05 after the
   count changed from twelve to six — a disagreement, a deleted `add()` call
   which is the one way the check can silently cover less, an atomic value that
   is not a price the repository charges, and a reworded anchor that
-  `required()` refuses to read past)
+  `required()` refuses to read past; 5 for the register check, measured
+  2026-10-08 — a deleted `Status` line, one folded into a `Severity` line, a
+  drifted anchor, an entry added without being indexed, and a status outside
+  the vocabulary)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff

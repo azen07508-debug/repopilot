@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`checkRisksRegister()` — `RISKS.md` is checked as a register rather than
+  read as prose.** `pnpm docs:check` now verifies three things about it: every
+  `## R-NN` heading is in the Contents and the Contents lists nothing that is
+  not a heading; every Contents anchor resolves against the heading it names;
+  and every entry carries exactly one `**Status:**` line, starting the line,
+  whose value is one of the five the file defines. It exists because the
+  register had drifted in both directions and neither was visible. R-36 and
+  R-37 had been added to the body without reaching the Contents, so the file's
+  own table of contents could not reach two of its entries — the same defect as
+  the fourteen references to an `R-42` that did not exist, one level up. And the
+  states were not greppable: twenty-one of forty-two entries had no `**Status:**`
+  line at all and three more carried one folded into their `**Severity:**` line,
+  so `grep '^\*\*Status:'` returned eighteen of twenty-one and looked complete.
+  That is R-26's shape in the one document that is deliberately block-free. The
+  anchor check earns its own line: the id and the anchor are two hand-written
+  strings that have to agree, and a Contents row that resolves to nothing is
+  indistinguishable from one that resolves. The slug function was validated
+  against all forty-two existing anchors before it was trusted, because a slug
+  that is *nearly* right fails on the anchors that are correct and invites
+  "fixing" the anchor instead. Verified by five injections, each exiting 1 with
+  the message it is designed to produce: deleting a `Status` line, folding one
+  into a `Severity` line, drifting an anchor, adding an entry without indexing
+  it, and using a status outside the vocabulary. It carries the
+  `entries.length === 0` guard every check in `docs-facts.ts` has, so a rename
+  or a heading-format change fails loudly rather than turning the check into a
+  no-op.
 - **`scripts/child-wait.ts` — one wait, three failure messages, shared by
   `verify:release` and `okx-seller-smoke`.** Both scripts start a server, wait
   for it to answer and kill it, and both had their own copy of that wait. The
@@ -1347,6 +1373,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`RISKS.md` said four things about itself that were not true, and the sweep
+  that was supposed to be a tidy-up is what found them.** The sweep was a
+  one-line-per-entry backfill: twenty-four entries had no *greppable* status, so
+  each was read end to end to write one, and three of them had been wrong for
+  weeks — plus one more, in the field next to the one being written.
+
+  - **R-11 reported a release blocker that had been resolved by the change that
+    wrote the entry.** It said no brand asset existed and that
+    `docs/EXTERNAL_ACTIONS.md` marked the item `EXTERNAL_BLOCKED`. Both
+    statements were stale in the commit that added them: `docs/brand/hero.png`
+    (1280 × 640, measured) landed in `f95ccb5`, the square
+    `docs/brand/avatar.png` followed on 2026-10-05, and
+    `docs/EXTERNAL_ACTIONS.md` §7 has recorded the item as `DONE` since — saying
+    in its own words that the item "was never updated". The pair that *is*
+    compared, the committed file against the brief, is measured by
+    `checkAsset()` in `preflight:production`; this entry was compared to
+    nothing, which is R-36 one document over.
+  - **R-19 described a mitigation in a class that does not exist.** It said
+    `GitHubCompareSource` checks the Compare API response for the truncation
+    flag and the file-count cap. There is no such class in the tree:
+    `octokit.repos.compareCommits` is never called, no `ChangeSource`
+    implementation exists outside a comment in the schema, and nothing produces
+    a `ChangeImpactSchema` — the fourteen MCP tools and the four API routes
+    contain nothing that reads a Compare API response. The schema exists and
+    carries `degraded` and `limitations`; the source that would fill them does
+    not. The entry is `Open` rather than `Fixed`: the risk is dormant, not
+    handled, and the detection it names cannot fire, which is R-27's shape and
+    the second reason the status is not `Fixed`.
+  - **R-21 claimed a pin the file it named does not carry.** It said
+    `pnpm-workspace.yaml` enforces both critical pins "via `overrides`". It
+    enforced zod; the MCP SDK was pinned only in
+    `packages/mcp-server/package.json`, the one package that declares it. That
+    is a fact about the tree, not a control — the override is the only form that
+    constrains a package that does not exist yet, which is exactly what
+    `"zod": "^3.24.1"` in four manifests needed. The override was added rather
+    than the sentence weakened: `'@modelcontextprotocol/sdk': 1.22.0` is in
+    `overrides` now, so the claim is true. The lockfile was edited by hand,
+    because a first attempt to let pnpm write it failed before it resolved
+    anything; the edit was then checked two ways rather than trusted. Before it
+    was applied, pnpm's own predicate was reproduced instead of the command that
+    writes it —     `getOutdatedLockfileSetting()` compares `lockfile.overrides`
+    against the workspace's with a deep equal, and the two parse to the same
+    object. After it was applied, the command CI actually runs was run:
+    `pnpm install --frozen-lockfile` reports `Lockfile is up to date, resolution
+    step is skipped` and exits 0, which is the comparison that decides whether
+    the push is green. The override resolves to the version the lockfile already
+    pinned — `'@modelcontextprotocol/sdk@1.22.0'` is the package key before and
+    after — so nothing under `packages:` moved; only the `overrides:` block did.
+    One more thing the first attempt left behind, and it is a sandbox fact worth
+    writing down: `pnpm` keeps its own copy of the lockfile at
+    `node_modules/.pnpm/lock.yaml` and compares the two on every script run, so a
+    hand-edited lockfile makes *every* `pnpm <script>` fail with a deps-status
+    error until that copy is refreshed. It is the same file, not a cache to
+    delete.
+  - **R-01's `**Mitigation:**` field named two things that are not in the tree.**
+    It said path traversal and `.git/`/`node_modules/` are "rejected by
+    `GitFetcher`" — `GitFetcher` does no path checking at all; `classifyFile`
+    returns the verdict and `filterFiles` acts on it, from
+    `packages/core/src/pipeline.ts:88` — and that "the `runMigrations` helper
+    inside the fetcher is sandboxed to `/tmp/repopilot-*` and cleaned on
+    completion", which describes a helper that is a *database* migration in
+    `apps/api/src/db/client.ts` and a temporary directory that
+    `packages/core/src` does not contain: the tarball is gunzipped and walked in
+    memory under `MAX_ARCHIVE_BYTES`/`MAX_EXTRACTED_BYTES`. Both clauses were
+    removed by R-17's work and this entry was never told, which is the same
+    defect as the three above it, in the one field a script cannot check. Fixed
+    because it sat three lines under a status line that contradicts it, not
+    because the other forty-one `Mitigation` fields were read that closely —
+    they were not, and `BACKLOG.md` now says so.
+
+  The other twenty-one entries are the backfill proper: each now names its
+  control and what the control cannot reach, and none of them was labelled
+  `Fixed` without a fix event to point at. They needed a fifth value to say so —
+  **`Mitigated by design`**, for an entry whose control shipped in the same
+  change, so the risk was never unmitigated in the tree and there is no date to
+  record. Fourteen use it. The absence of that word is why they went unlabelled
+  rather than mislabelled, and `pnpm docs:check` now rejects a sixth value
+  nobody has defined.
 - **`verify:release` step 8d reported an exhausted GitHub quota as a cache
   defect.** The step makes two calls, and only the first was guarded against the
   upstream: `UPSTREAM_RATE_LIMITED` on call 1 is a documented SKIP, and the same

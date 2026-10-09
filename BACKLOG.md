@@ -253,12 +253,20 @@ Tracked work, in priority order, updated as items are completed.
   being a directory with its own rules); or leave it and keep hand-run probes
   (then every future shared helper has to reinvent this). Recorded rather than
   picked, because it is a decision about the gate.
-- [ ] **Give every entry in `RISKS.md` a `Status:` line.** Twenty of forty-one
-  have one as of 2026-10-08; the other twenty-one predate the convention and
-  are closed in fact rather than in form. Without the line, "which of these are
-  still open?" is only answerable by reading every entry end to end — a search
-  for "open" returns a partial answer that looks complete. A one-line-per-entry
-  sweep, then the convention is uniform and the grep is reliable.
+- [x] **Give every entry in `RISKS.md` a `Status:` line.** Done 2026-10-08. The
+  count in this item was wrong in a way that mattered: it said "twenty of
+  forty-one", and the real state was twenty-one of forty-two carrying a status
+  and **three of those twenty-one carrying it where no search can see it** —
+  folded into the `**Severity:**` line, so `grep '^\*\*Status:'` returned
+  eighteen and looked complete. The sweep read the other twenty-four end to end,
+  and three of them turned out to be wrong rather than merely unlabelled: R-11
+  reported a blocker resolved by the commit that wrote it, R-19 described a
+  mitigation in a class that does not exist, R-21 claimed a pin the file it
+  named does not carry. That is the argument for the line, and it is not the
+  argument this item made: the register's states were not unreadable, they were
+  unread and wrong. A fifth value was needed for fourteen of them
+  (`Mitigated by design` — the control and the entry shipped together, so there
+  is no fix date), and `checkRisksRegister()` now rejects a sixth.
 - [ ] Drizzle migration generator for Postgres (currently the SQLite schema
   is hand-written; would be nice to drive it from `drizzle-kit generate`)
 - [ ] Admin UI: job list / job detail (currently only a single-shot form)
@@ -268,12 +276,37 @@ Tracked work, in priority order, updated as items are completed.
 - [ ] VSCode extension embedding MCP server
 - [ ] Re-pop analysis (compare current vs previous commit)
 - [ ] Multi-repo scan (org-level)
-- [ ] **A check that `RISKS.md`'s Contents lists every `## R-NN` heading, and
-  nothing else.** R-36 and R-37 were both added to the body without reaching
-  the Contents, and nothing noticed — the same defect as the duplicated
-  `### Changed` in `CHANGELOG.md`, in the one file that is deliberately
-  block-free. Fix the instance by hand (done) and then make it a check, with
-  its own injection test, rather than a convention.
+- [x] **A check that `RISKS.md`'s Contents lists every `## R-NN` heading, and
+  nothing else.** Done 2026-10-08 as `checkRisksRegister()` in
+  `scripts/docs-facts.ts`, and widened once it was being written: the Contents
+  check is the cheapest of its three assertions. The anchors are the second —
+  `#r-13--a-gate-on-a-large-repository-times-out` and the heading it points at
+  are two hand-written strings that have to agree, and a row that resolves to
+  nothing is indistinguishable from one that resolves. The third is the one this
+  item did not ask for and the sweep turned out to need: exactly one
+  `**Status:**` line per entry, starting the line, from a fixed vocabulary.
+  Five injections, each exiting 1 with its own message. It carries the
+  `entries.length === 0` guard, so a rename or a heading-format change fails
+  loudly instead of turning the check into a no-op — which is what this item
+  would otherwise have created, since the file is deliberately block-free and
+  `checkBlocks()` cannot see it at all.
+- [ ] **`RISKS.md`'s `**Mitigation:**` lines are prose, and prose is not
+  checked.** The register check covers the file's *shape* — the index, the
+  anchors, the status lines — because those are the parts a script can compare.
+  The field that says what stops the risk is not one of them, and the sweep that
+  added the status lines showed what that costs: reading R-01 end to end to
+  write its status, the `**Mitigation:**` three lines below turned out to name
+  `GitFetcher` as the thing that rejects `..` and `.git/` (it does no path
+  checking; `classifyFile`/`filterFiles` do, and `pipeline.ts:88` is the caller)
+  and to describe a `runMigrations` helper in the fetcher sandboxed to
+  `/tmp/repopilot-*` (there is no such helper, and no temp directory in
+  `packages/core/src` at all — extraction is in memory). Both statements were
+  probably true when written and were removed by R-17's work without this entry
+  being told. R-01 is corrected; the other forty-one were not read that closely,
+  and a `Mitigation` line cannot be checked by grep. The honest options are to
+  re-read all of them by hand (a sweep with no automation to share) or to accept
+  that this field drifts and say so — recorded rather than picked, because it is
+  the same choice as the one above it.
 - [ ] **Nothing executes the commands the documents tell a human to run.**
   `docs:check` verifies `pnpm <script>` references and, since 2026-10-05, the
   one `docker run` environment pair that `validateProductionConfig` refuses
@@ -302,16 +335,14 @@ Tracked work, in priority order, updated as items are completed.
   exposes no HTTP routes and holds no audit cache — and reporting them beats
   omitting them, which cannot be told apart from a server built before the
   fields existed.
-- [ ] **`verify:release`'s 15 s health budget is tight enough to fail a slow
-  machine.** `scripts/verify-release.ts` spawns `apps/api/dist/server.js` on
-  port 4099 and waits `waitForHttp('http://127.0.0.1:4099/health', 15000)`.
-  Measured 2026-10-06 on the maintainer's Intel Mac with nothing else running:
-  **ready after 16 844 ms** — so the step fails locally, by about two seconds,
-  every time. The server is not broken: it answers `/health` 200 and logs
-  `RepoPilot API listening on http://127.0.0.1:4099`; it is just slower than
-  the budget. CI (fresh runner, warm cache) comes up inside 15 s, which is why
-  this has never been seen there. The fix is one number — raise the budget, or
-  make it configurable — and it is not in R-39's scope, so it is recorded
-  rather than changed. Worth noting before raising it: the startup cost itself
-  (≈15 s) is the interesting number, and it is not the DB (`buildApp` finishes
-  its SQLite migrations in milliseconds).
+- [x] **`verify:release`'s 15 s health budget is tight enough to fail a slow
+  machine.** Done, and stale rather than fixed in this batch: the bare
+  `waitForHttp('…', 15000)` this quotes was replaced when the three waits moved
+  into `scripts/child-wait.ts` (D-044). The budget is now
+  `STARTUP_TIMEOUT_MS = Number(process.env['VERIFY_STARTUP_TIMEOUT_MS'] ?? 60_000)`
+  — four times the old number and overridable — and the timeout message names
+  the variable to raise. Measured 2026-10-08 on the same machine that produced
+  the 16 844 ms figure: the `api /health` step took **28 856 ms**, so it fails
+  by nothing. The observation underneath the item still stands and is worth
+  keeping: ≈15 s of startup is the interesting number, and it is not the
+  database — `buildApp` finishes its SQLite migrations in milliseconds.

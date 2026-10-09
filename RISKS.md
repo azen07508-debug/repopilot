@@ -74,9 +74,10 @@ Active risks the team is aware of and how they are mitigated.
 
 ## How to read this file
 
-Forty-two entries (`R-41` is unused; the numbering jumps). The convention for
-writing down *what state an entry is in* is younger than most of the file, so
-the state is either on a `**Status:**` line or in the entry's own prose. Four
+Forty-two entries (`R-41` is unused; the numbering jumps). Every one of them
+carries a `**Status:**` line as of 2026-10-08, and the line starts the line —
+a status folded into a `**Severity:**` line is invisible to a search and reads
+as no status at all, which is how three of them were lost until then. Five
 values, and they mean different things:
 
 - **Fixed `<date>`** — the mitigation is in the tree, and the entry says what
@@ -87,20 +88,38 @@ values, and they mean different things:
   trigger that would move it up.
 - **Mitigated in `<version>`** — the older spelling of *Fixed*, used by the
   entries written during the `0.1.0-rc.*` work.
+- **Mitigated by design** — the control and the entry were written in the same
+  change, so there is no fix date: the risk was never unmitigated in the tree.
+  The entry names the control, and the residual is whatever the control cannot
+  reach. This is the value twenty-one of these entries needed and the
+  vocabulary did not have — which is why they went unlabelled rather than
+  mislabelled, and why "the convention is younger than most of the file" was
+  never the whole explanation.
 
-Twenty-one of the forty-two carry a `**Status:**` line as of 2026-10-08, after
-the batch that closed R-26 and R-33 and added R-43. The batch that fixed R-43
-moved its line from *Open* to *Fixed* without changing either total. The other
-twenty-one predate the convention
-and were not touched by those batches; their state is in the prose ("Still open",
-"Mitigated by…"), or in the fact that nothing has been heard from them. Giving
-all of them a Status line is a documentation cleanup listed in `BACKLOG.md`, not
-a risk.
+`pnpm docs:check` enforces the shape now: every `## R-NN` heading is in
+Contents, Contents lists nothing that is not a heading, every anchor resolves
+against the heading it names, and every entry has exactly one `**Status:**`
+line whose value is one of the five above. `checkRisksRegister()` in
+`scripts/docs-facts.ts` is that check.
 
-The reason this section exists: "which of these are still open?" was, until
-now, only answerable by reading every entry end to end. Twenty-one of them say
-nothing greppable about their state, so a reader who searched for "open" got a
-partial answer that looked like a complete one.
+The sweep was worth doing for a reason other than tidiness. Three of the
+twenty-four entries that had no *greppable* status turned out to be **wrong**:
+R-11 reported a release blocker that had been resolved by the same change that
+wrote the entry, R-19 described a mitigation in a class that does not exist in
+the tree, and R-21 claimed a pin the file it named does not carry. A register
+whose states cannot be read is a register whose states are not checked. A fourth
+was wrong in the field *next* to the one being written: R-01's `**Mitigation:**`
+attributed its path checks to a class that does none and described a temporary
+directory that no longer exists. Both were removed by R-17 and this entry was
+never told. Reading an entry end to end to write one line is what surfaces that,
+and nothing else in the file's shape does.
+
+That was the failure this section was written against, and it is worth keeping
+the record: "which of these are still open?" used to be answerable only by
+reading every entry end to end. Twenty-one of them said nothing greppable about
+their state, so a reader who searched for "open" got a partial answer that
+looked like a complete one — and a reader who searched for `**Status:**` got
+eighteen of twenty-one, which is the same defect with a smaller gap.
 
 One more reading rule, learned the hard way in this batch: **a reference to an
 entry that does not exist is a defect, not a shorthand.** Fourteen references to
@@ -108,17 +127,36 @@ entry that does not exist is a defect, not a shorthand.** Fourteen references to
 following one of them arrived at nothing. If you cite a risk, write it down in
 the same change.
 
+**What this file still cannot check.** The shape is enforced — index, anchors,
+status lines — but `**Mitigation:**` is prose, and a script cannot tell a
+control that exists from one that was deleted last month. R-01 is the evidence.
+Re-reading all forty-two by hand is a sweep with no automation to share;
+`BACKLOG.md` records that rather than pretending the check covers it.
+
 ---
 
 ## R-01 — Sandbox escape via target repo content
 
 **Severity:** Critical
 **Likelihood:** Possible (the system reads untrusted code by design)
+**Status:** Mitigated by design — the pipeline reads target-repo text and never
+executes it, and there is no filesystem left to escape to. `classifyFile`
+rejects `..`, `.git/` and `node_modules/` (`packages/core/src/git/files.ts:115`;
+`filterFiles` is the caller that acts on the verdict),
+and R-17 removed the only place extraction touched a directory.
 **Mitigation:** The pipeline never executes target-repo code. Only text
 is read. Binary files are skipped. Path traversal, `.git/`, `node_modules/`
-and unexpected dotfiles are rejected by `GitFetcher`. The `runMigrations`
-helper inside the fetcher is sandboxed to `/tmp/repopilot-*` and cleaned
-on completion.
+and unexpected dotfiles are rejected before a file is read: `classifyFile`
+returns `ignore` for each of them and `filterFiles` is what acts on the
+verdict (`packages/core/src/pipeline.ts:88`). Extraction never touches a
+directory at all — the tarball is gunzipped and walked in memory, bounded by
+`MAX_ARCHIVE_BYTES` (64 MiB) and `MAX_EXTRACTED_BYTES` (256 MiB) — so there is
+no temporary directory to escape into or to leak. The sentence that used to
+stand here attributed the path rejection to `GitFetcher` and described a
+`runMigrations` helper inside the fetcher sandboxed to `/tmp/repopilot-*`;
+`GitFetcher` does no path checking, `runMigrations` is a database migration in
+`apps/api/src/db/client.ts`, and `packages/core/src` contains no temp-directory
+code at all.
 
 **Detection:** `security/injection.ts` flags prompt-injection style
 content as a finding; the finding is reported, not acted on.
@@ -149,6 +187,9 @@ must verify `paymentMode=okx` immediately after production deploy.
 
 **Severity:** Medium
 **Likelihood:** High for unauthenticated production usage
+**Status:** Accepted residual — the budget is GitHub's, not ours, so nothing
+we build removes the risk. `GITHUB_TOKEN` raises it to 5000 req/h and the
+fetcher reports the remaining quota with the failure.
 **Mitigation:** Documented as a known limit. `GITHUB_TOKEN` env var
 unlocks 5000 req/h. The `verify:release` script defaults to fixture
 mode to avoid hitting GitHub.
@@ -160,6 +201,12 @@ limit in the error response; user is told to set `GITHUB_TOKEN`.
 
 **Severity:** Medium
 **Likelihood:** Medium (registry / SDK changes)
+**Status:** Mitigated by design — D-003/D-004 write the pins down and CI
+installs with `--frozen-lockfile`. That catches an edited lockfile, not a
+registry that moved under a caret range; `overrides` closes that half, and it
+covers zod and the MCP SDK (R-21) but not pino — D-004 chose `^10.0.0` there,
+and the failure it guards against is a named-import break that `pnpm typecheck`
+catches, so the caret is a decision rather than a gap.
 **Mitigation:** All critical pins are documented in `DECISIONS.md`
 (D-003, D-004). `pnpm install` uses `--frozen-lockfile` in CI. PRs that
 bump these versions must include a test for the version-specific
@@ -172,6 +219,9 @@ run is the gate.
 
 **Severity:** Low
 **Likelihood:** Was blocking rc.1
+**Status:** Mitigated by design — the pin is the resolution, and it is in
+`pnpm-workspace.yaml` `overrides`, which is where the next reader will look for
+it (R-21).
 **Mitigation:** Resolved by pinning to zod 3.24.1 + MCP SDK 1.22.0.
 If the mirror starts serving 3.25.x, we can lift the pin in a
 separate PR after exercising the new tool surface.
@@ -180,6 +230,10 @@ separate PR after exercising the new tool surface.
 
 **Severity:** Medium
 **Likelihood:** Low
+**Status:** Mitigated by design — `env:check` warns on a `file:`
+`DATABASE_URL` in production. A warning, not a refusal: the production guard
+that throws on a wrong backend is R-02's, for `PAYMENT_MODE`, and this one
+deliberately did not copy it.
 **Mitigation:** `env:check` warns when `DATABASE_URL` starts with
 `file:` and `NODE_ENV=production`. Production deployments use
 `postgres://`. The Drizzle schema is hand-written and the migration
@@ -189,6 +243,9 @@ path runs on both backends.
 
 **Severity:** Medium
 **Likelihood:** Medium
+**Status:** Mitigated by design — `CORS_ORIGINS` is required in production and
+`env:check` errors on `*`, so the development default cannot be the value in
+production: the variable has no default there to fall back to.
 **Mitigation:** `CORS_ORIGINS` is required in production; the default
 is `http://localhost:5173,http://localhost:3000` which is development
 only. `env:check` fails if `*` is present in production.
@@ -238,6 +295,9 @@ construction rather than by omission.
 
 **Severity:** Low
 **Likelihood:** Low (better-sqlite3 is single-writer, fine for one API)
+**Status:** Mitigated by design — the migration is one `db.transaction` and
+every statement is `IF NOT EXISTS`, so a crash mid-migration leaves a database
+that the next run finishes rather than one it cannot read.
 **Mitigation:** Migrations are wrapped in a single `db.transaction`.
 The migration script is idempotent (uses `IF NOT EXISTS`).
 
@@ -245,6 +305,9 @@ The migration script is idempotent (uses `IF NOT EXISTS`).
 
 **Severity:** Medium
 **Likelihood:** Low
+**Status:** Mitigated by design — `redact` is set on the Fastify logger and the
+integration test that POSTs a known fake secret is in the suite, so the control
+is a test rather than a config line someone has to keep.
 **Mitigation:** Redact is configured at the Fastify logger level. We
 add an integration test that POSTs with a known fake secret and asserts
 it does not appear in captured logs. The test is part of the suite.
@@ -252,15 +315,38 @@ it does not appear in captured logs. The test is part of the suite.
 ## R-11 — Marketplace hero / branding not provided
 
 **Severity:** Low
-**Likelihood:** Confirmed (no brand asset)
-**Mitigation:** Documented in `docs/HERO_IMAGE_BRIEF.md` and marked
-`EXTERNAL_BLOCKED` in `docs/EXTERNAL_ACTIONS.md`. Release Candidate
-proceeds without it.
+**Likelihood:** Confirmed at the time — retracted, see below.
+**Status:** Fixed — both assets are committed and `pnpm preflight:production`
+measures them. This entry was the last place still reporting the blocker.
+
+**What it was.** This entry read: *no brand asset*, documented in
+`docs/HERO_IMAGE_BRIEF.md` and marked `EXTERNAL_BLOCKED` in
+`docs/EXTERNAL_ACTIONS.md`, the release candidate proceeding without it. Both
+halves were stale by the time anyone could have read them. `docs/brand/hero.png`
+(1280 × 640, measured) landed in the same change that wrote this entry —
+`f95ccb5` — and `docs/brand/avatar.png` (1024 × 1024, for
+`onchainos agent create --picture`) landed 2026-10-05.
+`docs/EXTERNAL_ACTIONS.md` §7 has recorded the item as `DONE` since, and says
+why in its own words: the item *"claimed no brand asset was bundled. That
+stopped being true when `docs/brand/hero.png` was committed — the item was never
+updated."*
+
+**Why it is kept rather than deleted.** The defect was never the missing image.
+It was that two documents disagreed about whether one existed, and nothing
+compared them: this entry was compared to nothing. The pair that *is* compared
+is the committed file and the brief — `checkAsset()` in
+`scripts/preflight-production.ts` re-measures both assets against the ratio the
+brief specifies — which is R-36's answer applied to a PNG.
+
+**Related.** R-36 (a document cannot disagree with a function it is never
+compared to), D-033 (a document states no fact it can derive).
 
 ## R-12 — PII leakage from the audited repo
 
 **Severity:** Low
 **Likelihood:** Low
+**Status:** Mitigated by design — reports carry `path:line:reason` pointers and
+never file content, so there is no field a secret value could be rendered into.
 **Mitigation:** Reports only contain `path:line:reason` for any
 evidence pointer. Secret values are masked. We do not surface raw file
 content in the report.
@@ -269,6 +355,10 @@ content in the report.
 
 **Severity:** Low
 **Likelihood:** High for large repos
+**Status:** Mitigated by design — the per-request timeout and the published
+limits are the control, and the queue is what keeps a gate off the request path.
+The residual is R-16's: the queue is in-process, so a restart loses a gate that
+was already accepted.
 **Mitigation:** 30 s per-request timeout in the fetcher
 (`packages/core/src/git/fetcher.ts`). The size limits that bound a gate are
 published in `/api/v1/capabilities.limits`, which reports what this
@@ -321,6 +411,10 @@ same correction.
 
 **Severity:** Critical
 **Likelihood:** Low
+**Status:** Mitigated by design — the docs use `__OKX_AGENT_KEY__`
+placeholders and `env:check` never prints a value, so the failure needs a human
+to paste a key into a chat window. Nothing technical prevents that; what
+prevents it is that no document ever shows a real one.
 **Mitigation:** `env:check` never prints secret values. All examples
 in docs use `__OKX_AGENT_KEY__` placeholders. `README_OKX.md` and
 `docs/SECURITY.md` warn explicitly against pasting keys.
@@ -344,6 +438,10 @@ Operators should alert if it reports `inline` instead.
 
 **Severity:** Medium
 **Likelihood:** Medium (introduced by D-017 in V0.2)
+**Status:** Mitigated by design — the two caps are the control, and the disk
+half of the risk does not exist as built: decompression is in memory (D-024), so
+there is no directory to exhaust. The residual is the API host's memory, which
+`MAX_EXTRACTED_BYTES` bounds and nothing else does.
 
 **Mitigation:** The disk half of this risk does not exist as built —
 ADR D-024 superseded the `mkdtemp` detail and the archive is
@@ -374,6 +472,10 @@ signal for this risk; memory on the API host is.
 
 **Severity:** Low
 **Likelihood:** Low (introduced by D-018 in V0.2)
+**Status:** Mitigated by design — the size check runs before the parser, and a
+parser that throws degrades one file instead of the map. The residual is a file
+under the cap that is pathological in some other way, which the try/catch
+catches and the fallback answers with less precision rather than an error.
 
 **Mitigation:** Every file is checked against `maxFileBytes`
 (1 MiB) before parsing. Each parser call is wrapped in try/catch and
@@ -390,20 +492,44 @@ produces `degraded: true` rather than a throw.
 
 **Severity:** Low
 **Likelihood:** Medium for very large pull requests (V0.4, D-020)
+**Status:** Open — and the mitigation this entry used to state described a class
+that is not in the tree. Nothing reads the Compare API, so the risk is dormant
+rather than handled.
 
-**Mitigation:** `GitHubCompareSource` checks the Compare API response
-for the truncated flag and file-count cap. When truncation is
-detected, `ChangeImpactSchema.degraded` is set to `true` and the
-reason is appended to `limitations`. The engine never silently
-reports a partial diff as complete.
+**What this entry used to claim, and why it was wrong.** It read: *"`GitHubCompareSource`
+checks the Compare API response for the truncated flag and file-count cap. When
+truncation is detected, `ChangeImpactSchema.degraded` is set to `true` …"*.
+There is no `GitHubCompareSource` anywhere in the tree. `octokit.repos.compareCommits`
+is never called; no `ChangeSource` implementation exists outside a comment in the
+schema; and nothing produces a `ChangeImpactSchema` — the fourteen MCP tools and
+the four API routes (`audits`, `audit` by id, `capabilities`, `free-check`,
+`health`) contain nothing that reads a Compare API response. What does exist is
+the schema (`packages/core/src/schemas/intelligence/change-impact.ts`), which
+carries `degraded` and `limitations` for whoever builds the source.
 
-**Detection:** Any `change-impact` response with
-`degraded: true` and a `limitations` entry mentioning truncation.
+**So the risk is dormant, not handled.** Nothing reads the Compare API, so
+nothing can return a truncated diff today; the moment something does, the flag
+is unread and the failure is silent. This entry is the reason the mitigation for
+a source has to be written when the source is, and not when the schema is.
+
+**Detection:** the one this entry names — a `change-impact` response with
+`degraded: true` and a `limitations` entry mentioning truncation — is a
+detection that cannot fire, because nothing emits one. That is R-27's shape (a
+check that can never pass is indistinguishable from one that found nothing), and
+it is the second reason the Status is *Open* rather than *Fixed*.
+
+**Related.** R-27 (a check that can never pass), R-28 (a green tick over a
+capability the repository does not have), D-020 (the `ChangeSource`
+abstraction).
 
 ## R-20 — Intelligence artifacts inflate `report_json`
 
 **Severity:** Medium
 **Likelihood:** Medium (V0.3+, if artifacts are embedded by default)
+**Status:** Mitigated by design — nothing embeds the map, so there is nothing to
+inflate yet, and the caps are there for the caller that eventually does. The
+byte-budget test this entry used to describe does not exist either; the entry
+says so, and `fixture.test.ts` is what pins the caps in its place.
 
 **Mitigation:** Per D-021, intelligence artifacts are **not** embedded
 in `Report` by default; they live in the `intelligence_cache` table
@@ -429,6 +555,10 @@ and asserts the caps hold and the truncation notes are emitted.
 
 **Severity:** Medium
 **Likelihood:** Medium (V0.2+, whenever a dependency is added)
+**Status:** Mitigated by design — and half of the mechanism this entry claimed
+did not exist. `pnpm-workspace.yaml` `overrides` pinned zod; it did **not** pin
+the MCP SDK, which was pinned only in `packages/mcp-server/package.json` — the
+one package that declares it. Both are in `overrides` as of 2026-10-08.
 
 **Mitigation:** D-003 pins zod to `3.24.1` and the MCP SDK to exactly
 `1.22.0`; `pnpm-workspace.yaml` enforces both via `overrides`. Any new
@@ -436,6 +566,14 @@ dependency must not transitively pull zod >= 3.25 or MCP SDK >= 1.23
 (the mirror cannot resolve `zod/v3`, and the newer SDK changes the
 `tool()` signature). The `typescript` compiler API promotion in D-018
 is safe: it is already present at `^5.7.2`.
+
+**Why the override, and not the `package.json`.** Four packages declare
+`"zod": "^3.24.1"`, and a caret range is precisely the thing that drifts — the
+override is what makes the pin hold for a package that does not exist yet. The
+MCP SDK has one declarer today, so its exact `package.json` entry was doing the
+work, but that is a fact about the tree rather than a control, and the sentence
+above claimed the control. It is in `overrides` now, which is what the sentence
+said all along.
 
 **Detection:** CI runs `pnpm install --frozen-lockfile` followed by
 `pnpm typecheck`; a resolution or type failure is the gate. Reviewers
@@ -566,8 +704,11 @@ count should read `Report.securityFindings`, not the diff.
 
 ## R-24 — A reverse proxy that omits `X-Forwarded-For` disables rate limiting
 
-**Severity:** High. **Status:** mitigated in the shipped configurations,
-undetectable at runtime.
+**Severity:** High.
+**Status:** Accepted residual — mitigated in the shipped configurations, and
+undetectable at runtime. The entry's last section is the decision: the
+`keyGenerator` is not changed, because preferring the header is correct behind a
+proxy, and the fix belongs in deployment configuration, which is where it is.
 
 `apps/api/src/middleware/rate-limit.ts` keys the limiter like this:
 
@@ -899,6 +1040,9 @@ score compared against the previous run rather than merely inspected.
 
 **Severity:** High
 **Likelihood:** Certain — measured on the 2026-10-02 self-audit
+**Status:** Fixed 2026-10-02 — the entry says so in its own words ("Fixed —
+batch 2, 2026-10-02"). The acceptance criterion it was written against was
+restated in the same batch, because the one it named could not be reached.
 
 **What happens.** The `mnemonic` rule has two halves. The candidate test is
 a regex for a run of 12–24 lowercase words; the validator,
@@ -1554,6 +1698,11 @@ scope of a check is part of the check), R-26 (a check that never runs).
 
 **Severity:** Medium
 **Likelihood:** Certain — measured on 2026-10-04
+**Status:** Fixed 2026-10-04 for the tarball and the documentation. Whether to
+publish — three packages under one scope, or the two workspace packages bundled
+into this one's `dist` — is a distribution decision rather than a defect, and
+the entry leaves it deliberately open. So "the MCP server cannot be installed
+from npm" is a known state, not an outstanding fix.
 
 **What happens.** `packages/mcp-server/package.json` advertises a binary
 (`repopilot-mcp`) and is `private: true`, and two of its dependencies are
@@ -1603,6 +1752,9 @@ deliberately left open.
 
 **Severity:** Medium
 **Likelihood:** Certain — measured on 2026-10-04
+**Status:** Fixed 2026-10-04 for `free-check.test.ts`. The class is not swept: a
+test that rebuilds the logic it means to check is invisible to every existing
+gate and nothing in CI looks for it, which the entry records as its residual.
 
 **What happens.** `free-check.test.ts` opened with a `describe('FreeCheck
 heuristics')` block whose cases built their own `README_NAMES` set, their own
@@ -1675,6 +1827,10 @@ part of the check).
 ## R-36 — A document cannot disagree with a function it is never compared to
 
 **Severity:** High **Likelihood:** High (it had already happened)
+**Status:** Fixed 2026-10-05 for §5.5 and for the price. Whether `asset` belongs
+in `accepts[]` is **not confirmed** — the snapshot's own field list omits it and
+the adapter emits it — and the test pins the document and the adapter together
+until someone decides, which is the entry's stated residual.
 
 **The defect.** `docs/OKX_REQUIREMENTS_SNAPSHOT.md` §5.5 is the registration
 authority: it is the 402 challenge the ASP is registered with, and the shape a
@@ -1795,7 +1951,11 @@ one product).
 
 ## R-38 — The LLM provider was wired from config and never read
 
-**Severity:** Low **Likelihood:** Confirmed **Status:** Fixed 2026-10-06
+**Severity:** Low **Likelihood:** Confirmed
+**Status:** Fixed 2026-10-06 — the provider, the prompt builder and every call
+site are deleted, so there is nothing left to wire, and `REPORT_VERSION` moved
+1.2 → 1.3 because a key consumers read left the map. The upgrade path is in the
+entry and in the git history.
 
 **The defect.** `apps/api/src/server.ts` built a provider from `LLM_PROVIDER`
 / `LLM_API_KEY` / `LLM_MODEL` (`defaultLlmProvider()`) and passed it into
@@ -1883,7 +2043,11 @@ repository had to a green light on the LLM surface), and D-009.
 
 ## R-39 — The OKX paid endpoint answered 400 to every buyer before verifying anything
 
-**Severity:** Critical **Likelihood:** Confirmed **Status:** Fixed 2026-10-06
+**Severity:** Critical **Likelihood:** Confirmed
+**Status:** Fixed 2026-10-06 — one parser, and the route's own is gone, with a
+test that runs the paid route in `PAYMENT_MODE=okx` and asserts `402` rather
+than `400`. The expiry gap this entry deliberately left open was judged wrong in
+the same week and fixed in R-40, which is the entry's own correction.
 
 **The defect.** `apps/api/src/routes/audits.ts` carried its own parser for the
 `X-PAYMENT` header (`extractPaymentId`) and looked for `paymentId` at the **top

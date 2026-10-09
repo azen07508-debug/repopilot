@@ -377,7 +377,10 @@ const BLOCK_FREE_DOCS: Record<string, string> = {
   'DECISIONS.md': 'dated decision records; a decision is a historical document',
   'MARKETPLACE_LISTING.md': 'marketplace copy; the facts it states are not derivable',
   'README_OKX.md': 'OKX integration notes; the flow, not the counts',
-  'RISKS.md': 'a risk register; the version labels record when a risk was mitigated',
+  'RISKS.md':
+    'a risk register; the version labels record when a risk was mitigated, so ' +
+    'no number here is derivable. Its shape is checked instead of its contents, ' +
+    'by `checkRisksRegister()`',
   'docs/API.md': 'the HTTP surface; endpoints and payloads, no derivable counts',
   'docs/AVATAR_BRIEF.md': 'a design brief; its measurements are re-taken by preflight:production',
   'docs/DEPLOYMENT.md': 'operator instructions',
@@ -1007,6 +1010,212 @@ function checkChangelogStructure(): Problem[] {
   return problems;
 }
 
+/* ────────────────────────── RISKS.md, as a register ─────────────────────── */
+
+/**
+ * The five values `RISKS.md` defines for a `**Status:**` line.
+ *
+ * This list is the check's vocabulary, not the document's, and that is the
+ * point: a sixth value added to the file without being added here fails. The
+ * alternative — accept whatever follows `**Status:**` — accepts "still broken"
+ * and "TODO", which are statuses nothing can compare.
+ */
+const RISK_STATUS_VALUES = [
+  'Fixed',
+  'Accepted residual',
+  'Open',
+  'Mitigated in',
+  'Mitigated by design',
+];
+
+/**
+ * GitHub's heading anchor: lowercase, punctuation dropped, spaces to hyphens.
+ *
+ * Checked against all forty-two anchors in the file before it was trusted. A
+ * slug function that is *nearly* right is worse than none: it fails on the
+ * anchors that are correct, and the temptation is then to "fix" the anchor
+ * rather than the function, which breaks the link that worked.
+ */
+function anchorOf(heading: string): string {
+  return heading
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} _-]/gu, '')
+    .replace(/ /g, '-');
+}
+
+interface RiskEntry {
+  id: string;
+  line: number;
+  anchor: string;
+  status: string[];
+  /** Lines carrying a `**Status:**` that does not start the line. */
+  folded: number[];
+}
+
+interface RiskContentsRow {
+  id: string;
+  href: string;
+  line: number;
+}
+
+function readRisksRegister(): { entries: RiskEntry[]; contents: RiskContentsRow[] } {
+  const entries: RiskEntry[] = [];
+  const contents: RiskContentsRow[] = [];
+
+  for (const [i, line] of read('RISKS.md').split('\n').entries()) {
+    const heading = /^## (R-\d+) — (.+)$/.exec(line);
+    if (heading !== null) {
+      const id = capture(heading, 1);
+      entries.push({
+        id,
+        line: i + 1,
+        anchor: anchorOf(`${id} — ${capture(heading, 2)}`),
+        status: [],
+        folded: [],
+      });
+      continue;
+    }
+
+    const link = /^- \[(R-\d+)\]\(#([^)]+)\)/.exec(line);
+    if (link !== null) {
+      contents.push({ id: capture(link, 1), href: capture(link, 2), line: i + 1 });
+      continue;
+    }
+
+    // Everything between two headings belongs to the earlier one. The Contents
+    // and "How to read this file" sit above the first heading, so a `**Status:**`
+    // written in them is attributed to nothing rather than to the wrong entry —
+    // and that section has to be able to name the marker it is describing.
+    const current = entries[entries.length - 1];
+    if (current === undefined) continue;
+    if (line.startsWith('**Status:**')) {
+      current.status.push(line.slice('**Status:**'.length).trim());
+    } else if (line.includes('**Status:**')) {
+      current.folded.push(i + 1);
+    }
+  }
+
+  return { entries, contents };
+}
+
+const RISKS = readRisksRegister();
+
+/**
+ * `RISKS.md` is a register, and what makes it one is its index and its states.
+ *
+ * The index. R-36 and R-37 were both added to the body without reaching the
+ * Contents and nothing noticed, so a reader using the file's own table of
+ * contents could not reach two of its entries — the same defect as a reference
+ * to an `R-42` that did not exist, one level up. The anchor is checked as well
+ * as the id: `#r-13--a-gate-on-a-large-repository-times-out` and the heading it
+ * points at are two hand-written strings that have to agree, and a Contents row
+ * that resolves to nothing is indistinguishable from one that resolves.
+ *
+ * The states. Every entry carries exactly one `**Status:**` line and the line
+ * starts the line; both halves are load-bearing. Twenty-one entries had no
+ * status at all and three carried one folded into their `**Severity:**` line,
+ * so `grep '^\*\*Status:'` returned eighteen of twenty-one and looked complete.
+ * That is why the sweep was not a tidy-up: three of the entries it touched were
+ * wrong — R-11 reported a blocker that had been resolved in the change that
+ * wrote it, R-19 described a mitigation in a class that does not exist, and
+ * R-21 claimed a pin the file it named does not carry. A register whose states
+ * cannot be read is a register whose states are not checked.
+ */
+function checkRisksRegister(): Problem[] {
+  const problems: Problem[] = [];
+
+  // A change to the heading level, the em dash, or the file's name would leave
+  // the loops below with nothing to inspect and this check green. R-26.
+  if (RISKS.entries.length === 0) {
+    problems.push({
+      where: 'RISKS.md',
+      message:
+        'no "## R-NN — " headings found. Either the file was renamed or its ' +
+        'heading format changed, and this check is currently a no-op.',
+    });
+    return problems;
+  }
+
+  const byId = new Map(RISKS.entries.map((e) => [e.id, e]));
+  const listedIds = new Set(RISKS.contents.map((c) => c.id));
+
+  for (const entry of RISKS.entries) {
+    if (!listedIds.has(entry.id)) {
+      problems.push({
+        where: `RISKS.md (${entry.id}, line ${entry.line})`,
+        message:
+          'is not in the Contents, so a reader who follows the table of ' +
+          'contents never reaches it.',
+      });
+    }
+  }
+
+  for (const row of RISKS.contents) {
+    const entry = byId.get(row.id);
+    if (entry === undefined) {
+      problems.push({
+        where: `RISKS.md (Contents, line ${row.line})`,
+        message: `${row.id} is listed and has no "## ${row.id} — " heading.`,
+      });
+      continue;
+    }
+    if (entry.anchor !== row.href) {
+      problems.push({
+        where: `RISKS.md (Contents, line ${row.line})`,
+        message:
+          `${row.id} links to #${row.href} and the heading computes to ` +
+          `#${entry.anchor}. One of the two changed; the link is the one a ` +
+          'reader follows.',
+      });
+    }
+  }
+
+  for (const entry of RISKS.entries) {
+    for (const line of entry.folded) {
+      problems.push({
+        where: `RISKS.md (${entry.id}, line ${line})`,
+        message:
+          'carries a "**Status:**" that does not start the line — it is ' +
+          'appended to a "**Severity:**" or "**Likelihood:**" line. It reads ' +
+          'correctly and searches as nothing, which is how three entries were ' +
+          'counted as having no status at all.',
+      });
+    }
+
+    if (entry.status.length === 0) {
+      problems.push({
+        where: `RISKS.md (${entry.id}, line ${entry.line})`,
+        message:
+          'has no "**Status:**" line, so "which of these are still open?" is ' +
+          `not answerable for it. Use one of: ${RISK_STATUS_VALUES.join(', ')}.`,
+      });
+      continue;
+    }
+    if (entry.status.length > 1) {
+      problems.push({
+        where: `RISKS.md (${entry.id}, line ${entry.line})`,
+        message: `has ${entry.status.length} "**Status:**" lines. An entry is in one state.`,
+      });
+      continue;
+    }
+
+    // The value is sometimes bolded (`**Fixed 2026-10-08.**`). That is emphasis
+    // on the same value, not a sixth one, so the markers come off first.
+    const value = (entry.status[0] ?? '').replace(/^\*\*/, '');
+    if (!RISK_STATUS_VALUES.some((v) => value.startsWith(v))) {
+      problems.push({
+        where: `RISKS.md (${entry.id}, line ${entry.line})`,
+        message:
+          `has the status "${value}", which is not one of the five values the ` +
+          `file defines: ${RISK_STATUS_VALUES.join(', ')}. A status outside the ` +
+          'vocabulary is a status nothing can compare.',
+      });
+    }
+  }
+
+  return problems;
+}
+
 /* ─────────────────────────────────── main ───────────────────────────────── */
 
 const mode = process.argv[2] ?? '--check';
@@ -1037,6 +1246,7 @@ const problems = [
   ...checkCommandReferences(),
   ...checkDockerRunConfig(),
   ...checkChangelogStructure(),
+  ...checkRisksRegister(),
   ...checkPrices(),
 ];
 
@@ -1045,7 +1255,7 @@ console.log('──────────────────────�
 console.log(
   `  ${TOOLS.length} MCP tools · ${WORKSPACES.packages.length} packages + ` +
     `${WORKSPACES.apps.length} apps · ${SERVICES.length} compose services · ` +
-    `${DOC_FILES.length} docs`
+    `${DOC_FILES.length} docs · ${RISKS.entries.length} risks`
 );
 
 if (problems.length === 0) {

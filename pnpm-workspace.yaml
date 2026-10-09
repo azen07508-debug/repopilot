@@ -6,6 +6,13 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
 
+# Pins, not preferences. `zod` is declared as `^3.24.1` by four packages and the
+# MCP SDK is declared by one, which is why both live here rather than in a
+# `package.json`: an override is the only form that constrains a package that
+# does not exist yet. R-21 said this file enforced both for three weeks while it
+# enforced one; `pnpm docs:check` cannot see that, so the sentence was the only
+# thing holding it and the sentence was wrong.
 overrides:
   zod: 3.24.1
   zod-to-json-schema: 3.24.1
+  '@modelcontextprotocol/sdk': 1.22.0
