@@ -50,4 +50,3 @@ export const jobs = sqliteTable(
 );
 
 export type JobRow = typeof jobs.$inferSelect;
-export type NewJobRow = typeof jobs.$inferInsert;

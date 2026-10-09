@@ -14,10 +14,7 @@ export interface ParsedRepoUrl {
   host: string;
   owner: string;
   repo: string;
-  defaultBranchHint: string | null;
 }
-
-const DEFAULT_BRANCHES = new Set(['main', 'master', 'develop', 'trunk']);
 
 export function parseRepoUrl(input: string, allowedHosts: string[]): ParsedRepoUrl {
   const normalized = input.trim();
@@ -52,7 +49,6 @@ export function parseRepoUrl(input: string, allowedHosts: string[]): ParsedRepoU
     host,
     owner,
     repo,
-    defaultBranchHint: null,
   };
 }
 
@@ -62,8 +58,4 @@ export class InvalidRepoUrlError extends Error {
     super(message);
     this.name = 'InvalidRepoUrlError';
   }
-}
-
-export function isDefaultBranchGuess(branch: string): boolean {
-  return DEFAULT_BRANCHES.has(branch.toLowerCase());
 }

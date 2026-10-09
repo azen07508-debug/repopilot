@@ -11,7 +11,6 @@ import { loadConfig } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { JobRepository } from '../repositories/job-repository.js';
 import { JobService } from '../services/job-service.js';
-import { AuditPipeline } from '@repopilot/core';
 import { MockPaymentAdapter } from '@repopilot/okx-adapter';
 
 /** A real repository. See the note above for why this is not a placeholder. */
@@ -22,11 +21,7 @@ async function main(): Promise<void> {
   const db = openDatabase(cfg.DATABASE_URL);
   await runMigrations(db);
   const repo = new JobRepository(db);
-  const pipeline = new AuditPipeline({
-    githubToken: cfg.GITHUB_TOKEN,
-    allowedHosts: cfg.ALLOWED_REPO_HOSTS,
-  });
-  const service = new JobService(repo, pipeline, new MockPaymentAdapter());
+  const service = new JobService(repo, new MockPaymentAdapter());
   const job = await service.create({
     repoUrl: EXAMPLE_REPO_URL,
     mode: 'quick',

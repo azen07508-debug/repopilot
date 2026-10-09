@@ -1,22 +1,7 @@
 import { useEffect, useState } from 'react';
 import { listRepoAudits, type AuditHistory } from '../lib/api.js';
+import { scoreClass, shortSha, when } from '../lib/format.js';
 import { useI18n } from '../i18n.js';
-
-function shortSha(sha: string | null): string {
-  return sha ? sha.slice(0, 7) : 'unknown';
-}
-
-function when(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace('T', ' ');
-}
-
-function scoreClass(n: number | null): string {
-  if (n === null) return '';
-  if (n >= 80) return 'ok';
-  if (n >= 50) return 'warn';
-  return 'bad';
-}
 
 export function AuditHistoryView({
   owner,

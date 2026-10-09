@@ -21,12 +21,8 @@ export const ScoreDimensionSchema = z.enum([
 ]);
 export type ScoreDimension = z.infer<typeof ScoreDimensionSchema>;
 
-export const SCORE_DIMENSIONS: ScoreDimension[] = [
-  'documentation',
-  'reproducibility',
-  'securityHygiene',
-  'deploymentReadiness',
-];
+/** The same four values, read off the schema so the two cannot drift. */
+export const SCORE_DIMENSIONS: ScoreDimension[] = [...ScoreDimensionSchema.options];
 
 export const AuditRefSchema = z.object({
   /** Null when the diff was built from a bare report instead of a job. */

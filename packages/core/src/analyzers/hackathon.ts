@@ -12,7 +12,6 @@
  * question with no possible "yes".
  */
 import type { Finding } from '../schemas/report.js';
-import { extractSectionsFromMd } from '../utils/markdown.js';
 
 export interface HackathonAnalysis {
   findings: Finding[];
@@ -229,5 +228,3 @@ export function hasHackathonKeywords(fileContents: Map<string, string>): boolean
   }
   return false;
 }
-
-export { extractSectionsFromMd };

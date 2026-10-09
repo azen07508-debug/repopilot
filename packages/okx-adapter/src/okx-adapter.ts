@@ -107,6 +107,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { verifyTypedData, recoverTypedDataAddress, type Hex } from 'viem';
+import { isEvmAddress, toAtomic } from './evm.js';
 import type {
   PaymentAdapter,
   PaymentChallenge,
@@ -220,7 +221,7 @@ export class OkxPaymentAdapter implements PaymentAdapter {
   }
 
   isConfigured(): boolean {
-    return isAddressLike(this.opts.recipientAddress) && !!this.opts.network;
+    return isEvmAddress(this.opts.recipientAddress) && !!this.opts.network;
   }
 
   /**
@@ -555,14 +556,4 @@ async function verifyEip3009(input: {
   } catch {
     return null;
   }
-}
-
-function isAddressLike(s: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(s);
-}
-
-function toAtomic(amount: string, decimals: number): string {
-  const [intPart, fracPart = ''] = amount.split('.');
-  const padded = (fracPart + '0'.repeat(decimals)).slice(0, decimals);
-  return `${intPart ?? '0'}${padded}`.replace(/^0+(?=\d)/, '') || '0';
 }

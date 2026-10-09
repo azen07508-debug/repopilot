@@ -10,7 +10,6 @@ import {
   EvidenceV2Schema,
   EvidenceSourceSchema,
   toEvidenceV2,
-  toLegacyEvidence,
   RepositoryMapSchema,
   REPOSITORY_MAP_SCHEMA_VERSION,
   ModuleSchema,
@@ -19,7 +18,6 @@ import {
   symbolId,
   DependencyGraphSchema,
   ArchitectureGraphSchema,
-  emptyArchitectureGraph,
   ChangeImpactSchema,
   unavailableChangeImpact,
   AgentContextPackSchema,
@@ -42,11 +40,6 @@ describe('EvidenceV2', () => {
     expect(v2.line).toBe(82);
     expect(v2.source).toBe('static-analysis');
     expect(() => EvidenceV2Schema.parse(v2)).not.toThrow();
-  });
-
-  it('round-trips v1 -> v2 -> v1 without loss', () => {
-    const v1 = { file: 'src/api/user.ts', line: 12, reason: 'unused import' };
-    expect(toLegacyEvidence(toEvidenceV2(v1))).toEqual(v1);
   });
 
   it('accepts an explicit source and confidence', () => {
@@ -179,15 +172,30 @@ describe('SymbolMapSchema', () => {
 });
 
 describe('ArchitectureGraphSchema', () => {
-  it('accepts the empty graph helper', () => {
-    const graph = ArchitectureGraphSchema.parse(emptyArchitectureGraph());
+  // Written out here rather than built by a helper: nothing in the tree
+  // builds an empty architecture graph, so the literal is the test's own
+  // fixture and belongs in the test.
+  const emptyGraph = {
+    schemaVersion: '1.0',
+    nodes: [],
+    edges: [],
+    entrypoints: [],
+    circularDependencies: [],
+    highCoupling: [],
+    isolatedModules: [],
+    llmUsed: false as const,
+    limitations: [],
+  };
+
+  it('accepts a graph with no nodes', () => {
+    const graph = ArchitectureGraphSchema.parse(emptyGraph);
     expect(graph.llmUsed).toBe(false);
     expect(graph.nodes).toEqual([]);
   });
 
   it('refuses to be produced by an LLM', () => {
     expect(
-      ArchitectureGraphSchema.safeParse({ ...emptyArchitectureGraph(), llmUsed: true }).success
+      ArchitectureGraphSchema.safeParse({ ...emptyGraph, llmUsed: true }).success
     ).toBe(false);
   });
 

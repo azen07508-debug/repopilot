@@ -61,20 +61,22 @@ import { BIP39_ENGLISH } from './bip39-english.js';
 /**
  * What a shape may look at besides the candidate itself.
  *
- * Most shapes only need the candidate. Two need more:
- *   - `path-or-name-run` reads the line, to see whether the run is the stem
- *     of a file path — `docs/REPOSITORY_INTELLIGENCE_PLAN.md` is a document,
- *     and the shape reads the `.md` to say so;
- *   - `bip39-wordlist-file` reads the whole file, because "this file is a
- *     dictionary of mnemonics" is a property of the file and not of the run.
+ * Only `path-or-name-run` needs more than the candidate: it reads the line,
+ * to see whether the run is the stem of a file path —
+ * `docs/REPOSITORY_INTELLIGENCE_PLAN.md` is a document, and the shape reads
+ * the `.md` to say so.
+ *
+ * The file-level judgement ("this whole file is a dictionary of mnemonics")
+ * is not a shape. It is `isWordlistFile`, handed to the scanner as a
+ * `skipFile` predicate (`secret-scanner.ts`), because it is a property of
+ * the file and not of any one run. This comment used to describe it as a
+ * shape that "reads the whole file" through this interface; no shape ever
+ * read more than the line, and the two fields that would have carried a path
+ * and a whole file are gone.
  */
 export interface ShapeContext {
   /** The whole line the candidate came from. */
   line: string;
-  /** Repo-relative path, or a path from a commit patch. */
-  filePath: string;
-  /** The text being scanned. For a tree scan this is the whole file. */
-  fileContent: string;
 }
 
 export interface Shape {

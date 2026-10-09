@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 // every problem instead of throwing on the first, so it cannot use
 // `loadConfig()` — but it can use the rule `loadConfig()` enforces.
 import { isPublicHttpsUrl } from '../apps/api/src/config.js';
+import { createReporter, reportAndExit } from './issues.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -61,23 +62,7 @@ const KNOWN_SECRET_KEYS = [
   'MNEMONIC',
 ];
 
-interface Issue {
-  level: 'error' | 'warning' | 'info';
-  field: string;
-  message: string;
-}
-
-const issues: Issue[] = [];
-
-function err(field: string, message: string): void {
-  issues.push({ level: 'error', field, message });
-}
-function warn(field: string, message: string): void {
-  issues.push({ level: 'warning', field, message });
-}
-function info(field: string, message: string): void {
-  issues.push({ level: 'info', field, message });
-}
+const { issues, err, warn, info } = createReporter();
 
 // 1. NODE_ENV must be one of the three
 if (!['development', 'test', 'production'].includes(NODE_ENV)) {
@@ -235,35 +220,8 @@ if (hosts.length === 0) {
   }
 }
 
-// Render report
-const errors = issues.filter((i) => i.level === 'error');
-const warnings = issues.filter((i) => i.level === 'warning');
-const infos = issues.filter((i) => i.level === 'info');
-
-console.log(`\nenv:check (NODE_ENV=${NODE_ENV}, PAYMENT_MODE=${mode})`);
-console.log('─'.repeat(60));
-if (errors.length === 0 && warnings.length === 0 && infos.length === 0) {
-  console.log('OK — no findings');
-} else {
-  for (const e of errors) {
-    console.log(`ERROR    ${e.field.padEnd(24)} ${e.message}`);
-  }
-  for (const w of warnings) {
-    console.log(`WARNING  ${w.field.padEnd(24)} ${w.message}`);
-  }
-  for (const i of infos) {
-    console.log(`INFO     ${i.field.padEnd(24)} ${i.message}`);
-  }
-}
-console.log('─'.repeat(60));
-console.log(
-  `${errors.length} error(s), ${warnings.length} warning(s), ${infos.length} info(s)`,
-);
-
-if (errors.length > 0) {
-  process.exit(1);
-}
-if (warnings.length > 0) {
-  process.exit(2);
-}
-process.exit(0);
+reportAndExit(issues, {
+  header: `env:check (NODE_ENV=${NODE_ENV}, PAYMENT_MODE=${mode})`,
+  okMessage: 'OK — no findings',
+  fieldWidth: 24,
+});

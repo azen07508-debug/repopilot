@@ -5,8 +5,8 @@
  * verification. Once those have passed, the route creates a `queued`
  * job and hands it to the configured AuditQueue. The queue dispatches
  * to a worker (in-process or pg-boss), which uses the methods on this
- * service to transition the state machine and (eventually) load the
- * pipeline + cache.
+ * service to transition the state machine. Running the pipeline itself is
+ * the worker's job, not this service's.
  *
  * Lifecycle states (state machine):
  *   queued      -> processing    (a worker claims the job)
@@ -23,12 +23,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  AuditPipeline,
   AuditJobSchema,
-  CreateAuditInputSchema,
   type AuditJob,
   type CreateAuditInput,
-  type Report,
 } from '@repopilot/core';
 import type {
   JobRepository,
@@ -40,7 +37,6 @@ import type { PaymentAdapter } from '@repopilot/okx-adapter';
 export class JobService {
   constructor(
     private repo: JobRepository,
-    private pipeline: AuditPipeline,
     private payment: PaymentAdapter,
   ) {}
 
@@ -99,9 +95,9 @@ export class JobService {
    * from when it was queued.
    *
    * `null` means GitHub could not be reached, and is not interchangeable
-   * with a sentinel string: the column is nullable and `getByCommitSha`
-   * looks rows up by this value, so `'unknown'` would read as a real SHA
-   * to anything filtering on it.
+   * with a sentinel string: the column is nullable and the derived views
+   * report it verbatim, so `'unknown'` would read as a real SHA to any
+   * client consuming them.
    */
   async setCommitSha(job: AuditJob, commitSha: string | null): Promise<void> {
     await this.repo.update(job.jobId, { commitSha });
@@ -110,40 +106,6 @@ export class JobService {
   /** Audit history for one repository, newest first. */
   async listHistory(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
     return this.repo.listByRepo(owner, repo, limit);
-  }
-
-  /**
-   * Completed audits that carry a report, newest first.
-   *
-   * Two entries from this list are enough to build an AuditDiff, so
-   * before/after comparison never has to re-scan the repository.
-   */
-  async listCompletedHistory(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
-    return this.repo.listCompletedByRepo(owner, repo, limit);
-  }
-
-  /** The most recent audit recorded against an exact commit. */
-  async getByCommitSha(owner: string, repo: string, commitSha: string): Promise<AuditJob | null> {
-    return this.repo.findByCommitSha(owner, repo, commitSha);
-  }
-
-  /**
-   * Legacy fast-path: run the audit pipeline synchronously. The
-   * AuditWorker does not call this; it inlines the cache-aware flow
-   * via `executeWithCache`. We keep it so unit tests for the
-   * pipeline + payment integration continue to work.
-   */
-  async startPaid(job: AuditJob): Promise<Report> {
-    const input = CreateAuditInputSchema.parse(job.input);
-    const result = await this.pipeline.run({
-      repoUrl: input.repoUrl,
-      mode: input.mode,
-      target: input.target,
-      outputLanguage: input.outputLanguage,
-      includeLaunchCopy: input.includeLaunchCopy,
-    });
-    await this.repo.update(job.jobId, { status: 'completed', report: result.report, error: null });
-    return result.report;
   }
 
   async fail(job: AuditJob, errorCode: string, errorMessage: string): Promise<void> {

@@ -299,9 +299,8 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
     // is what the derived views report.
     //
     // Null when GitHub could not be reached — not the string 'unknown'.
-    // The column is nullable and `getByCommitSha` looks rows up by this
-    // value, so a sentinel would read as a real SHA to anything filtering
-    // on it.
+    // The column is nullable and the derived views report it verbatim, so
+    // a sentinel would read as a real SHA to any client consuming them.
     const headSha =
       (await deps.metadataAnalyzer
         .getHeadSha(parsedRepo.owner, parsedRepo.repo, 'main')
@@ -382,5 +381,3 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
     });
   });
 }
-
-export const __cache = { keyVersionPrefix: 'v1' };

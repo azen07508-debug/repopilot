@@ -749,7 +749,7 @@ payment challenge on the first call, then `202` with `Location` and
 The OpenAPI 3.1 document. Hand-written; served from
 `apps/api/src/openapi.ts`. Used by the web UI for type generation
 and by external clients. Includes `FreeCheckRequest`,
-`FreeCheckReport`, `CreateAuditRequest`, `AuditCompletedResponse`,
+`FreeCheckReport`, `CreateAuditRequest`,
 `AuditStatusResponse`, `CapabilitiesResponse`, `ErrorResponse`,
 and the `HealthResponse` schemas under `components.schemas`.
 

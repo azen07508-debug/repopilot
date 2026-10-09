@@ -47,14 +47,6 @@ export interface AppDeps {
   cacheTtlSeconds?: number;
   /** Override the audit queue driver. */
   queueDriver?: 'inline' | 'pg-boss';
-  /** Override the audit queue concurrency. */
-  queueConcurrency?: number;
-  /** Override the audit queue retry limit. */
-  queueRetryLimit?: number;
-  /** Override the audit queue job timeout (ms). */
-  queueJobTimeoutMs?: number;
-  /** Override the graceful shutdown grace period (ms). */
-  shutdownGraceMs?: number;
   /**
    * Override the metadata analyzer.
    *
@@ -63,25 +55,14 @@ export interface AppDeps {
    * non-deterministic and the endpoint that reports it untestable.
    */
   metadataAnalyzer?: MetadataAnalyzer;
-  /** Skip queue start (tests that exercise the route directly). */
-  skipQueueStart?: boolean;
   /**
    * Process mode. Defaults to `'combined'` (HTTP + queue + worker in
    * the same process). Set to `'http'` to run only the HTTP server
    * and enqueue to an external queue. In `'http'` mode the
    * `pg-boss` driver is required for cross-process enqueueing; the
    * inline driver is rejected because it is in-process.
-   *
-   * Legacy `withQueue: true` is equivalent to `'combined'`. Legacy
-   * `withQueue: false` is equivalent to `'http'`.
    */
   mode?: 'http' | 'combined';
-  /**
-   * When `mode: 'http'`, whether this instance should also poll the
-   * queue for jobs. Default `false` in `'http'` mode (the dedicated
-   * worker process is the consumer), `true` in `'combined'` mode.
-   */
-  consumeInHttpMode?: boolean;
 }
 
 export interface BuiltApp {
@@ -92,7 +73,6 @@ export interface BuiltApp {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance>;
-export async function buildApp(deps: AppDeps, opts: { withQueue: true }): Promise<BuiltApp>;
 export async function buildApp(deps: AppDeps, opts: { mode: 'combined' }): Promise<BuiltApp>;
 export async function buildApp(deps: AppDeps, opts: { mode: 'http' }): Promise<FastifyInstance>;
 export async function buildApp(
@@ -101,7 +81,7 @@ export async function buildApp(
 ): Promise<FastifyInstance | BuiltApp>;
 export async function buildApp(
   deps: AppDeps,
-  opts?: { withQueue?: boolean; mode?: 'http' | 'combined'; consumeInHttpMode?: boolean },
+  opts?: { mode?: 'http' | 'combined' },
 ): Promise<FastifyInstance | BuiltApp> {
   const cfg = loadConfig();
   const log = createLogger({ level: cfg.LOG_LEVEL });
@@ -177,7 +157,7 @@ export async function buildApp(
   // in-memory default: this process restarts, and more than one of it can run
   // behind the same database (R-40).
   const adapter = buildPaymentAdapter(deps.payment, { nonceStore: new NonceRepository(db) });
-  const service = new JobService(repo, pipeline, adapter);
+  const service = new JobService(repo, adapter);
 
   // Resolve the process mode.
   //   - `mode: 'http'`     → HTTP only; no queue constructed; the
@@ -189,21 +169,14 @@ export async function buildApp(
   //                          in-process; returns `FastifyInstance`.
   //                          This preserves the original test surface
   //                          (`buildApp(deps)` → FastifyInstance).
-  //   - Legacy `withQueue: true` is mapped to `'combined'`.
-  //   - Legacy `withQueue: false` is mapped to `undefined` (no change).
-  const legacyWithQueue = opts?.withQueue === true;
-  const mode: 'http' | 'combined' | undefined = opts?.mode
-    ?? (legacyWithQueue ? 'combined' : undefined);
-  // Default: in 'http' mode we do NOT poll the queue (the dedicated
-  // worker is the consumer). In 'combined' mode we always poll.
-  const consumeInHttpMode = mode === 'combined' ? true : (opts?.consumeInHttpMode ?? false);
+  const mode: 'http' | 'combined' | undefined = opts?.mode;
   const queueDriver = deps.queueDriver ?? cfg.AUDIT_QUEUE_DRIVER;
 
   // In 'http' mode the API enqueues to a separate worker process.
   // The inline driver is in-process, so it cannot cross process
   // boundaries. Refuse it explicitly so a misconfigured deployment
   // does not silently swallow jobs.
-  if (mode === 'http' && queueDriver === 'inline' && consumeInHttpMode === false) {
+  if (mode === 'http' && queueDriver === 'inline') {
     throw new Error(
       `mode='http' with AUDIT_QUEUE_DRIVER=inline is not supported: the inline queue is in-process and a dedicated worker process cannot consume it. Use AUDIT_QUEUE_DRIVER=pg-boss for multi-process deployments, or run with mode='combined' for single-process.`,
     );
@@ -213,10 +186,10 @@ export async function buildApp(
   // enqueue audit jobs, even in 'http' mode (it enqueues to pg-boss,
   // which the dedicated worker process consumes from).
   // `consumeOverride` controls whether THIS process also runs the
-  // worker. In 'http' mode the default is `consume: false` because
-  // the dedicated worker is the consumer. In 'combined' mode (and
-  // the legacy `undefined` default) this process also consumes.
-  const queueShouldConsume = mode === 'http' ? consumeInHttpMode : true;
+  // worker. In 'http' mode it is `false` because the dedicated worker
+  // is the consumer. In 'combined' mode (and the legacy `undefined`
+  // default) this process also consumes.
+  const queueShouldConsume = mode !== 'http';
 
   // Build the queue adapter via the shared factory.
   const queue = buildAuditQueue({
@@ -230,16 +203,10 @@ export async function buildApp(
     allowedHosts: deps.allowedHosts,
     databaseUrl: deps.databaseUrl,
     driverOverride: deps.queueDriver,
-    concurrencyOverride: deps.queueConcurrency,
-    retryLimitOverride: deps.queueRetryLimit,
-    jobTimeoutMsOverride: deps.queueJobTimeoutMs,
-    shutdownGraceMsOverride: deps.shutdownGraceMs,
     consumeOverride: queueShouldConsume,
   });
 
-  if (!deps.skipQueueStart) {
-    await queue.start();
-  }
+  await queue.start();
 
   registerHealthRoutes(app, {
     paymentMode: deps.payment.mode,

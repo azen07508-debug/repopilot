@@ -26,8 +26,8 @@ import {
 } from './shapes.js';
 import { scanForSecrets, scanTextForSecrets } from './secret-scanner.js';
 
-function ctx(line: string, filePath = 'src/index.ts', fileContent = ''): ShapeContext {
-  return { line, filePath, fileContent };
+function ctx(line: string): ShapeContext {
+  return { line };
 }
 
 /** The id of the shape that suppresses this candidate, or `undefined`. */

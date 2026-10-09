@@ -1,14 +1,9 @@
 import type { Report, Finding } from '../lib/api.js';
+import { scoreClass } from '../lib/format.js';
 import { useI18n } from '../i18n.js';
 
 function severityClass(s: Finding['severity']) {
   return `finding ${s}`;
-}
-
-function scoreClass(n: number) {
-  if (n >= 80) return 'ok';
-  if (n >= 50) return 'warn';
-  return 'bad';
 }
 
 function EvidenceList({ evidence }: { evidence: Finding['evidence'] }) {

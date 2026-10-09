@@ -16,6 +16,7 @@
  * =======================================================================
  */
 import type { PaymentAdapter, PaymentMode } from './adapter.js';
+import { isEvmAddress } from './evm.js';
 import { MockPaymentAdapter } from './mock-adapter.js';
 import type { NonceStore } from './nonce-store.js';
 import { OkxPaymentAdapter } from './okx-adapter.js';
@@ -42,10 +43,6 @@ export interface PaymentConfig {
   pricing: {
     audit: { amount: string; currency: 'USDT' };
   };
-}
-
-function isEvmAddress(s: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(s);
 }
 
 /**

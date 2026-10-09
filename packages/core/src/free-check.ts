@@ -293,7 +293,7 @@ export class FreeCheckRunner {
     const entries: FileEntry[] = await this.source.tree(
       parsed.owner,
       parsed.repo,
-      metadata?.defaultBranch ?? parsed.defaultBranchHint ?? 'main',
+      metadata?.defaultBranch ?? 'main',
     );
 
     // 4. Stack detection.

@@ -9,7 +9,7 @@
  * comment below as another one. `tsc` preserves a shebang on line 1.
  */
 import { startStdioServer } from './index.js';
-import { DEFAULT_PRICING, CORE_VERSION } from '@repopilot/core';
+import { DEFAULT_PRICING } from '@repopilot/core';
 import type { PaymentConfig } from '@repopilot/okx-adapter';
 
 const mode = (process.env['PAYMENT_MODE'] === 'okx' ? 'okx' : 'mock') as 'mock' | 'okx';
@@ -44,6 +44,3 @@ startStdioServer({
   console.error('repopilot-mcp failed to start:', err);
   process.exit(1);
 });
-
-// Touch the version to make TypeScript happy when nothing else uses it.
-void CORE_VERSION;

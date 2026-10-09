@@ -6,7 +6,7 @@
  * over both with an `async` interface; SQLite calls complete in <1 ms
  * but are still awaited.
  */
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { jobs as jobsSqlite, type JobRow as JobRowSqlite } from '../db/schema.js';
 import { jobs as jobsPg, type PgJobRow } from '../db/schema.pg.js';
 import type { DB } from '../db/client.js';
@@ -46,64 +46,35 @@ export class JobRepository {
   constructor(private db: DB) {}
 
   async insert(job: AuditJob, identity?: JobRepoIdentity): Promise<void> {
-    const inputJson = JSON.stringify(job.input);
     // Nullable by design: a caller that has no parsed identity leaves the
     // history columns NULL, and history queries simply skip those rows.
-    const owner = identity?.owner ?? null;
-    const repo = identity?.repo ?? null;
-    const mode = job.input.mode ?? null;
-    const target = job.input.target ?? null;
+    const values = {
+      jobId: job.jobId,
+      status: job.status,
+      inputJson: JSON.stringify(job.input),
+      reportJson: null,
+      paymentId: job.paymentId,
+      error: job.error,
+      attempts: '0',
+      startedAt: null,
+      completedAt: null,
+      failedAt: null,
+      errorCode: null,
+      idempotencyKey: null,
+      cacheJson: null,
+      owner: identity?.owner ?? null,
+      repo: identity?.repo ?? null,
+      commitSha: null,
+      mode: job.input.mode ?? null,
+      target: job.input.target ?? null,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
     if (this.db.mode === 'sqlite') {
-      this.db.db.insert(jobsSqlite)
-        .values({
-          jobId: job.jobId,
-          status: job.status,
-          inputJson,
-          reportJson: null,
-          paymentId: job.paymentId,
-          error: job.error,
-          attempts: '0',
-          startedAt: null,
-          completedAt: null,
-          failedAt: null,
-          errorCode: null,
-          idempotencyKey: null,
-          cacheJson: null,
-          owner,
-          repo,
-          commitSha: null,
-          mode,
-          target,
-          createdAt: job.createdAt,
-          updatedAt: job.updatedAt,
-        })
-        .run();
+      this.db.db.insert(jobsSqlite).values(values).run();
       return;
     }
-    await this.db.db.insert(jobsPg)
-      .values({
-        jobId: job.jobId,
-        status: job.status,
-        inputJson,
-        reportJson: null,
-        paymentId: job.paymentId,
-        error: job.error,
-        attempts: '0',
-        startedAt: null,
-        completedAt: null,
-        failedAt: null,
-        errorCode: null,
-        idempotencyKey: null,
-        cacheJson: null,
-        owner,
-        repo,
-        commitSha: null,
-        mode,
-        target,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-      })
-      .execute();
+    await this.db.db.insert(jobsPg).values(values).execute();
   }
 
   /**
@@ -117,20 +88,12 @@ export class JobRepository {
     expectedStatus?: AuditJob['status'],
   ): Promise<{ updated: boolean }> {
     const updatedAt = new Date().toISOString();
+    const scalar = scalarColumns(patch);
     if (this.db.mode === 'sqlite') {
-      const updates: Partial<JobRowSqlite> = { updatedAt };
-      if (patch.status !== undefined) updates.status = patch.status;
-      if (patch.report !== undefined) updates.reportJson = patch.report ? JSON.stringify(patch.report) : null;
-      if (patch.paymentId !== undefined) updates.paymentId = patch.paymentId;
-      if (patch.error !== undefined) updates.error = patch.error;
-      if (patch.errorCode !== undefined) updates.errorCode = patch.errorCode;
-      if (patch.attempts !== undefined) updates.attempts = String(patch.attempts);
-      if (patch.startedAt !== undefined) updates.startedAt = patch.startedAt;
-      if (patch.completedAt !== undefined) updates.completedAt = patch.completedAt;
-      if (patch.failedAt !== undefined) updates.failedAt = patch.failedAt;
-      if (patch.idempotencyKey !== undefined) updates.idempotencyKey = patch.idempotencyKey;
-      if (patch.cacheJson !== undefined) updates.cacheJson = patch.cacheJson;
-      if (patch.commitSha !== undefined) updates.commitSha = patch.commitSha;
+      const updates: Partial<JobRowSqlite> = { ...scalar, updatedAt };
+      if (patch.report !== undefined) {
+        updates.reportJson = patch.report ? JSON.stringify(patch.report) : null;
+      }
 
       const where = expectedStatus
         ? and(eq(jobsSqlite.jobId, jobId), eq(jobsSqlite.status, expectedStatus))
@@ -138,19 +101,10 @@ export class JobRepository {
       const result = this.db.db.update(jobsSqlite).set(updates).where(where).run();
       return { updated: result.changes > 0 };
     }
-    const updates: Partial<PgJobRow> = { updatedAt };
-    if (patch.status !== undefined) updates.status = patch.status;
-    if (patch.report !== undefined) updates.reportJson = patch.report ? (patch.report as unknown as object) : null;
-    if (patch.paymentId !== undefined) updates.paymentId = patch.paymentId;
-    if (patch.error !== undefined) updates.error = patch.error;
-    if (patch.errorCode !== undefined) updates.errorCode = patch.errorCode;
-    if (patch.attempts !== undefined) updates.attempts = String(patch.attempts);
-    if (patch.startedAt !== undefined) updates.startedAt = patch.startedAt;
-    if (patch.completedAt !== undefined) updates.completedAt = patch.completedAt;
-    if (patch.failedAt !== undefined) updates.failedAt = patch.failedAt;
-    if (patch.idempotencyKey !== undefined) updates.idempotencyKey = patch.idempotencyKey;
-    if (patch.cacheJson !== undefined) updates.cacheJson = patch.cacheJson;
-    if (patch.commitSha !== undefined) updates.commitSha = patch.commitSha;
+    const updates: Partial<PgJobRow> = { ...scalar, updatedAt };
+    if (patch.report !== undefined) {
+      updates.reportJson = patch.report ? (patch.report as unknown as object) : null;
+    }
 
     const conditions = expectedStatus
       ? and(eq(jobsPg.jobId, jobId), eq(jobsPg.status, expectedStatus))
@@ -228,81 +182,29 @@ export class JobRepository {
       .limit(limit);
     return rows.map(rowToJob);
   }
+}
 
-  /**
-   * Completed jobs that actually carry a report, newest first.
-   *
-   * This is the data source for before/after comparison: two entries
-   * from this list are enough to build an AuditDiff without touching
-   * the repository again.
-   */
-  async listCompletedByRepo(owner: string, repo: string, limit = 20): Promise<AuditJob[]> {
-    if (this.db.mode === 'sqlite') {
-      return this.db.db
-        .select()
-        .from(jobsSqlite)
-        .where(
-          and(
-            eq(jobsSqlite.owner, owner),
-            eq(jobsSqlite.repo, repo),
-            eq(jobsSqlite.status, 'completed'),
-            isNotNull(jobsSqlite.reportJson)
-          )
-        )
-        .orderBy(desc(jobsSqlite.createdAt))
-        .limit(limit)
-        .all()
-        .map(rowToJob);
-    }
-    const rows = await this.db.db
-      .select()
-      .from(jobsPg)
-      .where(
-        and(
-          eq(jobsPg.owner, owner),
-          eq(jobsPg.repo, repo),
-          eq(jobsPg.status, 'completed'),
-          isNotNull(jobsPg.reportJson)
-        )
-      )
-      .orderBy(desc(jobsPg.createdAt))
-      .limit(limit);
-    return rows.map(rowToJob);
-  }
-
-  /** The most recent job recorded against an exact commit. */
-  async findByCommitSha(owner: string, repo: string, commitSha: string): Promise<AuditJob | null> {
-    if (this.db.mode === 'sqlite') {
-      const row = this.db.db
-        .select()
-        .from(jobsSqlite)
-        .where(
-          and(
-            eq(jobsSqlite.owner, owner),
-            eq(jobsSqlite.repo, repo),
-            eq(jobsSqlite.commitSha, commitSha)
-          )
-        )
-        .orderBy(desc(jobsSqlite.createdAt))
-        .limit(1)
-        .all()[0];
-      return row ? rowToJob(row) : null;
-    }
-    const rows = await this.db.db
-      .select()
-      .from(jobsPg)
-      .where(
-        and(
-          eq(jobsPg.owner, owner),
-          eq(jobsPg.repo, repo),
-          eq(jobsPg.commitSha, commitSha)
-        )
-      )
-      .orderBy(desc(jobsPg.createdAt))
-      .limit(1);
-    const row = rows[0];
-    return row ? rowToJob(row) : null;
-  }
+/**
+ * The lifecycle fields whose column name and value are identical on both
+ * backends. `reportJson` is excluded: SQLite stores it as a JSON string and
+ * Postgres as JSONB, so the two branches serialise it differently.
+ */
+function scalarColumns(
+  patch: JobLifecyclePatch,
+): Omit<Partial<JobRowSqlite>, 'updatedAt' | 'reportJson'> {
+  const out: Omit<Partial<JobRowSqlite>, 'updatedAt' | 'reportJson'> = {};
+  if (patch.status !== undefined) out.status = patch.status;
+  if (patch.paymentId !== undefined) out.paymentId = patch.paymentId;
+  if (patch.error !== undefined) out.error = patch.error;
+  if (patch.errorCode !== undefined) out.errorCode = patch.errorCode;
+  if (patch.attempts !== undefined) out.attempts = String(patch.attempts);
+  if (patch.startedAt !== undefined) out.startedAt = patch.startedAt;
+  if (patch.completedAt !== undefined) out.completedAt = patch.completedAt;
+  if (patch.failedAt !== undefined) out.failedAt = patch.failedAt;
+  if (patch.idempotencyKey !== undefined) out.idempotencyKey = patch.idempotencyKey;
+  if (patch.cacheJson !== undefined) out.cacheJson = patch.cacheJson;
+  if (patch.commitSha !== undefined) out.commitSha = patch.commitSha;
+  return out;
 }
 
 function rowToJob(row: AnyJobRow): AuditJob {

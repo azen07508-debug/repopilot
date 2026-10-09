@@ -97,7 +97,6 @@ export const RuleConfidence = {
   /** Heuristic: entropy, similarity, repetition. */
   heuristic: 0.7,
 } as const;
-export type RuleConfidenceLevel = keyof typeof RuleConfidence;
 
 export const FindingCategorySchema = z.enum([
   'documentation',
@@ -147,17 +146,6 @@ export const FindingSchema = z.object({
 export type Finding = z.infer<typeof FindingSchema>;
 
 /**
- * Where a finding sits relative to the release decision.
- *
- * Only two values are implemented. The type exists so the future ones —
- * suppressed, informational — have a home that is not `fixture`, which
- * would otherwise become a bucket for everything non-blocking and rot
- * within a release or two.
- */
-export const FindingDispositionSchema = z.enum(['active', 'fixture']);
-export type FindingDisposition = z.infer<typeof FindingDispositionSchema>;
-
-/**
  * One file-and-rule cluster of fixture findings.
  *
  * A reading aid, not a finding: it carries no fingerprint and nothing
@@ -202,7 +190,7 @@ export type FixtureGroup = z.infer<typeof FixtureGroupSchema>;
  * of history", which may be false.
  */
 export const HistoryScanSchema = z.object({
-  mode: z.enum(['quick', 'full', 'custom', 'disabled']),
+  mode: z.enum(['quick', 'full', 'disabled']),
   /** How many commits the caller asked for. */
   requestedCommits: z.number().int().min(0),
   /** How many were actually read. */
@@ -399,5 +387,3 @@ export const ReportSchema = z.object({
   analyzerProvenance: z.record(z.string(), z.string()).default({}),
 });
 export type Report = z.infer<typeof ReportSchema>;
-
-export const ReportJsonSchema = ReportSchema; // alias

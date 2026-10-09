@@ -50,9 +50,6 @@ export const EvidenceV2Schema = z
   });
 export type EvidenceV2 = z.infer<typeof EvidenceV2Schema>;
 
-/** D-008: every finding must carry at least one evidence entry. */
-export const EvidenceV2ListSchema = z.array(EvidenceV2Schema).min(1);
-
 /**
  * Upgrade a v1 evidence entry to v2.
  *
@@ -75,20 +72,6 @@ export function toEvidenceV2(
     module: null,
     file: evidence.file,
     line: evidence.line,
-  };
-}
-
-/**
- * Downgrade a v2 evidence entry to the v1 shape.
- *
- * Used by anything that still renders `file:line:reason` (the report
- * builder, the web UI, PR comments).
- */
-export function toLegacyEvidence(evidence: EvidenceV2): Evidence {
-  return {
-    file: evidence.file ?? evidence.path,
-    line: evidence.line ?? evidence.startLine,
-    reason: evidence.reason,
   };
 }
 

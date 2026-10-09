@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import type { Logger } from 'pino';
 import type { Report } from '@repopilot/core';
-import { ReportCacheRepository, type ReportCacheRow } from '../repositories/report-cache-repository.js';
+import { ReportCacheRepository } from '../repositories/report-cache-repository.js';
 
 export interface BuildCacheKeyInput {
   owner: string;
@@ -86,10 +86,6 @@ export class CacheService {
   private readonly inflight = new Map<string, InflightEntry>();
 
   constructor(private readonly opts: CacheServiceOptions) {}
-
-  buildKey(input: BuildCacheKeyInput): string {
-    return buildCacheKey(input);
-  }
 
   async lookup(key: string, keyVersion: string): Promise<CacheLookupResult> {
     if (!this.opts.enabled) {
@@ -172,10 +168,6 @@ export class CacheService {
   async prune(): Promise<number> {
     if (!this.opts.enabled) return 0;
     return this.opts.repo.pruneExpired();
-  }
-
-  async _peek(key: string, keyVersion: string): Promise<ReportCacheRow | null> {
-    return this.opts.repo.findByKey(key, keyVersion);
   }
 }
 

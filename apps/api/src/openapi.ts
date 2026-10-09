@@ -692,24 +692,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
             pollAfterMs: { type: 'integer', minimum: 0 },
           },
         },
-        AuditCompletedResponse: {
-          type: 'object',
-          required: ['jobId', 'status', 'report', 'cache'],
-          properties: {
-            jobId: { type: 'string' },
-            status: { type: 'string', enum: ['completed'] },
-            report: { type: 'object' },
-            cache: {
-              type: 'object',
-              required: ['hit', 'keyVersion', 'expiresAt'],
-              properties: {
-                hit: { type: 'boolean' },
-                keyVersion: { type: 'string' },
-                expiresAt: { type: 'string', format: 'date-time', nullable: true },
-              },
-            },
-          },
-        },
         AuditStatusResponse: {
           type: 'object',
           required: ['jobId', 'status'],

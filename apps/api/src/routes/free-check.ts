@@ -83,5 +83,3 @@ export function registerFreeCheckRoutes(app: FastifyInstance, deps: FreeCheckRou
     }
   });
 }
-
-export { FreeCheckReportSchema };

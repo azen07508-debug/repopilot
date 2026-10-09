@@ -189,8 +189,5 @@ const WORDS =
 /** Set form, for O(1) membership tests while scanning. */
 export const BIP39_ENGLISH: ReadonlySet<string> = new Set(WORDS.trim().split(' '));
 
-/** The list itself, in canonical order. */
-export const BIP39_ENGLISH_WORDS: readonly string[] = WORDS.trim().split(' ');
-
 /** Word counts a BIP-39 mnemonic may have (entropy 128..256 bits). */
 export const BIP39_VALID_LENGTHS: readonly number[] = [12, 15, 18, 21, 24];

@@ -34,6 +34,7 @@
  */
 import type { Evidence, Finding } from '../schemas/report.js';
 import { isProseDocument } from '../utils/paths.js';
+import { slugify } from './security-slug.js';
 
 /**
  * Phrases that are an instruction to a model rather than a sentence about one.
@@ -201,8 +202,4 @@ export function injectionFindingsToReport(findings: InjectionFinding[]): Finding
     });
   }
   return out;
-}
-
-function slugify(s: string): string {
-  return s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
 }

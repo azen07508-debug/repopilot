@@ -9,6 +9,7 @@
  * No funds move. No external network calls.
  */
 import { randomUUID } from 'node:crypto';
+import { toAtomic } from './evm.js';
 import type {
   PaymentAdapter,
   PaymentChallenge,
@@ -104,11 +105,4 @@ export class MockPaymentAdapter implements PaymentAdapter {
     this.receipts.set(input.paymentId, r);
     return r;
   }
-}
-
-function toAtomic(amount: string, decimals: number): string {
-  // Minimal decimal → atomic conversion. Enough for the mock challenge.
-  const [intPart, fracPart = ''] = amount.split('.');
-  const padded = (fracPart + '0'.repeat(decimals)).slice(0, decimals);
-  return `${intPart ?? '0'}${padded}`.replace(/^0+(?=\d)/, '') || '0';
 }

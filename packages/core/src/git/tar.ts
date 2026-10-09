@@ -161,14 +161,12 @@ export function walkTar(
       if (contentEnd < bodyStart + size) stats.truncated = true;
 
       stats.files += 1;
-      if (stats.files <= maxFiles) {
-        const stop = visit({
-          path,
-          size: contentEnd - bodyStart,
-          bytes: archive.subarray(bodyStart, contentEnd),
-        });
-        if (stop === false) return stats;
-      }
+      const stop = visit({
+        path,
+        size: contentEnd - bodyStart,
+        bytes: archive.subarray(bodyStart, contentEnd),
+      });
+      if (stop === false) return stats;
     } else {
       stats.skippedSpecial += 1;
     }

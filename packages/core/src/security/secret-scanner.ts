@@ -314,7 +314,7 @@ export function scanTextForSecrets(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    const ctx: ShapeContext = { line, filePath: opts.path ?? '', fileContent: content };
+    const ctx: ShapeContext = { line };
 
     for (const pat of applicable) {
       const m = pat.pattern.exec(line);
@@ -409,9 +409,6 @@ export function toSecretFindings(
   }
   return [...byKey.values()];
 }
-
-// Re-exported for callers that already import it from this module.
-export { slugify };
 
 export function titleForKind(k: SecretKind): string {
   switch (k) {

@@ -21,8 +21,7 @@
   },
   "dependencies": {
     "@repopilot/core": "workspace:*",
-    "viem": "^2.21.55",
-    "zod": "^3.24.1"
+    "viem": "^2.21.55"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

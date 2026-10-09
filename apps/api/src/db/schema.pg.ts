@@ -50,4 +50,3 @@ export const jobs = pgTable(
 );
 
 export type PgJobRow = typeof jobs.$inferSelect;
-export type PgNewJobRow = typeof jobs.$inferInsert;

@@ -163,6 +163,6 @@ export function stripRoot(path: string, root: string): string {
 }
 
 /** UTF-8, with invalid bytes replaced rather than dropped. */
-function decodeText(bytes: Buffer): string {
+export function decodeText(bytes: Buffer): string {
   return bytes.toString('utf8').replace(/\uFFFD/g, '?');
 }

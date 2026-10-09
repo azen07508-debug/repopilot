@@ -310,16 +310,4 @@ describe('walkTar — visitor control', () => {
     expect(paths).toEqual(['a.txt']);
     expect(stats.files).toBe(1);
   });
-
-  it('visits at most maxFiles entries', () => {
-    const archive = Buffer.concat([
-      header({ name: 'a.txt', size: 1 }),
-      padToBlock(Buffer.from('a')),
-      header({ name: 'b.txt', size: 1 }),
-      padToBlock(Buffer.from('b')),
-      EOF,
-    ]);
-
-    expect(walk(archive, 1).paths).toEqual(['a.txt']);
-  });
 });

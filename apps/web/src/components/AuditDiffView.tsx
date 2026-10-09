@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAuditDiff, type AuditDiff } from '../lib/api.js';
+import { shortSha, when } from '../lib/format.js';
 import { useI18n } from '../i18n.js';
 
 /**
@@ -15,16 +16,6 @@ function deltaClass(n: number): string {
 
 function signed(n: number): string {
   return n > 0 ? `+${n}` : String(n);
-}
-
-function shortSha(sha: string | null): string {
-  if (!sha) return 'unknown';
-  return sha.slice(0, 7);
-}
-
-function when(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace('T', ' ');
 }
 
 export function AuditDiffView({ headJobId, baseJobId }: { headJobId: string; baseJobId: string }) {

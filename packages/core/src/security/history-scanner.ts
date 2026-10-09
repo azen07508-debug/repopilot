@@ -15,10 +15,10 @@
  */
 import type { Finding, Severity } from '../schemas/report.js';
 import { isAllowlistedPath } from './shapes.js';
+import { slugify } from './security-slug.js';
 import {
   scanTextForSecrets,
   severityForPath,
-  slugify,
   titleForKind,
   type SecretKind,
 } from './secret-scanner.js';

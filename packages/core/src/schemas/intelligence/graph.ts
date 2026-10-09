@@ -80,23 +80,3 @@ export const ArchitectureGraphSchema = DependencyGraphSchema.extend({
   llmUsed: z.literal(false),
 });
 export type ArchitectureGraph = z.infer<typeof ArchitectureGraphSchema>;
-
-/**
- * Build an empty graph of the requested flavour.
- *
- * Used as the safe default when the graph builder degrades — callers
- * always receive a schema-valid document instead of an exception.
- */
-export function emptyArchitectureGraph(): ArchitectureGraph {
-  return {
-    schemaVersion: GRAPH_SCHEMA_VERSION,
-    nodes: [],
-    edges: [],
-    entrypoints: [],
-    circularDependencies: [],
-    highCoupling: [],
-    isolatedModules: [],
-    llmUsed: false,
-    limitations: [],
-  };
-}

@@ -9,10 +9,11 @@
  * noise directories are skipped. Everything else is returned as text.
  */
 import { gunzip as gunzipCb } from 'node:zlib';
+import { promisify } from 'node:util';
 import { Octokit } from '@octokit/rest';
 import type { FileEntry } from './files.js';
 import { classifyFile } from './files.js';
-import { extractTarball } from './tarball.js';
+import { extractTarball, decodeText } from './tarball.js';
 
 /**
  * Caps that only the tarball path needs (R-17).
@@ -166,9 +167,7 @@ export class GitHubFetcher {
         if (encoding !== 'base64') continue;
         const buf = Buffer.from(content, 'base64');
         if (buf.length === 0) continue;
-        // UTF-8 safety: replace invalid bytes.
-        const text = buf.toString('utf8').replace(/\uFFFD/g, '?');
-        out.set(entry.path, text);
+        out.set(entry.path, decodeText(buf));
         total += buf.length;
       } catch (e) {
         opts.log?.('skip file (fetch error)', { path: entry.path, error: (e as Error).message });
@@ -379,11 +378,7 @@ export class RepoFetchError extends Error {
  * archive — on a box running more than one audit at a time, that is
  * everyone's latency, not just this job's.
  */
-function gunzipAsync(data: Buffer, options: { maxOutputLength: number }): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    gunzipCb(data, options, (err, out) => (err ? reject(err) : resolve(out)));
-  });
-}
+const gunzipAsync = promisify(gunzipCb);
 
 /**
  * The bytes of a binary response, whatever shape octokit handed them over

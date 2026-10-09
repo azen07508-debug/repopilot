@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Contents
 
-- [Unreleased](#unreleased) — [Added](#added) · [Changed](#changed) · [Fixed](#fixed)
+- [Unreleased](#unreleased) — [Added](#added) · [Changed](#changed) · [Fixed](#fixed) · [Removed](#removed)
 - [0.1.0-rc.3](#010-rc3---2026-07-19)
 - [0.1.0-rc.2](#010-rc2---2026-07-19)
 - [0.1.0-rc.1](#010-rc1---2026-07-19)
@@ -870,6 +870,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Five duplicated implementations collapsed to one each.** None of these
+  changes behaviour; a rule written twice is a rule that can disagree with
+  itself, which is the defect the last entry of `### Added` records one
+  directory over.
+  - `packages/okx-adapter/src/evm.ts` — `isEvmAddress` and `toAtomic` were
+    copied into `okx-adapter.ts`, `mock-adapter.ts` and `factory.ts`. The
+    three copies are one import now, and `zod` left the package's
+    dependencies with them, because nothing else there used it.
+  - `apps/web/src/lib/format.ts` — `shortSha`, `when` and `scoreClass`
+    were duplicated across `AuditDiffView`, `AuditHistoryView` and
+    `ReportView`. The shared `scoreClass` takes `number | null`, the union
+    the three copies had each narrowed differently.
+  - `scripts/issues.ts` — `Issue` and the report-and-exit tail were
+    duplicated between `env-check.ts` and `compose-check.ts`.
+    `compose-check` keeps a one-line `printAndExit(): never` wrapper,
+    because the `never` return is what makes the definite-assignment check
+    on `parsed` pass.
+  - `apps/api/src/repositories/job-repository.ts` — `insert()` built the
+    same nineteen-column object once per backend and `update()` repeated
+    its column list the same way; both are one construction now, branching
+    only on `.run()` / `.execute()`.
+  - `SCORE_DIMENSIONS` is `[...ScoreDimensionSchema.options]` rather than
+    a hand-copied list, so adding a dimension to the schema cannot leave
+    the list behind.
+  - `packages/core/src/git/fetcher.ts` uses `promisify(gunzip)` and the
+    `decodeText` `tarball.ts` already exported, instead of a hand-wrapped
+    callback and a second decoder.
 - **`"type": "module"` moved from the root `tsconfig.json` to the root
   `package.json`, and the root `tsconfig.json` is now a tsconfig.** The file had
   held a verbatim copy of `package.json`'s metadata header — `{"name":
@@ -2699,6 +2726,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads `b?.delta ?? 0`, and what the test's own name — "breakdown records
   every applied rule" — already claimed. Found by reading a real audit's
   JSON, not by reading the code.
+
+### Removed
+
+- **Dead code, found by an over-engineering audit and removed in four
+  passes — 48 files, +291 / −621, for a net of −330.** Three of those
+  files are new and 141 of those added lines are in them, every one an
+  extraction of code that already existed, so the sweep deletes more than
+  it writes. Nothing here is a feature removal: every symbol deleted had
+  no caller in the repository. The ones that did have a caller are the
+  ones that were kept.
+  - **Exports nothing imports.** `apps/api/src/routes/audits.ts` exported
+    `__cache = { keyVersionPrefix: 'v1' }` for no reason; `free-check.ts`
+    re-exported a schema it already imported; `packages/mcp-server/src/cli.ts`
+    imported `CORE_VERSION` only to `void` it; `schema.ts` and
+    `schema.pg.ts` each exported a `New*Row` type alias with no reader;
+    `packages/core/src/utils/markdown.ts` (38 lines) was imported by
+    `hackathon.ts` and never called, so the module and its re-export are
+    gone; `scripts/check-env.ts` (41 lines) was a second copy of
+    `env-check.ts`, which is the one `package.json` points at. The
+    `AuditCompletedResponse` component in `apps/api/src/openapi.ts` was
+    registered and never referenced — `docs/API.md` no longer lists it,
+    and that is a removal `docs:check` would have caught had the schema
+    been a citation.
+  - **Schema surface nothing parses with.** `RuleConfidenceLevel`,
+    `FindingDispositionSchema` and its type, the `ReportJsonSchema` alias,
+    `'custom'` in `HistoryScan.mode`, `toLegacyEvidence`,
+    `EvidenceV2ListSchema`, `emptyArchitectureGraph()`,
+    `isDefaultBranchGuess` / `DEFAULT_BRANCHES` / `defaultBranchHint`,
+    `WalkOptions.maxFiles`, `BIP39_ENGLISH_WORDS`. Each is a value or a
+    type the compiler proves has no consumer, which is the only kind of
+    dead code worth deleting by hand; the rest is judgement, and the
+    judgement went the other way for `CacheService.invalidate()` /
+    `prune()`, which have no in-repo caller either and stayed because they
+    are public API on a service rather than internals.
+  - **A docstring that was wrong, and the field it was keeping alive.**
+    `ShapeContext.filePath` / `fileContent` went with a corrected
+    docstring: the old one claimed `bip39-wordlist-file` "reads the whole
+    file" as a shape, and it does not — it is a `skipFile` predicate in
+    `secret-scanner.ts`. A field kept alive by a sentence that is not true
+    is the one case where fixing the prose matters more than deleting the
+    field, and both were done.
+- **The unwired audit-history chain, about 120 lines.**
+  `JobService.listCompletedHistory()` and `getByCommitSha()`,
+  `JobRepository.listCompletedByRepo()` and `findByCommitSha()`, and
+  `JobService.startPaid()` are gone, and `JobService` no longer takes a
+  `pipeline: AuditPipeline` argument it never read. `startPaid` is the
+  clearest case: its own docstring said the worker does not call it and
+  that it existed "so unit tests for the pipeline + payment integration
+  continue to work" — a test calling a function is not a caller, and that
+  test was the only thing keeping it alive. `listHistory()`, which
+  `audit-derived.ts` calls for `GET /repositories/:owner/:repo/audits`,
+  and `listByRepo()` stay.
+- **Not removed, and why — recorded so the next sweep does not re-derive
+  it.** The rate-limit `keyGenerator` in
+  `apps/api/src/middleware/rate-limit.ts` was reported as a drop-in
+  replacement by `req.ip`; it is not one. The hand-written branch returns
+  the first `X-Forwarded-For` entry, and R-24 documents that explicit read
+  as the mitigation for a proxy that omits the header — so deleting it
+  would change a documented control rather than remove a duplicate, and
+  the risk register's prose would then be describing code that is not
+  there. And in `scripts/`, four candidates were dropped for
+  value-to-risk rather than for correctness: the hand-rolled `parseArgs`
+  in `audit-diff.ts` / `test-baseline.ts` (trivial enough that a rewrite
+  is all risk), the duplicated `submit` closures in `verify-release.ts`
+  (exact duplication, but each sits inside its own large `try`/`finally`
+  with local state), the three-line `slugOf` (a cross-script dependency
+  for three lines), and `stripAnsi` (one implementation in practice).
+  `jobsSqlite.commitShaIdx` also stayed: it now indexes `commit_sha` with
+  no reader left in the repository, but dropping an index is
+  disproportionate to this change and the SQLite migrations here are
+  forward-only, so it waits until something else needs the column.
 
 ## [0.1.0-rc.3] - 2026-07-19
 

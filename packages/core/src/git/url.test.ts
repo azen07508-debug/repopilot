@@ -26,7 +26,6 @@ describe('parseRepoUrl', () => {
       host: 'github.com',
       owner: 'okx',
       repo: 'repopilot',
-      defaultBranchHint: null,
     });
   });
   it('strips trailing .git', () => {

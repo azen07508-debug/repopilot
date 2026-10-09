@@ -42,7 +42,6 @@ const en = {
   langZh: 'Simplified Chinese',
   formIncludeLaunchCopy: 'Include launch copy',
   formTry: 'Try',
-  actionRun: 'Run audit',
   actionRunQuick: 'Run gate',
   actionRunFull: 'Run gate with launch materials',
   actionRunning: 'Auditing',
@@ -100,7 +99,6 @@ const en = {
   navReport: 'Report',
   navHistory: 'History',
   navDiff: 'Comparison',
-  backToReport: 'Back to report',
 
   fixPlanTitle: 'Fix plan',
   fixPlanHint: 'Derived from this report. No repository scan, no extra cost.',
@@ -171,7 +169,6 @@ const zhCN: Dict = {
   langZh: '简体中文',
   formIncludeLaunchCopy: '包含发布文案',
   formTry: '试试',
-  actionRun: '开始审计',
   actionRunQuick: '运行门禁',
   actionRunFull: '运行门禁（含发布材料）',
   actionRunning: '审计中',
@@ -229,7 +226,6 @@ const zhCN: Dict = {
   navReport: '报告',
   navHistory: '历史',
   navDiff: '对比',
-  backToReport: '返回报告',
 
   fixPlanTitle: '修复计划',
   fixPlanHint: '由本份报告派生，不重新扫描仓库，不额外计费。',

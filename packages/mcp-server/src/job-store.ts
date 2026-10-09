@@ -67,10 +67,6 @@ export class JobStore {
     return this.jobs.get(jobId) ?? null;
   }
 
-  list(): AuditJob[] {
-    return [...this.jobs.values()];
-  }
-
   /**
    * Audits for one repository, newest first.
    *
