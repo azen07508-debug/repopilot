@@ -360,7 +360,7 @@ knowable by running the suite.
   schema-bootstrap ordering, nginx routing; 0 issues)
 - `pnpm docs:check` (**exits non-zero** when a document disagrees with the code.
   Recomputes the generated blocks — MCP tool list and count, compose service
-  table, workspace package names and count, fixture count — and asserts six
+  table, workspace package names and count, fixture count — and asserts seven
   invariants that carry no block: the `BILLING` map against the `server.tool()`
   registrations, `docs/INDEX.md` against the `docs/` directory, every
   `pnpm <script>` a document names against the root `package.json`, that
@@ -377,8 +377,14 @@ knowable by running the suite.
   loops walk entries and rows, so an unparsed entry with no Contents row is
   invisible to both. It carries the `entries.length === 0` guard, because a
   register is the one document here that is deliberately block-free and
-  `checkBlocks()` cannot see it at all).
-  See D-033, D-034, D-036 and D-037. Verified by mutation: 22 injections, 22
+  `checkBlocks()` cannot see it at all), and that every `path:line` a document
+  cites resolves to a file that exists and names a line that exists in it —
+  66 citations, resolved from the repository root, or from a directory source
+  lives in, or by basename, with the count of the last two printed on every run
+  because that is the direction in which the check can be permissive
+  (`checkCitations()`; D-034, and see its docstring for why it does not pair
+  backticks).
+  See D-033, D-034, D-036 and D-037. Verified by mutation: 26 injections, 26
   caught (12 for the block and scope checks, measured 2026-10-04 and untouched
   by the repricing; 4 for the price check, re-measured 2026-10-05 after the
   count changed from twelve to six — a disagreement, a deleted `add()` call
@@ -388,7 +394,10 @@ knowable by running the suite.
   2026-10-08 — a deleted `Status` line, one folded into a `Severity` line, a
   drifted anchor, an entry added without being indexed, a status outside the
   vocabulary, and a heading whose separator drifted with its Contents row
-  removed)
+  removed; 4 for the citation check, measured 2026-10-09 — a line number past
+  the end of the file, a path no file has, an ellipsis shorthand, and an
+  extractor narrowed until it matched nothing, which is the `CITATIONS.length
+  === 0` guard)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff

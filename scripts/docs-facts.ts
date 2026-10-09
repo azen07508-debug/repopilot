@@ -64,7 +64,7 @@
  * which is worse than the sentence in ARCHITECTURE.md naming the nine calls in
  * order and claiming no count at all.
  *
- * Five checks carry no generated block at all — they assert an invariant and
+ * Six checks carry no generated block at all — they assert an invariant and
  * print nothing:
  *
  *   1. the `BILLING` map and the `server.tool()` registrations agree;
@@ -72,7 +72,8 @@
  *   3. every `pnpm <script>` a document names exists;
  *   4. `CHANGELOG.md` names each release category at most once per release;
  *   5. every statement of an audit price agrees, and the atomic registration
- *      values are those prices.
+ *      values are those prices;
+ *   6. every `path:line` a document cites exists, and the line exists in it.
  *
  * Check 3 is the one that already paid for itself: `PROJECT_STATE.md` told an
  * operator to run `pnpm start:api` and `pnpm start:worker`, and neither has
@@ -91,9 +92,20 @@
  * disagreement would have surfaced as a failed payment on the first real sale.
  * See `readPriceStatements()` for the full account.
  *
+ * Check 6 is the narrowest and the most mechanical: a citation is the one kind
+ * of prose claim that has a machine-checkable form, and the 2026-10-09 audit of
+ * `RISKS.md` showed what happens without it — the audit found a dozen wrong
+ * citations in the entries, and a one-off sweep then found seven more that the
+ * audit itself had just written. It reads 66 citations across the documents,
+ * and `checkCitations()` states the three ways it resolves a path and the one
+ * way that makes it permissive.
+ *
  * Every source read is a text file in this repository. No build, no network,
- * no environment. It runs in about a tenth of a second, which is why it can
- * sit in CI on every push.
+ * no environment. The one thing here that is not a single file read is the
+ * tree walk check 6 needs to index basenames by name: 993 files across 72
+ * directories in 11 ms, measured. The wall clock shows `tsx` starting up
+ * instead — about 3 s end to end — which is why it can sit in CI on every
+ * push.
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -1248,6 +1260,305 @@ function checkRisksRegister(): Problem[] {
   return problems;
 }
 
+/* ─────────────────── citations to files and lines in this tree ───────────── */
+
+/**
+ * A document that cites `path:line` must cite a file that exists and a line
+ * that exists in it.
+ *
+ * Why this exists
+ * ---------------
+ * The 2026-10-09 audit of `RISKS.md` read all forty-two entries against the
+ * tree and found a dozen wrong citations among the wrong claims. It was then
+ * itself put through a one-off sweep, which found **seven citations the audit
+ * had just written**: a `CHANGELOG.md` line range holding a paragraph about
+ * fingerprints instead of the Telegram example, a range for a `describe` block
+ * that began twenty-three lines early, a line number pointing at a blank line,
+ * and four ranges that stopped short of the construct they named.
+ *
+ * That is the argument for this check rather than for more care. The audit
+ * caught drift that had accumulated over weeks; the sweep caught drift
+ * introduced in an afternoon by the person doing the auditing. Reading is not a
+ * gate, and a citation is the one kind of prose claim that can be one.
+ *
+ * What counts as a citation
+ * -------------------------
+ * A path-shaped token immediately followed by `:NN` — `packages/core/src/x.ts:12`,
+ * `x.ts:12`, `Dockerfile:37` — where the token ends in one of
+ * `CITATION_EXTENSIONS` or is one of `CITATION_FILENAMES`.
+ *
+ * The first version of this matched a *backtick span* that was exactly
+ * `<path>:<lines>`, on the theory that a citation is always written as inline
+ * code. That version could not see the citation on `RISKS.md:208`, and the
+ * mutation script is what caught it: injecting a missing file into that
+ * citation left the check green. The line reads
+ *
+ *     raise the limit.` (`packages/core/src/git/fetcher.ts:122-125`; the …
+ *
+ * — the backtick before `raise` closes a code span opened on the line above,
+ * so pairing backticks *within* a line turns the citation's own backticks into
+ * a span containing `" ("`. Pairing across the whole file is worse: the corpus
+ * has fenced blocks, and a fence is three backticks, which throws the parity
+ * off for everything after it (28 citations found, against 66). Not pairing at
+ * all is both simpler and complete.
+ *
+ * What keeps the near-misses out is therefore the extension, not the backticks.
+ * `127.0.0.1:7890`, `x402Version:1`, `api:8080` and `4000:5000` all appear in
+ * these documents, and none of them ends in a listed extension, so none is
+ * extracted. The lookbehind is the other half: it stops
+ * `packages/core/src/git/fetcher.ts:122` from *also* matching as
+ * `fetcher.ts:122`, which would double-count it and resolve it to a different
+ * file.
+ *
+ * `<lines>` may be one number, a range, or a comma-separated list
+ * (`client.ts:125,182,199`). Every number in it is checked.
+ *
+ * What "exists" means
+ * -------------------
+ * Deliberately generous, because that is the standard a reader meets:
+ *
+ *   1. the path resolves from the repository root;
+ *   2. or from a directory that source lives in — each workspace's `src/`, and
+ *      `docs/` — which is where a relative citation is written from
+ *      (`report/builder.ts` is written from `packages/core/src`);
+ *   3. or some file in the tree has that basename, in which case it is checked
+ *      against every one of them and passes if any is long enough.
+ *
+ * Rule 3 is the weak one, and it is stated here rather than hidden. `builder.ts`
+ * names two files in this repository, so `builder.ts:555` passes on the strength
+ * of `report/builder.ts` even though it could have meant `fixplan/builder.ts`.
+ * A stricter rule — the basename must be unique — would fail on citations that
+ * are perfectly readable in context, and a check that demands a rewrite of
+ * correct prose is a check that gets an exception carved into it. The number of
+ * citations resolved by rule 2 or 3 is printed on every run instead, so the
+ * weakness stays visible and a rise in it is itself a signal.
+ *
+ * What this does not check
+ * ------------------------
+ *   - `(:481-491)`, a range that continues a citation named in an earlier line.
+ *     Attributing it means parsing the sentence, and `RISKS.md` is the file
+ *     that writes them this way.
+ *   - `.js`, because the only `.js` in this tree is build output and the one
+ *     `.js` citation in the corpus names `@fastify/rate-limit`'s own file
+ *     inside `node_modules`, which is not part of this repository.
+ *   - `node_modules/`, `dist/` and `.git/` are not walked, so a citation into
+ *     them fails rather than passing.
+ *   - whether the cited line says what the sentence says it says. That is the
+ *     part with no machine-checkable form, and it is why the audit above
+ *     happened at all.
+ */
+
+/** Extensions a citation may carry. `.js` is deliberately absent — see above. */
+const CITATION_EXTENSIONS = 'ts|tsx|md|json|yml|yaml|sql';
+
+/** Files with no extension that are still worth citing. */
+const CITATION_FILENAMES = ['Dockerfile', 'Makefile'];
+
+/** Directories never walked. `.github` is not one of them; it is cited. */
+const CITATION_SKIP = new Set(['node_modules', 'dist', 'coverage', '.turbo', '.pnpm', '.next', '.git']);
+
+interface Citation {
+  doc: string;
+  /** The line of the *document*, which is where the problem is reported. */
+  line: number;
+  path: string;
+  numbers: number[];
+}
+
+/**
+ * Where a relative citation is written from: the root, and the directories
+ * source lives in. `findings/rule-registry.ts` is written from
+ * `packages/core/src`, so that directory has to be a base or a correct
+ * citation reads as a missing file.
+ */
+function citationBases(): string[] {
+  const bases = [''];
+  for (const ws of [...WORKSPACES.packages, ...WORKSPACES.apps]) {
+    if (existsSync(join(ROOT, ws.dir, 'src'))) bases.push(`${ws.dir}/src`);
+  }
+  if (existsSync(join(ROOT, 'docs'))) bases.push('docs');
+  return bases;
+}
+
+/** basename -> repository-relative paths, for the bare-filename form. */
+function readCitationIndex(): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(rel === '' ? ROOT : join(ROOT, rel), { withFileTypes: true })) {
+      if (CITATION_SKIP.has(entry.name)) continue;
+      const child = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(child);
+        continue;
+      }
+      const list = index.get(entry.name);
+      if (list === undefined) index.set(entry.name, [child]);
+      else list.push(child);
+    }
+  };
+
+  walk('');
+  return index;
+}
+
+const CITATION_BY_BASENAME = readCitationIndex();
+
+/** Line counts, read only for the files something actually cites. */
+const CITATION_LINE_COUNTS = new Map<string, number>();
+
+function citationLineCount(rel: string): number {
+  const cached = CITATION_LINE_COUNTS.get(rel);
+  if (cached !== undefined) return cached;
+  const text = read(rel);
+  // A file ending in a newline has one more `\n` than it has lines.
+  const count = text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+  CITATION_LINE_COUNTS.set(rel, count);
+  return count;
+}
+
+/** Every path a citation could mean. Empty means it means nothing. */
+function resolveCitation(path: string): string[] {
+  const found: string[] = [];
+  for (const base of citationBases()) {
+    const rel = base === '' ? path : `${base}/${path}`;
+    if (existsSync(join(ROOT, rel)) && statSync(join(ROOT, rel)).isFile()) found.push(rel);
+  }
+  if (found.length > 0) return found;
+  const base = path.slice(path.lastIndexOf('/') + 1);
+  return CITATION_BY_BASENAME.get(base) ?? [];
+}
+
+/**
+ * Built per call rather than held at module level, so that no `g` regex with a
+ * mutable `lastIndex` is carried from one document to the next.
+ */
+function citationPatterns(): RegExp[] {
+  return [
+    new RegExp(
+      String.raw`(?<![\w/.-])([A-Za-z0-9_./@-]+\.(?:${CITATION_EXTENSIONS})):(\d+(?:[,-]\d+)*)`,
+      'g'
+    ),
+    new RegExp(String.raw`(?<![\w/.-])(${CITATION_FILENAMES.join('|')}):(\d+(?:[,-]\d+)*)`, 'g'),
+  ];
+}
+
+/** Every citation in every document. */
+function readCitations(): Citation[] {
+  const citations: Citation[] = [];
+
+  for (const doc of allDocPaths()) {
+    const patterns = citationPatterns();
+    read(doc)
+      .split('\n')
+      .forEach((line, i) => {
+        for (const pattern of patterns) {
+          for (const m of line.matchAll(pattern)) {
+            citations.push({
+              doc,
+              line: i + 1,
+              path: capture(m, 1),
+              // `:150-164` names a range. Both ends are checked and the lines
+              // between them are not, so a five-hundred-line range stays cheap.
+              numbers: capture(m, 2)
+                .split(',')
+                .flatMap((part) => part.split('-').map(Number)),
+            });
+          }
+        }
+      });
+  }
+
+  return citations;
+}
+
+const CITATIONS = readCitations();
+
+/**
+ * Citations that do not resolve from the root, and the problems found. Both
+ * are computed here because the summary line prints the first.
+ */
+function resolveCitations(citations: Citation[]): { weak: number; problems: Problem[] } {
+  const problems: Problem[] = [];
+  let weak = 0;
+
+  for (const c of citations) {
+    const where = `${c.doc}:${c.line}`;
+
+    // A path written with a leading `/` or an ellipsis is not a path a reader
+    // can follow, and it would resolve to *something* by basename, which is
+    // worse than failing: it would pass for the wrong reason.
+    if (c.path.startsWith('/') || c.path.startsWith('..') || c.path.includes('…')) {
+      problems.push({
+        where,
+        message:
+          `\`${c.path}\` is a shorthand rather than a path. Write the path out ` +
+          'from the repository root, or from the directory the sentence has ' +
+          'already named.',
+      });
+      continue;
+    }
+
+    const candidates = resolveCitation(c.path);
+    if (candidates.length === 0) {
+      problems.push({
+        where,
+        message:
+          `\`${c.path}\` is cited and no file in the tree has that path or ` +
+          'that basename. Either the file moved and this line did not, or the ' +
+          'path was never right.',
+      });
+      continue;
+    }
+
+    if (candidates.length > 1 || !candidates.includes(c.path)) weak += 1;
+
+    const longest = Math.max(...candidates.map(citationLineCount));
+    for (const n of c.numbers) {
+      if (n > longest) {
+        const which =
+          candidates.length === 1
+            ? `${candidates[0]} has ${longest} lines`
+            : `the longest of ${candidates.length} files named ` +
+              `${c.path.slice(c.path.lastIndexOf('/') + 1)} has ${longest} lines`;
+        problems.push({
+          where,
+          message: `\`${c.path}:${n}\` points past the end of the file: ${which}.`,
+        });
+      }
+    }
+  }
+
+  return { weak, problems };
+}
+
+const CITATION_RESOLUTION = resolveCitations(CITATIONS);
+
+/**
+ * The citations that point at nothing.
+ *
+ * The guard is the point of the shape: a citation check whose extractor stopped
+ * matching would find no problems, and finding no problems is what passing
+ * looks like (R-26). The count is asserted against zero, and the same count is
+ * printed on every run so that a *partial* break — a form nobody thought of —
+ * is at least visible as a number that moved.
+ */
+function checkCitations(): Problem[] {
+  const problems = [...CITATION_RESOLUTION.problems];
+
+  if (CITATIONS.length === 0) {
+    problems.push({
+      where: 'scripts/docs-facts.ts',
+      message:
+        'found no citations in any document. Either every one was removed, or ' +
+        'CITATION_SPAN stopped matching the way they are written. This check ' +
+        'cannot tell the difference, so it fails instead of passing quietly.',
+    });
+  }
+
+  return problems;
+}
+
 /* ─────────────────────────────────── main ───────────────────────────────── */
 
 const mode = process.argv[2] ?? '--check';
@@ -1279,6 +1590,7 @@ const problems = [
   ...checkDockerRunConfig(),
   ...checkChangelogStructure(),
   ...checkRisksRegister(),
+  ...checkCitations(),
   ...checkPrices(),
 ];
 
@@ -1287,8 +1599,19 @@ console.log('──────────────────────�
 console.log(
   `  ${TOOLS.length} MCP tools · ${WORKSPACES.packages.length} packages + ` +
     `${WORKSPACES.apps.length} apps · ${SERVICES.length} compose services · ` +
-    `${DOC_FILES.length} docs · ${RISKS.entries.length} risks`
+    `${DOC_FILES.length} docs · ${RISKS.entries.length} risks · ` +
+    `${CITATIONS.length} citations`
 );
+// The scope of a check is part of the check (D-034). A citation resolved by a
+// relative base or by basename passes on the strength of *a* file with that
+// name, which is the one way this check can be wrong in the permissive
+// direction, so the count is on the record every run.
+if (CITATION_RESOLUTION.weak > 0) {
+  console.log(
+    `  \x1b[2m(${CITATION_RESOLUTION.weak} of them resolved by basename or ` +
+      `from a directory rather than from the root)\x1b[0m`
+  );
+}
 
 if (problems.length === 0) {
   console.log('  \x1b[32m✓\x1b[0m 0 issues');

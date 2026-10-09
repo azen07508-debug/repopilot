@@ -16,6 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`checkCitations()` — every `path:line` a document cites must point at
+  something.** A citation is the one kind of prose claim that has a
+  machine-checkable form, so `pnpm docs:check` now asserts two things about all
+  66 of them: the path resolves to a file in the tree, and the line exists in
+  that file. It resolves generously rather than demanding full paths — the
+  repository root, or a directory source lives in, or a basename — because a
+  check that demands a rewrite of correct prose is a check that gets an
+  exception carved into it, and the count resolved by the last two is printed on
+  every run, since that is the one direction in which the check can be
+  permissive. It exists because the audit recorded below found a dozen wrong
+  citations in `RISKS.md`, and the one-off sweep that followed found seven more
+  that the audit had just written: reading is not a gate. The section is 299
+  lines, 211 of them code; the rest is the account of the rule and of what it
+  cannot see.
+  Verified by four injections, each exiting 1 with the message it is designed to
+  produce: a line number past the end of the file, a path no file has, an
+  ellipsis shorthand, and an extractor narrowed until it matched nothing (the
+  `CITATIONS.length === 0` guard). **The second of those is why this entry is
+  worth reading.** The first implementation matched a backtick span that was
+  exactly `<path>:<lines>`, and that injection left the check green: the
+  citation on `RISKS.md:208` shares its line with the *closing* backtick of a
+  code span opened on the line above, so pairing backticks within a line turned
+  it into a span containing `" ("` and the citation became invisible. Pairing
+  across the whole file is worse — the corpus has fenced blocks, a fence is
+  three backticks, and the parity is thrown off for everything after it (28
+  citations found, against 66). Not pairing at all is both simpler and complete.
+  The mutation script asserts that each injection changed the file *before* it
+  asserts anything about the check, and that guard is the only reason a mutation
+  landing in invisible text reads as a failure instead of as a pass.
 - **`checkRisksRegister()` — `RISKS.md` is checked as a register rather than
   read as prose.** `pnpm docs:check` now verifies three things about it: every
   `## R-NN` heading is in the Contents and the Contents lists nothing that is
@@ -1474,13 +1503,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a `describe` block that began twenty-three lines early, a line number
   pointing at a blank line, and four that stopped short of the construct they
   named. All seven are corrected, and the sweep is green: every reference
-  resolves to a file that exists and names a line that exists in it. It is not
-  committed and it is not a gate, only a script run once — committing it would
-  mean a check nothing runs, which is R-26's defect — and that is the difference
-  between "checked once" and "stays checked". The item is in `BACKLOG.md`. The
-  audit found drift that had accumulated over weeks; the sweep found drift
-  introduced in an afternoon by the person doing the auditing, which is the more
-  useful evidence of the two.
+  resolves to a file that exists and names a line that exists in it. That sweep
+  was a throwaway script and is not what shipped; the audit found drift that had
+  accumulated over weeks and the sweep found drift introduced in an afternoon by
+  the person doing the auditing, so the automatable half of it became
+  `checkCitations()` in the same commit that recorded this — see the `Added`
+  section, and note that the gate's own first implementation had a hole that
+  the mutation script found.
 
   **Two findings are recorded rather than fixed.** The redact lists in R-10 are
   genuinely out of step and a one-line change would fix one of them, but which

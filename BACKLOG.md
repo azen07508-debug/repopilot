@@ -295,23 +295,28 @@ Tracked work, in priority order, updated as items are completed.
   loudly instead of turning the check into a no-op — which is what this item
   would otherwise have created, since the file is deliberately block-free and
   `checkBlocks()` cannot see it at all.
-- [ ] **`RISKS.md`'s prose is checked by reading it, and reading does not
-  scale.** The register check covers the file's *shape* — the index, the anchors,
-  the status lines — because those are the parts a script can compare. What
-  stops a risk is in `**Mitigation:**`, and on 2026-10-09 all forty-two entries
-  were read against the tree rather than accepting the drift this item used to
-  describe. That found four load-bearing controls that do not exist (R-03, R-10,
-  R-12, R-16), two places where code and the documents describing it disagreed
-  (R-09, R-37) and a dozen wrong citations. The half of it that *is* automatable
-  has now been measured rather than assumed: a throwaway script extracted all 56
-  `file:line` citations from the six documents and resolved every one against the
-  tree, and it caught seven bad citations the hand audit had just written. Making
-  it a gate means deciding what a citation is allowed to be — `build.ts:425` is
-  unambiguous in context and unresolvable to a script, and the file still holds
-  one relative path (`report/builder.ts`) that a root-relative check would call
-  broken. That decision is the work; the resolution is forty lines. What stays
-  manual is the part with no machine-checkable form: whether the sentence *about*
-  the control is true.
+- [x] **`RISKS.md`'s prose is checked by reading it, and reading does not
+  scale.** Done 2026-10-09, for the half that can be automated, as
+  `checkCitations()` in `scripts/docs-facts.ts`. The audit this item described
+  went ahead and read all forty-two entries against the tree, which found four
+  load-bearing controls that do not exist (R-03, R-10, R-12, R-16), two places
+  where code and the documents describing it disagreed (R-09, R-37) and a dozen
+  wrong citations. The decision the item left open — what a citation is allowed
+  to be — is answered by resolving generously instead of demanding full paths:
+  the repository root, or a directory source lives in, or a basename, with the
+  count of the last two printed on every run. The item guessed `build.ts:425`
+  would be the sticking point; it was not, because the basename rule covers it,
+  and the relative path was one citation rather than a class. What the item got
+  wrong was the cost: the section is 299 lines, 211 of them code, against the
+  forty this item guessed — and the hard part was the *extraction*, not the
+  resolution. The first version matched a backtick span, and the mutation script
+  is what proved it wrong — injecting a missing file into the citation on
+  `RISKS.md:208` left the check green, because that line also carries the
+  closing backtick of a code span opened on the line above. Not pairing
+  backticks at all is simpler and finds two citations the pairing missed.
+  What stays manual is the part with no machine-checkable form: whether the
+  sentence *about* the control is true, and whether the line a citation points
+  at says what the sentence says it says.
 - [ ] **Nothing executes the commands the documents tell a human to run.**
   `docs:check` verifies `pnpm <script>` references and, since 2026-10-05, the
   one `docker run` environment pair that `validateProductionConfig` refuses
