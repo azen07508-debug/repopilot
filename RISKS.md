@@ -98,9 +98,14 @@ values, and they mean different things:
 
 `pnpm docs:check` enforces the shape now: every `## R-NN` heading is in
 Contents, Contents lists nothing that is not a heading, every anchor resolves
-against the heading it names, and every entry has exactly one `**Status:**`
-line whose value is one of the five above. `checkRisksRegister()` in
-`scripts/docs-facts.ts` is that check.
+against the heading it names, every entry has exactly one `**Status:**` line
+whose value is one of the five above, and the number of `## R-` lines equals
+the number of headings the check parsed. That last one is there because the
+first four walk *parsed* entries and *listed* rows, so a heading whose
+separator drifts — `## R-29: …` instead of `## R-29 — …` — stops being an
+entry, and if its Contents row is gone too, nothing else in the check can see
+it. Measured: the run prints `41 risks` and says nothing. `checkRisksRegister()`
+in `scripts/docs-facts.ts` is that check.
 
 The sweep was worth doing for a reason other than tidiness. Three of the
 twenty-four entries that had no *greppable* status turned out to be **wrong**:

@@ -285,7 +285,12 @@ Tracked work, in priority order, updated as items are completed.
   nothing is indistinguishable from one that resolves. The third is the one this
   item did not ask for and the sweep turned out to need: exactly one
   `**Status:**` line per entry, starting the line, from a fixed vocabulary.
-  Five injections, each exiting 1 with its own message. It carries the
+  Six injections, each exiting 1 with its own message — and the sixth is the
+  one worth reading, because it found a hole in the other five: drifting a
+  heading's separator and deleting its Contents row left the check reporting
+  `41 risks` and saying nothing, since a drifted heading is not an entry and
+  both loops walk entries or rows. The check now also compares the number of
+  `## R-` lines against the number it parsed. It carries the
   `entries.length === 0` guard, so a rename or a heading-format change fails
   loudly instead of turning the check into a no-op — which is what this item
   would otherwise have created, since the file is deliberately block-free and

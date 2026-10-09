@@ -35,13 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indistinguishable from one that resolves. The slug function was validated
   against all forty-two existing anchors before it was trusted, because a slug
   that is *nearly* right fails on the anchors that are correct and invites
-  "fixing" the anchor instead. Verified by five injections, each exiting 1 with
+  "fixing" the anchor instead. Verified by six injections, each exiting 1 with
   the message it is designed to produce: deleting a `Status` line, folding one
   into a `Severity` line, drifting an anchor, adding an entry without indexing
-  it, and using a status outside the vocabulary. It carries the
-  `entries.length === 0` guard every check in `docs-facts.ts` has, so a rename
-  or a heading-format change fails loudly rather than turning the check into a
-  no-op.
+  it, using a status outside the vocabulary, and — the sixth, which is the one
+  that found a hole in the first five — drifting a heading's separator *and*
+  deleting its Contents row. It carries the `entries.length === 0` guard every
+  check in `docs-facts.ts` has, so a rename or a heading-format change fails
+  loudly rather than turning the check into a no-op. The sixth injection showed
+  the guard was not enough: it only fires when *every* heading stops matching.
+  A single drifted heading stops being an entry, and both loops walk entries or
+  rows, so with its Contents row gone too the run printed `41 risks` — a count,
+  not an error — and one unrelated complaint about the entry above it, because
+  everything after an unparsed heading is attributed to the last entry that did
+  parse. Had the drifted heading been the first one, the run would have been
+  silent and green. The check now also asserts that the number of `## R-` lines
+  equals the number of headings it parsed.
 - **`scripts/child-wait.ts` — one wait, three failure messages, shared by
   `verify:release` and `okx-seller-smoke`.** Both scripts start a server, wait
   for it to answer and kill it, and both had their own copy of that wait. The

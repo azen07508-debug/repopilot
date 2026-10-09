@@ -1120,6 +1120,14 @@ const RISKS = readRisksRegister();
  * wrote it, R-19 described a mitigation in a class that does not exist, and
  * R-21 claimed a pin the file it named does not carry. A register whose states
  * cannot be read is a register whose states are not checked.
+ *
+ * The count. Everything above walks *parsed* entries and *listed* rows, which
+ * means all of it is blind to an entry that never parsed. That is not
+ * hypothetical: the sixth injection found it, after the first five had all
+ * passed. A heading whose separator drifts from the em dash stops being an
+ * entry, and if its Contents row is missing too then neither loop can see it
+ * and the file quietly holds one entry fewer. Counting `## R-` lines against
+ * parsed headings is the only assertion here that can notice.
  */
 function checkRisksRegister(): Problem[] {
   const problems: Problem[] = [];
@@ -1138,6 +1146,30 @@ function checkRisksRegister(): Problem[] {
 
   const byId = new Map(RISKS.entries.map((e) => [e.id, e]));
   const listedIds = new Set(RISKS.contents.map((c) => c.id));
+
+  // The guard above fires only when *every* heading stopped matching. This one
+  // covers the partial case, which is the one that hides. A heading whose
+  // separator drifts from the em dash stops being an entry, and both loops below
+  // walk entries or rows — so if that entry's Contents row is missing too,
+  // neither loop can see it and the file quietly holds one entry fewer. Measured
+  // by renaming R-29's heading to `## R-29: …` and deleting its Contents row:
+  // the run printed "41 risks", which is not an error message, and one unrelated
+  // complaint about the entry *above* it, because everything after an unparsed
+  // heading is attributed to the last entry that did parse. Had the drifted
+  // heading been the first one, the run would have been silent and green.
+  const headingCount = read('RISKS.md')
+    .split('\n')
+    .filter((l) => l.startsWith('## R-')).length;
+  if (headingCount !== RISKS.entries.length) {
+    problems.push({
+      where: 'RISKS.md',
+      message:
+        `${headingCount} lines start with "## R-", but only ${RISKS.entries.length} ` +
+        'match the "## R-NN — " heading this check parses. An unparsed entry is ' +
+        'not index-checked and not status-checked, and if its Contents row is ' +
+        'missing as well, nothing else here can see it either.',
+    });
+  }
 
   for (const entry of RISKS.entries) {
     if (!listedIds.has(entry.id)) {

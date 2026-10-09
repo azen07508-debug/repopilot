@@ -368,22 +368,27 @@ knowable by running the suite.
   that all six statements of an audit price agree with each other and
   with the atomic registration values, and that `RISKS.md` is shaped like a
   register — every `## R-NN` heading indexed and nothing else indexed, every
-  Contents anchor resolving against the heading it names, and exactly one
-  line-starting `**Status:**` per entry from a five-value vocabulary
+  Contents anchor resolving against the heading it names, exactly one
+  line-starting `**Status:**` per entry from a five-value vocabulary, and that
+  the number of `## R-` lines equals the number of headings the check parsed
   (`checkRisksRegister()`; the vocabulary is the check's, so a sixth value
-  added to the file without being added to the script fails. It carries the
-  `entries.length === 0` guard, because a register is the one document here
-  that is deliberately block-free and `checkBlocks()` cannot see it at all).
-  See D-033, D-034, D-036 and D-037. Verified by mutation: 21 injections, 21
+  added to the file without being added to the script fails, and the count is
+  there because a heading whose separator drifts stops being an entry — the
+  loops walk entries and rows, so an unparsed entry with no Contents row is
+  invisible to both. It carries the `entries.length === 0` guard, because a
+  register is the one document here that is deliberately block-free and
+  `checkBlocks()` cannot see it at all).
+  See D-033, D-034, D-036 and D-037. Verified by mutation: 22 injections, 22
   caught (12 for the block and scope checks, measured 2026-10-04 and untouched
   by the repricing; 4 for the price check, re-measured 2026-10-05 after the
   count changed from twelve to six — a disagreement, a deleted `add()` call
   which is the one way the check can silently cover less, an atomic value that
   is not a price the repository charges, and a reworded anchor that
-  `required()` refuses to read past; 5 for the register check, measured
+  `required()` refuses to read past; 6 for the register check, measured
   2026-10-08 — a deleted `Status` line, one folded into a `Severity` line, a
-  drifted anchor, an entry added without being indexed, and a status outside
-  the vocabulary)
+  drifted anchor, an entry added without being indexed, a status outside the
+  vocabulary, and a heading whose separator drifted with its Contents row
+  removed)
 - `pnpm audit:diff` (not a gate — runs the four reference audits and prints the
   change against `scripts/audit-baseline.json`. Deliberately excluded from CI:
   three of the four targets are other people's repositories, so a non-zero diff
