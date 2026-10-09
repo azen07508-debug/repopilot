@@ -127,10 +127,10 @@ looked like a complete one — and a reader who searched for `**Status:**` got
 eighteen of twenty-one, which is the same defect with a smaller gap.
 
 One more reading rule, learned the hard way in this batch: **a reference to an
-entry that does not exist is a defect, not a shorthand.** Fourteen references to
+entry that does not exist is a defect, not a shorthand.** Twelve references to
 `R-42` lived across four documents while no such entry existed, so every reader
 following one of them arrived at nothing. If you cite a risk, write it down in
-the same change.
+the same change. (This said fourteen until it was counted; see R-42.)
 
 **What this file still cannot check.** The shape is enforced — index, anchors,
 status lines — but `**Mitigation:**` is prose, and a script cannot tell a
@@ -174,9 +174,13 @@ content as a finding; the finding is reported, not acted on.
 `GET /health` reports `paymentMode=okx` against the production env).
 
 **Mitigation (0.1.0-rc.2):**
-- Schema-level guard in `apps/api/src/config.ts`: when
-  `NODE_ENV=production` and `PAYMENT_MODE=mock`, the app throws on
-  start (not a warning, no silent fallback).
+- Hard guard in `apps/api/src/config.ts`: `validateProductionConfig()` collects
+  the unsafe combinations and throws `ProductionConfigError` before anything
+  binds (`config.ts:125-151`, called from `loadConfig()` at `:167`) when
+  `NODE_ENV=production` and `PAYMENT_MODE=mock`. Not a warning, no silent
+  fallback. Deliberately not in the schema, and the file says why: "`env:check`
+  and the config schema alone are not enough: they let a misconfigured server
+  boot, log a warning, and accept payment in mock mode" (`config.ts:74-78`).
 - `buildPaymentAdapter()` continues to refuse construction with an
   empty or malformed `recipientAddress` — it validates the address
   itself, not via `isConfigured()` (which no production path calls;
@@ -193,14 +197,18 @@ must verify `paymentMode=okx` immediately after production deploy.
 **Severity:** Medium
 **Likelihood:** High for unauthenticated production usage
 **Status:** Accepted residual — the budget is GitHub's, not ours, so nothing
-we build removes the risk. `GITHUB_TOKEN` raises it to 5000 req/h and the
-fetcher reports the remaining quota with the failure.
+we build removes the risk. `GITHUB_TOKEN` raises it to 5000 req/h.
 **Mitigation:** Documented as a known limit. `GITHUB_TOKEN` env var
-unlocks 5000 req/h. The `verify:release` script defaults to fixture
-mode to avoid hitting GitHub.
+unlocks 5000 req/h. The gate that suffers most is `pnpm verify:release`, which
+audits `octocat/Hello-World` for real — one anonymous run can spend the whole
+hourly budget (see `PROJECT_STATE.md`).
 
-**Detection:** Fetcher reports a clear 403/429 with the remaining rate
-limit in the error response; user is told to set `GITHUB_TOKEN`.
+**Detection:** A 403 becomes a fixed message that names the fix —
+`Rate-limited or forbidden while listing <owner>/<repo>. Set GITHUB_TOKEN to
+raise the limit.` (`packages/core/src/git/fetcher.ts:122-125`; the archive path
+says the same at `:354-357`). It does **not** report how much quota is left:
+GitHub's `x-ratelimit-remaining` header is not read anywhere in the fetcher,
+which is what this entry used to claim and why it is worth naming.
 
 ## R-04 — Dependency drift (zod / MCP SDK / pino)
 
@@ -300,22 +308,39 @@ construction rather than by omission.
 
 **Severity:** Low
 **Likelihood:** Low (better-sqlite3 is single-writer, fine for one API)
-**Status:** Mitigated by design — the migration is one `db.transaction` and
-every statement is `IF NOT EXISTS`, so a crash mid-migration leaves a database
-that the next run finishes rather than one it cannot read.
-**Mitigation:** Migrations are wrapped in a single `db.transaction`.
-The migration script is idempotent (uses `IF NOT EXISTS`).
+**Status:** Mitigated by design — the migration runs inside one explicit
+transaction and every `CREATE` is `IF NOT EXISTS`, so a crash mid-migration
+leaves a database the next run finishes rather than one it cannot read. The
+column adds are the exception and rely on try/catch instead (see below).
+**Mitigation:** The whole migration runs inside one explicit transaction:
+`db.raw.exec('BEGIN')` … `COMMIT`, with `ROLLBACK` in the catch
+(`apps/api/src/db/client.ts:122-207` for SQLite, and the Postgres branch below
+it). It is **not** `db.transaction`, which is what this entry used to say and
+what no code in this repository calls. Every `CREATE TABLE` is `IF NOT EXISTS`.
+The SQLite `ALTER TABLE jobs ADD COLUMN …` statements (`:150-164`) have no
+`IF NOT EXISTS` — SQLite has no such form — so each is executed inside its own
+try/catch, and that loop (`:166-174`) is what makes a re-run safe. The Postgres
+branch does not need the trick: its adds are `ADD COLUMN IF NOT EXISTS`
+(`:243-254`).
 
 ## R-10 — Log redaction bypass
 
 **Severity:** Medium
 **Likelihood:** Low
-**Status:** Mitigated by design — `redact` is set on the Fastify logger and the
-integration test that POSTs a known fake secret is in the suite, so the control
-is a test rather than a config line someone has to keep.
-**Mitigation:** Redact is configured at the Fastify logger level. We
-add an integration test that POSTs with a known fake secret and asserts
-it does not appear in captured logs. The test is part of the suite.
+**Status:** Mitigated by design — `redact` is configured on the Fastify logger
+and on the shared pino factory. The integration test this entry used to claim
+does not exist; the entry is the reason to say so out loud rather than quietly
+dropping the sentence.
+**Mitigation:** `redact` is set in two places that have to stay in step —
+`apps/api/src/server.ts:110-122` and `apps/api/src/utils/logger.ts:9-22` — and
+they are **not** in step: the pino factory redacts `*.xPayment` and the Fastify
+logger does not. Nothing tests either list. There is no test that POSTs a known
+fake secret and asserts it is absent from captured logs, and this entry claimed
+that test was "part of the suite" — a control asserted in a document and absent
+from the tree, which is R-36's shape with the polarity reversed.
+
+**Detection:** None. The redaction is a config line someone has to keep, which
+is the thing the entry used to say it was not.
 
 ## R-11 — Marketplace hero / branding not provided
 
@@ -350,11 +375,25 @@ compared to), D-033 (a document states no fact it can derive).
 
 **Severity:** Low
 **Likelihood:** Low
-**Status:** Mitigated by design — reports carry `path:line:reason` pointers and
-never file content, so there is no field a secret value could be rendered into.
-**Mitigation:** Reports only contain `path:line:reason` for any
-evidence pointer. Secret values are masked. We do not surface raw file
-content in the report.
+**Status:** Mitigated by design — evidence is a pointer (`file`, `line`,
+`reason`), not a copy of the file, and the one field that could carry text is
+populated by nothing. The pointer field is `file`, not `path`.
+**Mitigation:** `EvidenceSchema` is
+`{ file, line, reason, source?, excerpt?, reproducible? }`
+(`packages/core/src/schemas/report.ts:31-52`) — a pointer, not file content.
+It also has an `excerpt`, and this entry used to deny that any such field
+existed: "The matching text, truncated and redacted. MUST NOT carry a full
+secret: `security/redact.ts` is the only thing allowed to build one"
+(`report.ts:44-48`). Two things are wrong with that sentence and both are worth
+naming, because it is the only statement of the constraint. **`security/redact.ts`
+does not exist** — nothing in `packages/core/src` imports it, and the schema
+comment is its only mention in the repository. And the constraint it states is a
+comment, not a type. What actually keeps this risk small is that nothing
+populates the field: `excerpt` appears in `packages/core/src` only in the schema
+and in `findings.test.ts`, always as `null` or absent. The control that does
+exist and is tested is upstream of the report: `scanForSecrets` never carries a
+raw value into a draft, and `secret-scanner.test.ts:5-17` asserts the matched
+key does not appear anywhere in the serialised finding.
 
 ## R-13 — A gate on a large repository times out
 
@@ -399,8 +438,10 @@ had ever run — and the deployment this is aimed at is a mainland-China VPS,
 which is the network where it fails.
 
 **Mitigation:** the `builder` stage installs the toolchain
-(`apk add --no-cache python3 make g++`, ~300 MiB in a stage that is not part
-of the final image). The fast path is unchanged; the slow path now succeeds
+(`apk add --no-cache python3 make g++`, ~200 MB in a stage that is not part
+of the final image — that is the Dockerfile's own figure, `Dockerfile:37`; this
+entry said ~300 MiB and nothing ever compared the two). The fast path is
+unchanged; the slow path now succeeds
 instead of dying. Verified by building the image on an x86_64 host with no
 route to GitHub Releases: `prebuild-install` failed, `node-gyp rebuild` ran,
 and the build completed.
@@ -416,13 +457,18 @@ same correction.
 
 **Severity:** Critical
 **Likelihood:** Low
-**Status:** Mitigated by design — the docs use `__OKX_AGENT_KEY__`
-placeholders and `env:check` never prints a value, so the failure needs a human
-to paste a key into a chat window. Nothing technical prevents that; what
-prevents it is that no document ever shows a real one.
-**Mitigation:** `env:check` never prints secret values. All examples
-in docs use `__OKX_AGENT_KEY__` placeholders. `README_OKX.md` and
-`docs/SECURITY.md` warn explicitly against pasting keys.
+**Status:** Mitigated by design — `env:check` never prints a value, and the one
+document that talks about handling the keys says not to paste them. Nothing
+technical stops a human from pasting one into a chat window.
+**Mitigation:** `env:check` never prints secret values — the known secret keys
+are reported by name, never by value (`scripts/env-check.ts:218-223`). The
+warning against pasting is in `docs/EXTERNAL_ACTIONS.md:113` ("Do not paste the
+keys into chat, issues, or commits") — not in `README_OKX.md` or
+`docs/SECURITY.md`, which this entry used to name; `docs/SECURITY.md:116` covers
+the same ground without the instruction. And the docs do **not** use a
+`__OKX_AGENT_KEY__` placeholder: that string appears nowhere in the repository
+outside this entry, so the placeholder was the entry's invention rather than the
+control it described.
 
 ## R-16 — Inline audit queue used in production (in-process, no durability)
 
@@ -431,13 +477,15 @@ in docs use `__OKX_AGENT_KEY__` placeholders. `README_OKX.md` and
 **Status:** Mitigated in 0.1.0-rc.2.
 
 **Mitigation:** `NODE_ENV=production` with `AUDIT_QUEUE_DRIVER=inline`
-fails the application start. The schema-level guard in
-`apps/api/src/config.ts` and `pnpm env:check` both enforce the rule.
-An explicit `ALLOW_INLINE_QUEUE_IN_PRODUCTION=1` override exists for
-disaster-recovery scenarios but is not advertised in `.env.example`.
+fails the application start: `validateProductionConfig()` pushes the issue
+unconditionally and throws (`apps/api/src/config.ts:146-151`), and `pnpm env:check`
+reports the same combination as an error (`scripts/env-check.ts:168-170`).
+There is **no** `ALLOW_INLINE_QUEUE_IN_PRODUCTION` escape hatch. This entry,
+D-016 and the rc.2 notes in `CHANGELOG.md` all describe one; it appears in no
+source file in the repository. Production cannot run the inline queue, full stop.
 
-**Detection:** `/health` reports `queue.driver=pg-boss` in production.
-Operators should alert if it reports `inline` instead.
+**Detection:** `/health` reports `queue.driver`. Operators should alert if it
+reports `inline` in production.
 
 ## R-17 — Tarball extraction exhausts disk / memory
 
@@ -507,8 +555,9 @@ truncation is detected, `ChangeImpactSchema.degraded` is set to `true` …"*.
 There is no `GitHubCompareSource` anywhere in the tree. `octokit.repos.compareCommits`
 is never called; no `ChangeSource` implementation exists outside a comment in the
 schema; and nothing produces a `ChangeImpactSchema` — the fourteen MCP tools and
-the four API routes (`audits`, `audit` by id, `capabilities`, `free-check`,
-`health`) contain nothing that reads a Compare API response. What does exist is
+the five API route modules (`audits`, `audit-derived`, `capabilities`,
+`free-check`, `health`) contain nothing that reads a Compare API response. What
+does exist is
 the schema (`packages/core/src/schemas/intelligence/change-impact.ts`), which
 carries `degraded` and `limitations` for whoever builds the source.
 
@@ -532,29 +581,50 @@ abstraction).
 **Severity:** Medium
 **Likelihood:** Medium (V0.3+, if artifacts are embedded by default)
 **Status:** Mitigated by design — nothing embeds the map, so there is nothing to
-inflate yet, and the caps are there for the caller that eventually does. The
-byte-budget test this entry used to describe does not exist either; the entry
-says so, and `fixture.test.ts` is what pins the caps in its place.
+inflate yet, and the caps are there for the caller that eventually does. Two
+tests this entry used to name are in the wrong place and one cap reports
+nothing; the entry says so rather than dropping the claims.
 
 **Mitigation:** Per D-021, intelligence artifacts are **not** embedded
-in `Report` by default; they live in the `intelligence_cache` table
-and are served from dedicated endpoints / MCP query tools. V0.2-d went
-further and did not wire the Repository Map into the pipeline at all,
-so today nothing embeds it and there is nothing to inflate. The builder
-is capped regardless, so an embedding caller cannot blow up
-`report_json` by accident: `MAX_MODULES` 200, `MAX_ENTRYPOINTS` 50,
-`MAX_LISTED_FILES` 300, `MAX_DEPENDENCIES` 500, `MAX_IMPORTANT_FILES`
-60. Every cap that actually bites adds a `limitations` line naming what
-was cut and the true total, so a truncated map cannot be mistaken for a
-small one. When a caller explicitly requests embedding, the MCP tool
-applies token trimming before returning.
+in `Report` by default. V0.2-d went further and did not wire the
+Repository Map into the pipeline at all, so today nothing embeds it and there
+is nothing to inflate. The builder is capped regardless, so an embedding
+caller cannot blow up `report_json` by accident: `MAX_MODULES` 200,
+`MAX_ENTRYPOINTS` 50, `MAX_LISTED_FILES` 300, `MAX_DEPENDENCIES` 500,
+`MAX_IMPORTANT_FILES` 60. Four of those five caps report themselves, from two
+places. `buildLimitations()` emits a line naming the cap and the true total for
+three of them (`packages/core/src/intelligence/repository-map/build.ts:481-491`).
+The fourth, `MAX_MODULES`, is reported by `detectModules`, the only thing that
+knows the true total
+(`packages/core/src/intelligence/repository-map/modules.ts:240-242`);
+`buildLimitations` says so in a comment instead of restating the line
+(`build.ts:494-496`). So a truncated map cannot be mistaken for a small one.
+**`MAX_IMPORTANT_FILES`
+is the exception**: it truncates at `build.ts:425` with a bare `slice(0, 60)`
+and contributes no `limitations` line, so an `importantFiles` list cut to 60
+is indistinguishable from one that had 60. That is the one cap in this entry
+that bites silently, and this entry used to claim all five reported. When a
+caller explicitly requests embedding, the MCP tool applies token trimming
+before returning (`packages/mcp-server/src/intelligence.ts:304-430`).
+
+This entry also used to say the artifacts "live in the `intelligence_cache`
+table and are served from dedicated endpoints / MCP query tools". There is no
+`intelligence_cache` table — `runMigrations` creates `jobs`, `report_cache` and
+`burned_nonces` and nothing else (`apps/api/src/db/client.ts:125,182,199`) — and
+the route modules above hold no intelligence endpoint. The claim was about
+storage that was never built.
 
 **Detection:** Track `jobs.report_json` row size; alert on outliers.
 The byte-budget integration test this entry used to describe does not
 exist and was removed rather than left standing — it belongs to V0.2-g,
-when something actually embeds the map. What exists today is
-`fixture.test.ts`, which runs the builder over all six real fixtures
-and asserts the caps hold and the truncation notes are emitted.
+when something actually embeds the map. The caps that *are* pinned are pinned in
+`build.test.ts`, not in `fixture.test.ts` as this entry used to say:
+`build.test.ts:324-384` is a `describe('… caps are reported only when they
+bite')` block that asserts both that the list is cut and that a cap which
+does not bite says nothing. `fixture.test.ts` runs the builder over every
+fixture on disk — the suite asserts there are at least six — and asserts the
+schema, reproducibility, that every named path exists, and that each module is
+accounted for; it makes no cap assertion at all.
 
 ## R-21 — New dependency breaks the zod / MCP SDK pins
 
@@ -565,8 +635,9 @@ did not exist. `pnpm-workspace.yaml` `overrides` pinned zod; it did **not** pin
 the MCP SDK, which was pinned only in `packages/mcp-server/package.json` — the
 one package that declares it. Both are in `overrides` as of 2026-10-08.
 
-**Mitigation:** D-003 pins zod to `3.24.1` and the MCP SDK to exactly
-`1.22.0`; `pnpm-workspace.yaml` enforces both via `overrides`. Any new
+**Mitigation:** D-003 pins zod to `^3.24.1` and the MCP SDK to exactly
+`1.22.0`; `pnpm-workspace.yaml` enforces both via `overrides` — the caret is
+D-003's decision and the override is what makes it hold. Any new
 dependency must not transitively pull zod >= 3.25 or MCP SDK >= 1.23
 (the mirror cannot resolve `zod/v3`, and the newer SDK changes the
 `tool()` signature). The `typescript` compiler API promotion in D-018
@@ -580,8 +651,10 @@ work, but that is a fact about the tree rather than a control, and the sentence
 above claimed the control. It is in `overrides` now, which is what the sentence
 said all along.
 
-**Detection:** CI runs `pnpm install --frozen-lockfile` followed by
-`pnpm typecheck`; a resolution or type failure is the gate. Reviewers
+**Detection:** CI runs `pnpm install --frozen-lockfile`
+(`.github/workflows/ci.yml:115-116`), then `pnpm lint` (`:139-140` — which since
+R-31 type-checks the five workspaces *and* `scripts/`) and `pnpm -r typecheck`
+(`:142-143`). A resolution or type failure is the gate. Reviewers
 must reject PRs that move these two pins without an accompanying ADR.
 
 ## R-22 — A lockfile drives `securityHygiene` to 0
@@ -667,11 +740,14 @@ hits of one rule at one `file:line` are one fingerprint.
 That is reachable from the scanner as written. `scanTextForSecrets()`
 emits one hit per matching `PATTERNS` entry with no per-line dedupe (the
 entropy heuristic is the only one that checks the line, at
-`secret-scanner.ts:289`), and `toSecretFindings()` dedupes on
-`file::kind::line`, so two *different* kinds survive. Every `secret-`
-slug resolves through the registry's `secret-` prefix to the single rule
-id `SEC-SECRET-001`. One line carrying an AWS key and a Stripe key is
-therefore two findings with two ids and **one** fingerprint:
+`secret-scanner.ts:351`), and `toSecretFindings()` dedupes on
+`file::kind::line`, so two *different* kinds survive. Every `secret-` slug
+resolves through the registry's `secret-` prefix to the single rule
+id `SEC-SECRET-001`. That is true of the two slugs in question and not of
+`secret-` as a family: `secret-history-` is a longer prefix and resolves to
+`SEC-HISTORY-001`, because matching is longest-prefix-first
+(`packages/core/src/findings/rule-registry.ts:150-166`). One line carrying an AWS key and a Stripe
+key is therefore two findings with two ids and **one** fingerprint:
 
 ```text
 id=secret-aws_access_key-1-src-config-ts   fingerprint=6537623962375d80
@@ -687,11 +763,16 @@ one surviving credential still fails it — the false pass needed a
 non-default `maxSecrets` or `maxCritical`, which is what keeps this at
 Medium rather than High.
 
-**Detection:** the two ids above, built through the real scanner and the
-real `enrichFinding`, are pinned in `quality/contract.test.ts` under
-`finding collection`. Both tests fail if the key reverts to the
-fingerprint alone — the count test reports length 1 instead of 2, and the
-contract test reports `pass` where `fail` is required.
+**Detection:** the two ids above are pinned in
+`packages/core/src/quality/contract.test.ts`
+under `finding collection` (`:334-356`). Both tests fail if the key reverts to
+the fingerprint alone — the count test reports length 1 instead of 2, and the
+contract test reports `pass` where `fail` is required. One caveat, and it is
+R-35's: only `enrichFinding` is real in that helper. The two ids are hand-written
+literals passed to `makeFinding`, and the scanner is never called — the helper's
+own docstring says it builds them "as the scanner actually emits them"
+(`:329-333`), which is a claim about fidelity that nothing checks. If
+`toSecretFindings` changed its id format, both tests would keep passing.
 
 **Fixed:** ADR D-023 keys `collectFindings` on `(findingKey, id)`, which
 is strictly finer than the fingerprint alone. The gate now counts what
@@ -1176,8 +1257,12 @@ window, which is a property of the scan rather than of the finding.
    tracked tree, **15 are deliberate fixtures** in `secret-scanner.test.ts`
    and `history-scanner.test.ts` — a scanner's test suite has to hold
    realistic-looking keys to prove it detects them — and the 16th is the
-   Telegram example in `CHANGELOG.md:1177`, already recorded as an accepted
-   residual of the unknown-format catch-all.
+   Telegram example at `CHANGELOG.md:2559-2560`
+   (`botToken: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"`), where the file
+   already records it in its own words as "an inherent residual of the
+   unknown-format catch-all, not a miss". This entry used to cite
+   `CHANGELOG.md:1177`, which is a line about `docs:facts` and holds no
+   Telegram string at all.
 2. **`securityFindings` is not the secret scan.** `report/builder.ts:141`
    builds it as `secretFindings + injectionFindings + historyFindings +
    security-category hygiene findings`, then removes anything in a fixture
@@ -1202,20 +1287,28 @@ every commit we push moves it. See D-032.
 **Severity:** High
 **Likelihood:** Certain — measured on the 2026-10-02 baseline
 **Status:** **Fixed — 2026-10-03.** The tiers are now separated by what the
-report delivers. The prices in the body below are the ones measured when this
-was found (0.02 / 0.10); the full audit is now 0.05. See the fix at the end.
+report delivers. The price has moved twice since, and both moves are later than
+this entry: the 2026-10-03 fix landed on 0.05 for `full`, and D-037 replaced the
+whole two-tier table with **one price of 1 USDT for one tier**
+(`DEFAULT_PRICING`, `packages/core/src/utils/constants.ts:65-67`). The prices
+quoted in the body below are the ones measured when this was found (0.02 / 0.10)
+and they are history, not the current table. See the fix at the end.
 
-**What happens.** `mode` is a required field on every audit request, and it
-decides the price: `priceFor(deps.payment, input.mode)` resolves to 0.02
-USDT for `quick` and 0.10 USDT for `full` (`DEFAULT_PRICING`, in
-`packages/core/src/utils/constants.ts`). It does not decide the analysis.
-Every analyzer runs in both modes, the archive is read the same way, and
-`scanHistory()` is called unconditionally in `pipeline.ts` — `auditMode` is
-stamped into `scan.mode` and then read by nothing in the pipeline.
+**What happens — and the tense matters, because this section describes
+2026-10-02 and the tree has moved since.** `mode` is a required field on every
+audit request, and it decided the price: `priceFor(deps.payment, input.mode)`
+resolved to 0.02 USDT for `quick` and 0.10 USDT for `full`. That call no longer
+has this shape — `priceFor(cfg)` takes one argument and the table holds one
+price — and the numbers below are the ones this was found with. `mode` did not
+decide the analysis. Every analyzer ran in both modes, the archive was read the
+same way, and `scanHistory()` is still called unconditionally in `pipeline.ts` —
+`auditMode` is stamped into `scan.mode` and then read by nothing in the pipeline.
 
-Grepping all of `packages/core/src` for a comparison against `mode` returns
-exactly three, all in `report/builder.ts`, all after the analysis is
-finished:
+Grepping all of `packages/core/src` for a comparison against `mode` returned
+exactly three *at the time*, all in `report/builder.ts`, all after the analysis
+is finished. It is not three any more — the fix below added `report/tiers.ts` and
+`FULL_ONLY_SECTIONS` — so read the table as the measurement it was, not as the
+current shape:
 
 | line | what `mode` changes |
 |---|---|
@@ -1256,19 +1349,28 @@ the sentence** — it occurs in `builder.ts:555` and in generated audit
 artefacts, nowhere else — so it can be deleted or made true without breaking
 a gate, which is itself the finding.
 
-**The marketplace listing sells the difference.** `MARKETPLACE_LISTING.md`
-describes the 0.10 USDT tier as including "the deeper reproducibility and
-Web3 analyzers", in English (`:37-41`) and in Chinese (`:92-95`). The Web3
-analyzer runs in both modes and there is no deeper reproducibility pass. A
-buyer who pays 0.10 receives the same numbers as a buyer who pays 0.02, and
-nothing in the product stops the 0.02 buyer from getting them.
+**The marketplace listing sold the difference.** `MARKETPLACE_LISTING.md`
+described the 0.10 USDT tier as including "the deeper reproducibility and
+Web3 analyzers", in English and in Chinese. The Web3 analyzer runs in both modes
+and there is no deeper reproducibility pass, so a buyer who paid 0.10 received
+the same numbers as a buyer who paid 0.02. The listing has since been rewritten
+around the single tier: it now reads "One price, one product. There is no
+cheaper tier and no deeper tier" (`:47`), and the tier table is
+`Free Check — 0 USDT` / `Release Gate — 1 USDT` (`:29`, `:38`, `:102`, `:109`).
+The quoted "deeper reproducibility" sentence is gone from the file, which is why
+this paragraph quotes it as history instead of pointing at a line.
 
-**A third sighting, already committed.** `screenshots/README.md:34` labels
-the `full` artefacts "same content here, repo is too small to differ" — the
-same theory I reached first, written down months earlier and never checked.
-It is wrong twice: the two reports are not the same content (`full` carries
-two extra advice rows), and the repository being small is not why. Three
-independent places describe a difference that does not exist, and all three
+**A third sighting, already committed.** `screenshots/README.md` labelled the
+`full` artefacts "same content here, repo is too small to differ" — the same
+theory this entry reached first, written down months earlier and never checked.
+It was wrong twice: the two reports are not the same content (`full` carries two
+extra advice rows), and the repository being small is not why. That sentence has
+since been replaced, and the replacement is worth reading because it is the shape
+of a good answer: the row now says the two modes "measure the same thing and
+differ only in what they carry", points at the Tiers section of `docs/API.md`,
+and explains that the committed artefacts are left as written because they are a
+record of what the tool said at the time (`screenshots/README.md:34`). Three
+independent places described a difference that did not exist, and all three
 survived because no check compares a claim about `mode` against `mode`.
 
 **Why this is High rather than Low.** It is not a scoring bug. It is a
@@ -1635,7 +1737,8 @@ staleness: fixing only the one CI reported would have produced a second red
 run. One stale artefact masked two independent contract violations.
 
 **Why CI and the local gate disagree.** CI builds before linting, and its
-comment says why (`.github/workflows/ci.yml:118-127`):
+comment says why (`.github/workflows/ci.yml:118-129`, the sentence itself at
+`:124-125`):
 
 > It has to run before lint, because the root lint also type-checks every package.
 
@@ -1663,8 +1766,9 @@ thought it was.
 `tsc --noEmit`" rather than "`tsc --noEmit`": before it type-checks, it
 compares each workspace package's newest `src` mtime against its newest `dist`
 mtime, and builds the ones whose `dist` is older — in the same step, in the
-same process, printing which packages it rebuilt. CI's order (`build` then
-`lint`, `.github/workflows/ci.yml:127`) is unaffected: when the dists are
+same process, printing which packages it rebuilt. CI's order (`build` at
+`.github/workflows/ci.yml:130-131`, then `lint` at `:139-140`) is unaffected:
+when the dists are
 current the comparison costs one `stat` per file and prints a tick.
 
 **The build is conditional, and that is deliberate.** A `lint` command that
@@ -1685,8 +1789,10 @@ typecheck now runs against the source it was written against, so it reports
 every consumer that disagrees instead of only the ones whose `dist` happened
 to be rebuilt.
 
-**What is still true.** `pnpm typecheck` — the standalone script, which
-`ci.yml:137` runs after `lint` — does not build first, and neither does a bare
+**What is still true.** The per-package typecheck — `pnpm -r typecheck`, which is
+what CI actually runs (`.github/workflows/ci.yml:142-143`; this entry used to name
+the standalone `pnpm typecheck`, which CI never calls) — does not build first,
+and neither does a bare
 `tsc -p apps/api/tsconfig.json`. Both are still capable of reading a stale
 `dist`; the difference is that they are no longer the gate, and the gate is
 what a reader trusts. Anyone running them by hand after a change to core's
@@ -1781,11 +1887,12 @@ deleted outright and the suite would have said the entry point was fine.
 
 **Why it mattered here more than elsewhere.** This was not an obscure module.
 It is `POST /api/v1/free-check` — the no-payment tier the marketplace listing
-describes as *"the entry point used by other AI agents to triage a repo before
-deciding to pay for a full audit"*. It is the first thing a prospective buyer
-runs, it is the cheapest thing to break, and it was the least verified part of
-the product. A funnel entry that reports `has-readme: FAIL` on a repository
-that has a README costs a sale before the paid tier is ever reached.
+describes as *"the entry point other AI agents use to decide whether a repo is
+worth gating"* (`MARKETPLACE_LISTING.md:34-35`; this entry used to quote a
+paraphrase as if it were the sentence). It is the first thing a prospective
+buyer runs, it is the cheapest thing to break, and it was the least verified
+part of the product. A funnel entry that reports `has-readme: FAIL` on a
+repository that has a README costs a sale before the paid tier is ever reached.
 
 **How it was found.** Not by a check, and not by reading the test file —
 reading it produces the impression of a well-covered module, because the
@@ -1822,6 +1929,19 @@ evidence that a case discriminates between the two rules.
 that rebuilds the logic it means to check — is invisible to every existing
 gate, and nothing in CI looks for it. `pnpm -r test` counts cases, not
 whether they can fail.
+
+**A second instance, found 2026-10-09.** `packages/core/src/quality/contract.test.ts:334-356` builds
+the two secret findings it is about with hand-written ids
+(`'secret-aws_access_key-1-src-config-ts'`) rather than by running
+`scanForSecrets` → `toSecretFindings`, and its helper says in a docstring that
+they are "as the scanner actually emits them" — a claim about fidelity that
+nothing checks, exactly like the `README_NAMES` copies above. It is a weaker
+instance than the first: `enrichFinding` and `ruleFor` are real, the two ids are
+correct today, and the assertions are about `collectFindings`, which is real. But
+if `toSecretFindings` changed its id format the tests would keep passing, and
+that is the property this entry is about. Recorded rather than fixed, because
+this entry's own lesson is that the fix is a rewrite of the helper plus a
+mutation to prove the new version can fail — not a substitution of one call.
 
 **Related.** R-26 (a check that never runs is indistinguishable from one that
 passes), R-27 (a check that can never pass), D-034 (the scope of a check is
@@ -1941,6 +2061,20 @@ reading a listing.
 `reaudit_repository`), and `apps/web`'s form state. §5.4 of
 `docs/OKX_REQUIREMENTS_SNAPSHOT.md`, `docs/API.md`'s request table and `README`
 now state `full` as the default.
+
+**A fifth call site, missed for four days — found 2026-10-09.** The fix counted
+declarations of the default and there was a fifth that is not one: the reaudit
+route built its input by hand, `mode: body['mode'] ?? 'quick'`
+(`apps/api/src/routes/audits.ts:130`), with every *other* field in that object
+mirroring the schema's default. So the same re-audit reached over HTTP asked for
+`quick` and over MCP asked for `full`, and the HTTP one was the cheaper — the
+paid tier not delivering what the listing sells, which is the sentence this entry
+exists because of. `docs/API.md` documented the route correctly
+(`Defaults: mode: "quick"`), which is why nothing flagged it: the document agreed
+with the code, and both disagreed with the contract. Fixed to `full`, and the
+document with it. The lesson is the entry's own: "four declarations" was a count
+of the places the default is *written down*, and the bug was in the place it is
+computed.
 
 **The check, and why it is not optional.** Nothing else in the suite read the
 default, so reverting the line would have been silent — which is the whole
@@ -2272,7 +2406,14 @@ that asserted the limitation** rather than a comment hoping nobody checked.
 
 R-42 closed it. The burn is now a call on an injected `NonceStore`, and
 `apps/api` injects `NonceRepository` — a `burned_nonces` table whose primary key
-is the `(from, nonce)` pair, so the insert *is* the single-use check.
+is a single `key` column holding the `(from, nonce)` pair joined by a colon
+(`packages/okx-adapter/src/okx-adapter.ts:554`), so the insert *is* the
+single-use check. The table is that one column plus `burned_at`
+(`apps/api/src/db/client.ts:199-202`), and `burn` is a single
+`INSERT … ON CONFLICT DO NOTHING` whose row count is the answer
+(`apps/api/src/repositories/nonce-repository.ts:30-43`). This entry used to say
+the primary key "is the `(from, nonce)` pair", which describes the value in the
+column rather than the column.
 `DECISIONS.md` D-040 records the reasoning, including why the burn does not need
 to share a transaction with the job it pays for, and what the buyer gives up in
 exchange for at-most-once. That test was replaced by
@@ -2343,10 +2484,12 @@ The guard was correct about *what* to remember and wrong about *where* to keep
 it. This is the same shape as R-16 (an in-process queue) one layer down: state
 that has to outlive the process, kept in the process.
 
-**Why this entry is written now, and what it fixes.** Fourteen references to
+**Why this entry is written now, and what it fixes.** Twelve references to
 `R-42` existed across `RISKS.md`, `BACKLOG.md`, `PROJECT_STATE.md` and
 `CHANGELOG.md` — including R-40's own `Status` line — and no entry by that name
-was ever written. The references were added with the fix and the entry was not,
+was ever written. (This paragraph said fourteen; counted at `31532b3^`, the
+commit before the heading was added, it is 5 + 1 + 2 + 4 = 12.) The references
+were added with the fix and the entry was not,
 so the file pointed at itself from four directions and a reader following any of
 them arrived at nothing. Writing it down is the last piece of the fix, not
 paperwork about it. (`R-41` is unused; the numbering jumps.)

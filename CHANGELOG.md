@@ -1382,6 +1382,115 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`RISKS.md`'s prose was audited against the tree, and fourteen entries were
+  describing something that is not there.** The status lines were the previous
+  batch; this one went after the half a script cannot check. Every entry's
+  `**Mitigation:**`, `**Detection:**` and body was read and each factual claim
+  put to the code — file paths, function and constant names, numbers, test
+  names, document quotes, `pnpm` script names. Five readers over five slices;
+  every finding below was re-checked by hand before it was changed, because a
+  report is a lead and not a verdict.
+
+  Four of them were load-bearing controls that do not exist:
+
+  - **R-03 claimed the fetcher reports the remaining GitHub quota with a
+    failure.** It does not: the 403 message is a fixed sentence naming
+    `GITHUB_TOKEN` and nothing else (`packages/core/src/git/fetcher.ts:122-125`),
+    and `x-ratelimit-remaining` is read nowhere. It also claimed
+    `verify:release` "defaults to fixture mode to avoid hitting GitHub" — the
+    opposite is true, and is why one anonymous run can spend the hourly budget.
+    Half of this was introduced by the status line written in the previous
+    batch, which is the argument for auditing the prose and not just the label.
+  - **R-10 claimed an integration test that POSTs a known fake secret and
+    asserts it is absent from captured logs.** There is no such test, and no
+    test of the redact configuration at all. The configuration itself is
+    duplicated in two places that have since drifted —
+    `apps/api/src/utils/logger.ts:9-22` redacts `*.xPayment`,
+    `apps/api/src/server.ts:110-122` does not — and nothing compares
+    them. The entry now says so, and its `Detection` field says "None", which is
+    what the tree says.
+  - **R-16 claimed an `ALLOW_INLINE_QUEUE_IN_PRODUCTION=1` escape hatch.** It
+    exists in no source file. `validateProductionConfig()` refuses the
+    combination unconditionally (`apps/api/src/config.ts:146-151`). The same
+    claim is in D-016 and in the rc.2 notes further down. D-016 is corrected in
+    place, because that is the record a reader consults for the rule; the rc.2
+    notes are left as written, because a released changelog is a record of what
+    was said at the time and this file already treats committed artefacts that
+    way.
+  - **R-12 denied that any field could carry file text into a report.**
+    `EvidenceSchema` has an `excerpt`
+    (`packages/core/src/schemas/report.ts:52`), documented as
+    "the matching text, truncated and redacted" and constrained by a comment
+    naming `security/redact.ts` — **a module that does not exist**, and never
+    did in this tree. The pointer field is also `file`, not `path`. The schema
+    comment is corrected, and the entry now records what actually keeps the risk
+    small: nothing populates `excerpt` (it appears in `packages/core/src` only
+    in the schema and one test), and the masking that does exist is upstream, in
+    `scanForSecrets`, pinned by `secret-scanner.test.ts:5-17`.
+
+  Two were code that disagreed with the documents describing it:
+
+  - **R-09 said migrations are "wrapped in a single `db.transaction`" and that
+    "every statement is `IF NOT EXISTS`".** Neither holds. It is an explicit
+    `BEGIN`/`COMMIT` with `ROLLBACK` in the catch
+    (`apps/api/src/db/client.ts:122-207`), and the SQLite column adds are plain
+    `ADD COLUMN` made safe by a per-statement try/catch because SQLite has no
+    `IF NOT EXISTS` for them. The Postgres branch does use it. The entry now
+    says which half is which.
+  - **R-37's fix moved every default to `full` and missed a fifth call site.**
+    The reaudit route built its input by hand with `mode: body['mode'] ??
+    'quick'` (`apps/api/src/routes/audits.ts:130`) while every other field in
+    the same object mirrored the schema. So the same re-audit asked for `quick`
+    over HTTP and `full` over MCP, and the HTTP one was the cheaper — the paid
+    tier not delivering what the listing sells, which is the defect R-37 exists
+    because of. `docs/API.md` documented the route correctly, which is exactly
+    why nothing caught it: the document agreed with the code and both disagreed
+    with the contract. Fixed to `full`, document with it.
+
+  The rest were wrong citations and wrong numbers, all corrected: R-02's
+  "schema-level guard" is `validateProductionConfig()` and the file says why it
+  is not in the schema; R-15's `__OKX_AGENT_KEY__` placeholder appears nowhere
+  in the repository except in R-15; R-19 counted "the four API routes" and listed
+  five; R-20's artifacts do not live in an `intelligence_cache` table (there is
+  no such table), `MAX_IMPORTANT_FILES` is the one cap that truncates without
+  emitting a `limitations` line, and the cap assertions are in `build.test.ts`
+  and not in `fixture.test.ts`; R-21's D-003 pins `^3.24.1` and CI runs `pnpm -r
+  typecheck`, not `pnpm typecheck`; R-23's per-line dedupe is at
+  `secret-scanner.ts:351`, `secret-history-` resolves to a *different* rule, and
+  its pinned ids are hand-written literals rather than the scanner's output;
+  R-29 cited a `CHANGELOG.md` line that holds no Telegram string; R-33 cited
+  three wrong `ci.yml` line numbers and a command CI does not run; R-35 quoted a
+  paraphrase of `MARKETPLACE_LISTING.md` as a quotation; R-40 described the
+  `burned_nonces` primary key as "the `(from, nonce)` pair" when it is a single
+  `key` column holding them joined by a colon; R-42 said "fourteen references"
+  where the count is twelve — and so did the reading-rules section, twice.
+
+  Every citation above was then put through a sweep rather than left to the eye:
+  all 56 `file:line` references in the six documents this batch touched were
+  extracted and resolved against the tree. The sweep earned its keep on the first
+  run, because **the first pass of this batch had written seven citations of its
+  own that did not point at what they claimed** — a `CHANGELOG.md` line range
+  holding a paragraph about fingerprints instead of the Telegram example, a range
+  for a `describe` block that began twenty-three lines early, a line number
+  pointing at a blank line, and four that stopped short of the construct they
+  named. All seven are corrected, and the sweep is green: every reference
+  resolves to a file that exists and names a line that exists in it. It is not
+  committed and it is not a gate, only a script run once — committing it would
+  mean a check nothing runs, which is R-26's defect — and that is the difference
+  between "checked once" and "stays checked". The item is in `BACKLOG.md`. The
+  audit found drift that had accumulated over weeks; the sweep found drift
+  introduced in an afternoon by the person doing the auditing, which is the more
+  useful evidence of the two.
+
+  **Two findings are recorded rather than fixed.** The redact lists in R-10 are
+  genuinely out of step and a one-line change would fix one of them, but which
+  list is right depends on whether the Fastify logger ever sees an `xPayment`
+  field, and changing a security control on a guess is worse than naming the
+  disagreement. And `packages/core/src/quality/contract.test.ts:334-356` is a
+  second instance of R-35 — it hand-writes the two secret ids it is about instead
+  of running the scanner — recorded there because the fix is a rewrite plus a
+  mutation, not a substitution.
+
 - **`RISKS.md` said four things about itself that were not true, and the sweep
   that was supposed to be a tidy-up is what found them.** The sweep was a
   one-line-per-entry backfill: twenty-four entries had no *greppable* status, so
@@ -1404,10 +1513,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     flag and the file-count cap. There is no such class in the tree:
     `octokit.repos.compareCommits` is never called, no `ChangeSource`
     implementation exists outside a comment in the schema, and nothing produces
-    a `ChangeImpactSchema` — the fourteen MCP tools and the four API routes
-    contain nothing that reads a Compare API response. The schema exists and
-    carries `degraded` and `limitations`; the source that would fill them does
-    not. The entry is `Open` rather than `Fixed`: the risk is dormant, not
+    a `ChangeImpactSchema` — the fourteen MCP tools and the five API route
+    modules contain nothing that reads a Compare API response. The schema exists
+    and carries `degraded` and `limitations`; the source that would fill them
+    does not. The entry is `Open` rather than `Fixed`: the risk is dormant, not
     handled, and the detection it names cannot fire, which is R-27's shape and
     the second reason the status is not `Fixed`.
   - **R-21 claimed a pin the file it named does not carry.** It said

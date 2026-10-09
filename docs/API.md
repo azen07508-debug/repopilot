@@ -709,15 +709,15 @@ protection applies here exactly as it does on the normal route.
 
 ```json
 {
-  "mode": "quick",
+  "mode": "full",
   "target": "open_source",
   "outputLanguage": "en",
-  "includeLaunchCopy": false
+  "includeLaunchCopy": true
 }
 ```
 
-Defaults: `mode: "quick"`, `target: "open_source"`,
-`outputLanguage: "en"`, `includeLaunchCopy: false`.
+Defaults: `mode: "full"`, `target: "open_source"`,
+`outputLanguage: "en"`, `includeLaunchCopy: true`.
 
 **Responses** are identical to `POST /api/v1/audits`: `402` with a
 payment challenge on the first call, then `202` with `Location` and

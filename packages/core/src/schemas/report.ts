@@ -42,9 +42,17 @@ export const EvidenceSchema = z.object({
    */
   source: EvidenceOriginSchema.optional(),
   /**
-   * The matching text, truncated and redacted. MUST NOT carry a full
-   * secret: `security/redact.ts` is the only thing allowed to build one.
+   * The matching text, truncated and redacted. MUST NOT carry a full secret.
    * Absent means "not captured", not "empty".
+   *
+   * Nothing populates this field: across `packages/core/src` it appears only
+   * here and in `findings.test.ts`, always as `null` or absent, and the
+   * analyzer that would fill it does not exist yet. This comment used to say
+   * "`security/redact.ts` is the only thing allowed to build one" — there is no
+   * such module, and never was one in the tree. When something does start
+   * populating it, that module is what has to be written first, and
+   * `secret-scanner.ts` (which never carries a raw value out of
+   * `scanForSecrets`) is the pattern to follow.
    */
   excerpt: z.string().nullable().optional(),
   /** Absent means "assumed reproducible". */

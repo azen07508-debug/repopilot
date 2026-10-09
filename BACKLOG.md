@@ -295,23 +295,23 @@ Tracked work, in priority order, updated as items are completed.
   loudly instead of turning the check into a no-op — which is what this item
   would otherwise have created, since the file is deliberately block-free and
   `checkBlocks()` cannot see it at all.
-- [ ] **`RISKS.md`'s `**Mitigation:**` lines are prose, and prose is not
-  checked.** The register check covers the file's *shape* — the index, the
-  anchors, the status lines — because those are the parts a script can compare.
-  The field that says what stops the risk is not one of them, and the sweep that
-  added the status lines showed what that costs: reading R-01 end to end to
-  write its status, the `**Mitigation:**` three lines below turned out to name
-  `GitFetcher` as the thing that rejects `..` and `.git/` (it does no path
-  checking; `classifyFile`/`filterFiles` do, and `pipeline.ts:88` is the caller)
-  and to describe a `runMigrations` helper in the fetcher sandboxed to
-  `/tmp/repopilot-*` (there is no such helper, and no temp directory in
-  `packages/core/src` at all — extraction is in memory). Both statements were
-  probably true when written and were removed by R-17's work without this entry
-  being told. R-01 is corrected; the other forty-one were not read that closely,
-  and a `Mitigation` line cannot be checked by grep. The honest options are to
-  re-read all of them by hand (a sweep with no automation to share) or to accept
-  that this field drifts and say so — recorded rather than picked, because it is
-  the same choice as the one above it.
+- [ ] **`RISKS.md`'s prose is checked by reading it, and reading does not
+  scale.** The register check covers the file's *shape* — the index, the anchors,
+  the status lines — because those are the parts a script can compare. What
+  stops a risk is in `**Mitigation:**`, and on 2026-10-09 all forty-two entries
+  were read against the tree rather than accepting the drift this item used to
+  describe. That found four load-bearing controls that do not exist (R-03, R-10,
+  R-12, R-16), two places where code and the documents describing it disagreed
+  (R-09, R-37) and a dozen wrong citations. The half of it that *is* automatable
+  has now been measured rather than assumed: a throwaway script extracted all 56
+  `file:line` citations from the six documents and resolved every one against the
+  tree, and it caught seven bad citations the hand audit had just written. Making
+  it a gate means deciding what a citation is allowed to be — `build.ts:425` is
+  unambiguous in context and unresolvable to a script, and the file still holds
+  one relative path (`report/builder.ts`) that a root-relative check would call
+  broken. That decision is the work; the resolution is forty lines. What stays
+  manual is the part with no machine-checkable form: whether the sentence *about*
+  the control is true.
 - [ ] **Nothing executes the commands the documents tell a human to run.**
   `docs:check` verifies `pnpm <script>` references and, since 2026-10-05, the
   one `docker run` environment pair that `validateProductionConfig` refuses

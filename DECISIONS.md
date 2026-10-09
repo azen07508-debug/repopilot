@@ -333,6 +333,15 @@ Architecture Decision Records (ADR-style, lightweight).
   An explicit `ALLOW_INLINE_QUEUE_IN_PRODUCTION=1` exists for
   documented disaster-recovery but is not advertised in
   `.env.example`. `pnpm env:check` enforces the rule.
+- **Corrected 2026-10-09 (measured):** the middle sentence is false and has been
+  since this decision was written. `ALLOW_INLINE_QUEUE_IN_PRODUCTION` appears in
+  no source file — `validateProductionConfig()` refuses the combination
+  unconditionally (`apps/api/src/config.ts:146-151`) and `pnpm env:check` errors
+  on it (`scripts/env-check.ts:168-170`). The override was decided and never
+  built; the decision's first sentence, which is the one that matters, is
+  enforced. Corrected here rather than deleted because the escape hatch was a
+  deliberate part of the decision, and its absence is a fact about the build
+  rather than about the reasoning.
 - **Consequences:** Production deploys cannot accidentally run with
   an in-process queue. The `queue` block in `/health` is the
   operator's primary detection signal.

@@ -127,7 +127,13 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRoutesDeps)
       const body = (req.body ?? {}) as Record<string, unknown>;
       const parsed = CreateAuditInputSchema.safeParse({
         repoUrl: `https://github.com/${owner}/${repo}`,
-        mode: body['mode'] ?? 'quick',
+        // `full`, matching `CreateAuditInputSchema`'s own default and the MCP
+        // tool. It said `quick` until 2026-10-09: R-37 moved every default to
+        // `full` and missed this call site, so the same re-audit reached over
+        // HTTP and over MCP asked for different reports, and the HTTP one was
+        // the cheaper — the paid tier not delivering what the listing sells.
+        // Every other field here already mirrors the schema.
+        mode: body['mode'] ?? 'full',
         target: body['target'] ?? 'open_source',
         outputLanguage: body['outputLanguage'] ?? 'en',
         includeLaunchCopy: body['includeLaunchCopy'] ?? true,
