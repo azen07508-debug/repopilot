@@ -1,7 +1,8 @@
 # RepoPilot — Makefile
 #
-# For users who prefer make to pnpm. The targets mirror the package.json
-# scripts exactly; this file is a thin convenience layer, not a replacement.
+# For users who prefer make to pnpm. The targets cover the common ones;
+# this file is a thin convenience layer, not a replacement. `package.json`
+# is the source of truth and the only complete list.
 #
 # Usage:
 #   make help

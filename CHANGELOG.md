@@ -867,6 +867,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.ts` script is compiled as CJS by tsx and `@repopilot/core`'s
   `exports` declares only an `import` condition
   (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
+- **`README.md` gained the sections a first-time reader was missing.** A
+  `Contents` block, a `What a verdict contains` section naming the fields
+  that actually decide the verdict (`scores` and its per-dimension
+  `breakdown`, the five finding buckets, `omittedSections`), a
+  `Use it from an MCP client` section with a working `mcpServers` block, a
+  `Requirements` line (Node 22 LTS, pnpm 11.x, no database server), and
+  CI / Docker / license badges. The `Scripts` table went from 11 rows to
+  the full root script list, and the `Documentation` table picked up the
+  five documents it was missing. Every `pnpm <script>` in the file is a
+  real root script — `pnpm docs:check` reads them.
 
 ### Changed
 
@@ -1438,6 +1448,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`README.md` asserted an LLM boundary that has not existed since R-38, and
+  listed a `core` subdirectory that is not there.** Two lines, both of them the
+  shape this repository keeps finding — a sentence that was true when it was
+  written, and no gate that reads it. The "Why RepoPilot" bullet said the LLM
+  boundary is "drawn so that even an enabled LLM may only rewrite natural
+  language — never a score, a priority or a piece of evidence". The provider
+  interface, the two prompt branches and the four `LLM_*` variables were deleted
+  in R-38, so there is no enabled LLM and nothing that could rewrite anything;
+  the "Known limitations" section three screens below already said exactly that,
+  which is how a document ends up contradicting itself — the correction landed in
+  one section and not the other. The project-layout block listed
+  `packages/core/` as `analyzers + scoring + report + security + schemas + llm`,
+  and `packages/core/src/llm` does not exist. Both are corrected to state the
+  absence: scores, priorities, evidence, the summary and the launch copy are
+  produced by deterministic rules and templates. The same sweep caught a third
+  claim of the same shape, this one in `Makefile`'s header and repeated in the
+  README: that the `make` targets "mirror the package.json scripts exactly".
+  There are sixteen of them against roughly thirty scripts, and no gate reads
+  either file, so both now say what is true — `package.json` is the source of
+  truth and the Makefile covers the common targets.
 - **`RISKS.md`'s prose was audited against the tree, and fourteen entries were
   describing something that is not there.** The status lines were the previous
   batch; this one went after the half a script cannot check. Every entry's

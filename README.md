@@ -1,5 +1,9 @@
 # RepoPilot
 
+[![CI](https://github.com/azen07508-debug/repopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/azen07508-debug/repopilot/actions/workflows/ci.yml)
+[![Docker](https://github.com/azen07508-debug/repopilot/actions/workflows/docker.yml/badge.svg)](https://github.com/azen07508-debug/repopilot/actions/workflows/docker.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **One repo in. A ship-or-block verdict out.**
 
 RepoPilot is a release gate for public GitHub repositories. Give it a repo
@@ -24,6 +28,19 @@ descriptions and points you at the right one.
 RepoPilot runs **static analysis only**. It does not execute the
 audited repository's code. It does not perform a formal security
 audit. It does not custody funds or read private keys.
+
+## Contents
+
+- [Why RepoPilot](#why-repopilot)
+- [What a verdict contains](#what-a-verdict-contains)
+- [Quick start](#quick-start)
+- [Use it from an MCP client](#use-it-from-an-mcp-client)
+- [Documentation](#documentation)
+- [Project layout](#project-layout)
+- [Scripts](#scripts)
+- [Tech stack](#tech-stack)
+- [Known limitations](#known-limitations)
+- [License](#license)
 
 ## Why RepoPilot
 
@@ -52,16 +69,48 @@ audit. It does not custody funds or read private keys.
   the default, the real `OkxPaymentAdapter` is opt-in. See
   [`docs/EXTERNAL_ACTIONS.md`](docs/EXTERNAL_ACTIONS.md) for the
   Beta gate.
-- **No execution, and no LLM in the scoring.** The pipeline reads text
-  only. Binary files are skipped, prompt-injection patterns are reported
-  as findings, and the LLM boundary is drawn so that even an enabled LLM
-  may only rewrite natural language — never a score, a priority or a piece
-  of evidence.
+- **No execution, and no LLM anywhere.** The pipeline reads text only.
+  Binary files are skipped and prompt-injection patterns are reported as
+  findings. Scores, priorities, evidence, the summary and the launch copy
+  are all produced by deterministic rules and templates — there is no
+  model in the path and no LLM configuration to set. The provider
+  interface that used to exist was removed in R-38, because nothing
+  consumed it.
+
+## What a verdict contains
+
+A gate returns one JSON document. The parts that decide the verdict:
+
+- **`scores`** — `overall` from 0 to 100, plus one score per dimension
+  (`documentation`, `reproducibility`, `securityHygiene`,
+  `deploymentReadiness`). Each dimension carries a `breakdown` naming the
+  rules that fired and the delta each one applied, so a score movement can
+  be attributed rule by rule rather than guessed at.
+- **Findings**, split by what they mean rather than by which analyzer
+  found them: `blockers`, `documentationGaps`, `securityFindings`,
+  `qualityFindings` (code hygiene — deliberately outside the score, because
+  a leftover TODO does not change launch readiness) and `fixtureFindings`
+  (real findings under test and fixture paths, kept separate because their
+  blast radius is smaller). Every one carries `path:line:reason`.
+- **The forward-looking sections** — `deploymentPlan`, `recommendedTasks`
+  and `launchChecklist`, plus `launchCopy` on `mode: 'full'`.
+- **`omittedSections`** — how you tell "this report has no deployment plan"
+  from "this tier does not include one". Absent and empty are different
+  claims; read this field, never `auditMode`.
+
+The verdict itself is the quality contract: `pass`, `pass_with_warnings` or
+`blocked`, with the fingerprint of each finding that blocks a release. Over
+MCP that is `quality_status`; over HTTP it is
+`GET /api/v1/audits/:jobId/quality`. Field-by-field reference:
+[docs/API.md](docs/API.md).
 
 ## Quick start
 
+**Requirements:** Node.js 22 LTS and pnpm 11.x. No database server — SQLite
+is the default, and Postgres is opt-in.
+
 ```bash
-git clone <repo>
+git clone https://github.com/azen07508-debug/repopilot.git
 cd repopilot
 pnpm install
 cp .env.example .env
@@ -71,6 +120,8 @@ pnpm --filter @repopilot/api start
 # API on http://localhost:4000
 # Web on http://localhost:5173 (run pnpm --filter @repopilot/web dev in another shell)
 ```
+
+Or run both apps at once with `pnpm dev`.
 
 Or with Docker — the API image. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has the
 production path (`PAYMENT_MODE=okx`, Postgres, `pg-boss`):
@@ -133,10 +184,41 @@ curl -X POST http://localhost:4000/api/v1/repositories/octocat/Hello-World/reaud
 curl "http://localhost:4000/api/v1/audits/<newJobId>/diff?base=<jobId>"
 ```
 
+## Use it from an MCP client
+
+The MCP server runs the analysis **in-process** — it does not call the HTTP
+API, and the API does not need to be running. Point a client at the built
+CLI, and give it a GitHub token: anonymous access is capped at 60
+requests/hour, which is not enough for a gate.
+
+```json
+{
+  "mcpServers": {
+    "repopilot": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/repopilot/packages/mcp-server/dist/cli.js"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "ghp_...",
+        "PAYMENT_MODE": "mock"
+      }
+    }
+  }
+}
+```
+
+`PAYMENT_MODE=mock` auto-settles so an agent gets a result without a
+settlement step; `okx` returns a challenge the caller settles. Per-client
+recipes (Claude Code, Codex, OpenClaw, generic stdio), the full environment
+list and the tool reference are in
+[docs/MCP_CLIENT_SETUP.md](docs/MCP_CLIENT_SETUP.md).
+
 ## Documentation
 
 | Doc                                                  | What's in it                                          |
 |------------------------------------------------------|-------------------------------------------------------|
+| [docs/INDEX.md](docs/INDEX.md)                       | Every document, grouped by role — start here          |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)         | Layering, data flow, evidence rules                   |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)             | Docker, nginx, Caddy, Railway, Render, VPS            |
 | [docs/SECURITY.md](docs/SECURITY.md)                 | Threat model, mitigations, redaction                  |
@@ -145,7 +227,10 @@ curl "http://localhost:4000/api/v1/audits/<newJobId>/diff?base=<jobId>"
 | [docs/REPOSITORY_INTELLIGENCE_PLAN.md](docs/REPOSITORY_INTELLIGENCE_PLAN.md) | Repository intelligence roadmap |
 | [docs/EXTERNAL_ACTIONS.md](docs/EXTERNAL_ACTIONS.md) | The only place that lists what a human must do        |
 | [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Pre-tag checklist                                    |
+| [docs/OKX_LIVE_INTEGRATION.md](docs/OKX_LIVE_INTEGRATION.md) | Which OKX CLI steps are ready, which need you |
+| [docs/OKX_REQUIREMENTS_SNAPSHOT.md](docs/OKX_REQUIREMENTS_SNAPSHOT.md) | The OKX.AI requirements, captured before GA |
 | [docs/HERO_IMAGE_BRIEF.md](docs/HERO_IMAGE_BRIEF.md) | Marketplace hero spec                                 |
+| [docs/AVATAR_BRIEF.md](docs/AVATAR_BRIEF.md)         | Marketplace avatar spec                               |
 | [README_OKX.md](README_OKX.md)                       | OKX.AI / Agent Payments Protocol integration          |
 | [MARKETPLACE_LISTING.md](MARKETPLACE_LISTING.md)     | EN + CN marketplace copy                              |
 
@@ -168,7 +253,7 @@ repopilot/
     api/      Fastify HTTP API
     web/      React + Vite admin UI
   packages/
-    core/        analyzers + scoring + report + security + schemas + llm
+    core/        analyzers + scoring + report + security + schemas
                  + fixplan (report -> fix plan) + diff (report -> diff)
     mcp-server/  MCP server (stdio)
     okx-adapter/ PaymentAdapter interface, mock + OKX implementations
@@ -183,23 +268,42 @@ diagram.
 
 ## Scripts
 
+The gates are the point of this repository, so the list is worth reading
+rather than skimming. `package.json` is the source of truth; the Makefile
+covers the common ones for people who prefer `make`.
+
 | Command                     | What it does                                              |
 |-----------------------------|-----------------------------------------------------------|
 | `pnpm install`              | Install all workspace deps                                |
-| `pnpm -r typecheck`         | `tsc --noEmit` in every package                           |
-| `pnpm -r test`              | All unit + integration tests                              |
-| `pnpm lint`                 | tsc + custom static rules                                 |
+| `pnpm dev`                  | Run the API and the web app together                      |
+| `pnpm dev:worker`           | Run the worker on its own (the split production shape)    |
 | `pnpm build`                | All packages and apps                                     |
+| `pnpm typecheck`            | `tsc --noEmit` in every workspace, plus `scripts/`        |
+| `pnpm test`                 | All unit + integration tests                              |
+| `pnpm lint`                 | tsc + custom static rules                                 |
+| `pnpm start`                | Start the API server                                      |
+| `pnpm mcp`                  | Start the MCP server over stdio                           |
+| `pnpm db:migrate`           | Apply DB migrations (SQLite + Postgres)                   |
+| `pnpm db:seed`              | Seed one example audit job, for the admin UI              |
 | `pnpm env:check`            | Validate env (no secret values printed)                   |
+| `pnpm docs:check`           | Recompute the facts the docs state, and fail on divergence|
+| `pnpm docs:facts`           | Rewrite the generated doc blocks in place                 |
 | `pnpm docker:check`         | Static Docker check (or full build if Docker is present)  |
 | `pnpm compose:check`        | Static docker-compose review                              |
-| `pnpm docs:check`           | Recompute the facts the docs state, and fail on divergence|
+| `pnpm test:baseline`        | Check the documented test totals against a real run       |
 | `pnpm preflight:production` | Pre-registration self-check: production config + assets   |
 | `pnpm verify:release`       | End-to-end smoke (env → lint → test → build → API → MCP)  |
-| `pnpm db:migrate`           | Apply DB migrations (SQLite + Postgres)                   |
-| `pnpm mcp`                  | Start the MCP server over stdio                           |
-| `pnpm start`                | Start the API server                                      |
-| `make help`                 | See all targets (Makefile mirrors the above)              |
+| `pnpm audit:diff`           | Re-run the four reference audits and diff against baseline|
+| `pnpm intelligence:smoke`   | Exercise the four repository-intelligence tools for real  |
+| `pnpm probe:child-wait`     | Probe the shared child-process wait's failure branches    |
+| `pnpm clean`                | Remove `dist`, `node_modules` and `.turbo`                |
+| `make help`                 | `make` aliases for the common targets above               |
+
+`pnpm docs:check` is the one that most often fails a change: it recomputes
+the counts the documentation states — workspaces, fixtures, MCP tools,
+compose services, prices, citations — and exits non-zero when a document
+and the code disagree. When it fails, run `pnpm docs:facts` and read the
+diff rather than editing the number by hand.
 
 ## Tech stack
 
@@ -247,4 +351,3 @@ diagram.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
